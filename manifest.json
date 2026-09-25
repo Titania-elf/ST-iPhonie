@@ -1,0 +1,16 @@
+{
+  "display_name": "ST-TTS · 角色对白",
+  "version": "0.1.1",
+  "author": "ST-TTS contributors",
+  "js": "index.js",
+  "css": "style.css",
+  "loading_order": 50,
+  "minimum_client_version": "1.19.0",
+  "auto_update": false,
+  "hooks": {
+    "enable": "enable",
+    "disable": "disable",
+    "delete": "dispose"
+  },
+  "homePage": "https://github.com/hey8v0/ST-TTS"
+}
