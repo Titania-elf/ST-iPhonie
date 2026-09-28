@@ -9,7 +9,7 @@ const engines = {
 };
 Object.entries(TTSParameters.catalogs).forEach(([key,c])=>engines[key].models=c.models);
 const languages = { zh:'中文', ja:'日语', en:'英语', ko:'韩语', fr:'法语', de:'德语', es:'西班牙语', it:'意大利语', ru:'俄语', pt:'葡萄牙语' };
-const originalPrompt = '正常续写正文与叙事，不要改变角色人设或写作风格。\n\n凡是角色真正说出口、需要朗读的台词，请完整照抄成 {{格式}}；标签前引号内的 {译文} 必须是自然中文，供读者查看；标签内的 {文本} 必须保留角色实际说话的原语言，供 TTS 生成。两者语义必须一致且都要保留。旁白、动作、环境和心理描写继续写成普通正文。\n\n格式中的角色、情绪和文本都必须填写，台词语言遵循：{{语言}}。\n\n不要解释这条规则，不要输出代码块，也不要为没有说出口的内容生成语音标签。';
+const originalPrompt = ST_TTS_HOST.defaultPrompt;
 const defaultFormat = '“{译文}”<tts role="{角色}" emotion="{情绪}">{文本}</tts>';
 let state=ST_TTS_HOST.getState();
 const defaultConnections={fish:{format:'mp3'},mini:{region:'cn',format:'mp3'},eleven:{format:'mp3_44100_128'}};
@@ -88,9 +88,9 @@ function updatePreview(){
   let output=p.format; Object.entries(mapping).forEach(([key,value])=>output=output.split(key).join(value));
   $('#format-preview').textContent=output;$('#injection-plan').innerHTML=injectionPlan(p).map(item=>`<div class="injection-preview-item"><strong>${escapeHtml(item.title)}</strong><span>${injectionPositions[item.position]}${item.depth===null?'':' · 深度 '+item.depth} · ${injectionRoles[item.role]}</span></div>`).join('');
   const languageText=languageRules();
-  $('#injection-preview').textContent=p.prompt.replaceAll('{{格式}}',p.format).replaceAll('{{语言}}',languageText);
+  try{$('#injection-preview').textContent=ST_TTS_HOST.previewPrompt(p);}catch(e){$('#injection-preview').textContent=e.message;}
 }
-function renderChat(){latest=ST_TTS_HOST.latest();$('#dialogue').innerHTML=latest.lines.length?latest.lines.map((line,i)=>`<article class="line"><div class="line-top"><span>${escapeHtml(line.role)}</span><span>${escapeHtml(line.emotion)}</span></div><div class="line-body"><p>“${escapeHtml(line.translation)}”</p><button class="line-play" data-real-play="${i}" aria-label="播放台词"><span class="play-icon"></span></button></div><details><summary>原文</summary><p>${escapeHtml(line.text)}</p></details></article>`).join(''):'<p class="narration">当前聊天还没有可朗读的台词。</p>';$('#player-count').textContent=latest.lines.length+' 句';$('#play-all').disabled=!latest.lines.length;}
+function renderChat(){latest=ST_TTS_HOST.latest();$('#dialogue').innerHTML=latest.lines.length?latest.lines.map((line,i)=>`<article class="line"><div class="line-top"><span>${escapeHtml(line.role)}</span><span>${escapeHtml(line.emotion)}</span></div><div class="line-body"><p>“${escapeHtml(line.translation)}”</p><button class="line-play" data-real-play="${i}" aria-label="播放台词"><span class="play-icon"></span></button></div></article>`).join(''):'<p class="narration">当前聊天还没有可朗读的台词。</p>';$('#player-count').textContent=latest.lines.length+' 句';$('#play-all').disabled=!latest.lines.length;}
 function stopPlayback(){ST_TTS_HOST.stop();}
 function openRole(id){if($('#chat-drawer').open)$('#chat-drawer').close();state.selected=id;tab='roles';$('.workspace').classList.add('mobile-edit');render();}
 function openName(action){modalAction=action;$('#name-title').textContent=action==='role'?'新增角色':action==='new-preset'?'新增预设':'另存预设';$('#new-name').value='';$('#name-error').textContent='';$('#name-dialog').showModal();$('#new-name').focus();}
@@ -159,7 +159,7 @@ window.stTtsUpdate=value=>{phase=value.phase;$('#stop').disabled=['idle','error'
 window.stTtsOpenRole=id=>{state=ST_TTS_HOST.getState();for(const key of drafts.keys())if(!state.routes.some(r=>r.id===key))drafts.delete(key);openRole(id);};
 
 Object.assign(helps,{
- 'floating':['悬浮播放器','拖动圆球选择位置，松手后吸附到左右边缘，闲置时收成一小条。点击直接打开插件设置。整条播放、暂停和停止位于插件入口与「听见这一刻」。音波跟随实际音频；关闭动效或开启系统减少动态效果后保持静态。关闭悬浮播放器不影响聊天里的播放按钮。'],
+ 'floating':['悬浮播放器','拖动圆球选择位置，松手后吸附到左右边缘，闲置时收成一小条。点边条先展开为球，再点球打开插件设置。整条播放、暂停和停止位于插件入口与「听见这一刻」。音波跟随实际音频；关闭动效或开启系统减少动态效果后保持静态。关闭悬浮播放器不影响聊天里的播放按钮。'],
  'cache-settings':['语音缓存','音频保存在这台设备的浏览器中，最多约 200 MB，按保存时间清理旧段。关闭复用不会删除现有缓存；手动清理会停止当前播放。账户和浏览器不同，缓存互不共用。'],
  'key':['引擎密钥','密钥保存在当前浏览器的本地存储中（未加密），按酒馆账户隔离，刷新后自动恢复。清理浏览器数据或换浏览器后需重新填写。可用「清除密钥」移除，不进入提示词或预设。点击播放会把台词与声音设置发送给对应引擎，并可能消耗账户额度。'],
  'chat':['聊天播放','点击一句或整条播放。遇到未配音角色，选好音色并保存后继续。此处显示当前聊天最新一条带语音标签的回复。'],

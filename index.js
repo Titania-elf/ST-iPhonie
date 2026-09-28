@@ -1,7 +1,7 @@
 import { switchRouteEngine,removeRoute } from './core/routes.js';
 import { LocalKeyStore } from './core/keys.js';
 import { normalizeSettings,validateSettings,modelRules,NAMESPACE } from './core/state.js';
-import { parseDialogue,renderDialogue,promptPlan,validatePreset,isPlaceholderRole } from './core/protocol.js';
+import { parseDialogue,renderDialogue,promptPlan,validatePreset,isPlaceholderRole,DEFAULT_PROMPT } from './core/protocol.js';
 import { Providers } from './core/providers.js';
 import { AudioCache } from './core/cache.js';
 import { DialoguePlayer } from './core/player.js';
@@ -31,7 +31,7 @@ function unknown(name){if(isPlaceholderRole(name)){player.stop('请在台词中�
 function openPanel(roleId){floating?.setMode('docked');if(!panel){panel=document.createElement('dialog');panel.id='sttts-panel';panel.setAttribute('aria-label','ST-TTS 设置');frame=document.createElement('iframe');frame.title='角色对白设置';frame.src=new URL('ui/index.html',base).href;panel.append(frame);panel.addEventListener('cancel',()=>{if(['playing','generating'].includes(player.phase))player.toggle();});document.body.append(panel);}if(!panel.open)panel.showModal();if(roleId)frame.contentWindow?.stTtsOpenRole?.(roleId);}
 async function fileReference(file){if(!file||file.size>20*1024*1024||file.size===0)throw Error('参考音频需为 0–20 MB 的文件');const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));const id=crypto.randomUUID()+':'+file.name;providers.references.set(id,btoa(binary));return id;}
 function connect(source){if(!active||source!==frame?.contentWindow)throw Error('设置页面未连接');return Object.freeze({
- getState:()=>structuredClone(settings),save:next=>persist({...next,floating:settings.floating}),validatePreset:p=>{try{validatePreset(p);return '';}catch(e){return e.message;}},
+ defaultPrompt:DEFAULT_PROMPT,previewPrompt:p=>{const draft={...settings,activePreset:p.id,presets:[p]};return promptPlan(draft,modelRules(draft)).map(entry=>entry.text).join('\n\n');},getState:()=>structuredClone(settings),save:next=>persist({...next,floating:settings.floating}),validatePreset:p=>{try{validatePreset(p);return '';}catch(e){return e.message;}},
  keyStatus:engine=>providers.keys.has(engine),setKey:(engine,key)=>{if(!String(key).trim())throw Error('请填写密钥，或使用清除密钥');const saved=keyStore.save(engine,key);providers.setKey(engine,saved);},clearKey:engine=>{keyStore.save(engine,'');providers.setKey(engine,'');},reference:fileReference,
  switchRouteEngine,validRoleName:name=>!!String(name).trim()&&!isPlaceholderRole(name),deleteRoute:id=>{const route=settings.routes.find(r=>r.id===id);if(route&&(player.pending===route.name||player.queue.some(line=>line.role===route.name)))player.stop('角色配音已删除');return persist(removeRoute(settings,id));},
  voices:(engine,c,query)=>providers.voices(engine,c,query),cacheStats:()=>cache.stats(),
