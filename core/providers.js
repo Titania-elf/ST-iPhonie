@@ -1,3 +1,4 @@
+import { validateKey } from './keys.js';
 import { TTSParameters as P } from './parameters.js';
 const names={fish:'Fish Audio',mini:'MiniMax',eleven:'ElevenLabs'};
 export const miniBase=c=>'https://'+(c.region==='cn'?'api.minimaxi.com':c.region==='uw'?'api-uw.minimax.io':'api.minimax.io');
@@ -28,7 +29,7 @@ export async function decodeMini(response,request,fetcher,signal){
 }
 export class Providers{
  constructor(fetcher=globalThis.fetch.bind(globalThis)){this.fetcher=fetcher;this.keys=new Map();this.references=new Map();}
- setKey(engine,key){if(!names[engine])throw Error('引擎无效');key=String(key).trim();if(key.length>4096||/[\r\n]/.test(key))throw Error('密钥格式无效');if(key)this.keys.set(engine,key);else this.keys.delete(engine);}
+ setKey(engine,key){key=validateKey(engine,key);if(key)this.keys.set(engine,key);else this.keys.delete(engine);}
  headers(engine){const key=this.keys.get(engine);if(!key)throw Error('请先填写 '+names[engine]+' 的 API Key');return engine==='eleven'?{'xi-api-key':key}:{Authorization:'Bearer '+key};}
  async fetch(url,init,signal){try{return await this.fetcher(url,{...init,credentials:'omit',redirect:'error',referrerPolicy:'no-referrer',signal:signal?AbortSignal.any([signal,AbortSignal.timeout(120000)]):AbortSignal.timeout(20000)});}catch(e){if(signal?.aborted)throw new DOMException('已停止','AbortError');if(e.name==='TimeoutError')throw Error('请求超时，请稍后手动重试');throw Error('无法连接语音服务，请检查网络或浏览器跨域限制');}}
  async synthesize(request,signal){const response=await this.fetch(request.url,{method:'POST',headers:{...this.headers(request.engine),'Content-Type':'application/json'},body:JSON.stringify(request.body)},signal);if(!response.ok)throw Error(names[request.engine]+'：HTTP '+response.status+(response.status===401?'，请检查密钥':response.status===429?'，请检查额度或稍后重试':''));if(request.engine==='mini')return decodeMini(response,request,this.fetcher,signal);if(response.headers.get('Content-Type')?.includes('json'))throw Error(names[request.engine]+' 未返回音频');return audioBlob(await limitedBytes(response),request);}

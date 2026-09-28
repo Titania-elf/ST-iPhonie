@@ -27,7 +27,7 @@ const voiceLists={fish:[],mini:[],eleven:[]};
 const helps = {
   'default-language':['默认台词语言','供选择“跟随默认”的角色使用，新角色默认跟随。角色单独选过的语言保持不变。影响后续生成的语言规则，不会翻译已有台词；中文译文继续保留。实际可朗读语言由角色的引擎与模型决定。'],
   'appearance':['界面外观','默认跟随设备的日夜模式，也可以固定为日间或夜间。'],
-  global:['全局角色配音','同一个角色名在不同聊天和角色卡中共用配音配置。提示词预设单独保存，切换预设不会改变这里的音色和语言。'],
+  global:['全局角色配音','同一个角色名在不同聊天和角色卡中共用配音配置。每个角色分别记住各引擎的音色和模型，切回来会恢复；更改后点击保存配音。提示词预设单独保存，切换预设不会改变这里的音色和语言。'],
   capabilities:['表达能力','这里展示各引擎的表达标签样例。发送时按角色选用的引擎与模型附加规则，由模型为每句台词选择情绪。实际支持范围将在正式接入时逐模型核验。'],
   variables:['提示词变量','{{格式}}：当前保存的台词格式。\n{{语言}}：各角色设置的语言规则。\n格式中需保留 {译文}、{角色}、{情绪}、{文本} 四个字段。'],
   injection:['插入深度与消息身份','聊天内插入时，深度 0 在最新消息之后，数值越大越靠前。系统、用户、助手是发送给模型的消息身份，不是台词说话者。主提示词前后位置不按聊天深度定位。\n条目默认沿用预设设置，也可分别设置位置与身份。实际后端可能合并系统消息，待酒馆接入验证。'],
@@ -41,7 +41,7 @@ function toast(message) { clearTimeout(toastTimer); $('#toast').textContent=mess
 const effectiveLanguage = role => role.language || state.general.defaultLanguage;
 const languageRules = () => '默认台词语言：'+languages[state.general.defaultLanguage]+'；'+state.routes.map(r=>`${r.name}：${languages[effectiveLanguage(r)]}`).join('；');
 const getRoute = id => state.routes.find(r=>r.id===id);
-function draft(id=state.selected) { if(!drafts.has(id)) drafts.set(id,{...getRoute(id)}); return drafts.get(id); }
+function draft(id=state.selected) { if(!drafts.has(id)) drafts.set(id,structuredClone(getRoute(id))); return drafts.get(id); }
 function presetDraft() { if(!presetDrafts.has(state.activePreset)) presetDrafts.set(state.activePreset,structuredClone(state.presets.find(p=>p.id===state.activePreset))); return presetDrafts.get(state.activePreset); }
 function applyTheme(){ const dark=state.theme==='dark'||(state.theme==='system'&&matchMedia('(prefers-color-scheme: dark)').matches); document.documentElement.dataset.theme=dark?'dark':'light'; if($('#theme'))$('#theme').value=state.theme; }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applyTheme);
@@ -70,7 +70,7 @@ function rolesPage(){
   <label class="field voice-field"><span>音色 ID</span><input id="role-voice" value="${escapeHtml(r.voice||'')}" list="voice-options" autocomplete="off"><datalist id="voice-options">${voiceLists[r.engine].map(v=>`<option value="${escapeHtml(v.id)}">${escapeHtml(v.name)}</option>`).join('')}</datalist></label><div class="voice-tools"><input id="voice-search" placeholder="搜索音色" aria-label="搜索音色"><button type="button" class="ghost" id="load-voices">读取音色</button><button type="button" class="text-button" id="more-voices" ${voiceCursor[r.engine]?.more?'':'hidden'}>下一页</button></div>
   <label class="field"><span>台词语言 ${info('language','台词语言说明')}</span><select id="role-language"><option value="" ${!r.language?'selected':''}>跟随默认 · ${languages[state.general.defaultLanguage]}</option>${Object.entries(languages).map(([key,label])=>`<option value="${key}" ${key===r.language?'selected':''}>${label}</option>`).join('')}</select></label>
   <div class="capability-label"><span class="field-label">表达能力</span>${info('capabilities','表达能力说明')}</div><div class="tags">${TTSParameters.tags(r.engine,r.model||state.connections[r.engine].model).map(tag=>`<span class="tag">${tag}</span>`).join('')}</div>
-  <div class="editor-footer"><button type="button" class="ghost" id="audition"><span class="play-icon"></span>试听</button><button type="submit" class="primary">${waiting?'保存并继续':'保存配音'}</button></div></form></section></div>`;
+  <div class="editor-footer"><button type="button" class="text-button" id="delete-role">删除角色</button><button type="button" class="ghost" id="audition"><span class="play-icon"></span>试听</button><button type="submit" class="primary">${waiting?'保存并继续':'保存配音'}</button></div></form></section></div>`;
 }
 function combinedPrompt(p){return p.entries.filter(e=>e.enabled).map(e=>e.text.trim()).filter(Boolean).join('\n\n');}
 function syncPreset(){const p=presetDraft();const placement=$('.preset-injection > summary > span');if(placement)placement.textContent=p.injection.position==='in_chat'?injectionRoles[p.injection.role]+' · 深度 '+p.injection.depth:injectionPositions[p.injection.position];p.prompt=combinedPrompt(p);$('#preset-state').textContent='未保存';$('#preset-error').textContent='';updatePreview();}
@@ -101,8 +101,10 @@ document.addEventListener('click',async event=>{
   if(button.dataset.tab){tab=button.dataset.tab;$('.workspace').classList.remove('mobile-edit');render();}
   if(button.dataset.role)openRole(button.dataset.role);
   if(button.id==='back-roles')$('.workspace').classList.remove('mobile-edit');
-  if(button.dataset.selectEngine){const r=draft();if(r.engine!==button.dataset.selectEngine){r.engine=button.dataset.selectEngine;r.model='';r.voice='';render();}}
+  if(button.dataset.selectEngine){const r=draft();if(r.engine!==button.dataset.selectEngine){r.voice=$('#role-voice').value.trim();r.model=$('#role-model').value;r.language=$('#role-language').value;drafts.set(r.id,ST_TTS_HOST.switchRouteEngine(r,button.dataset.selectEngine));render();}}
   if(button.id==='add-role')openName('role');
+  if(button.id==='delete-role'){const r=draft();$('#delete-role-dialog').dataset.roleId=r.id;$('#delete-role-name').textContent=r.name;$('#delete-role-dialog').showModal();}
+  if(button.id==='confirm-delete-role'){const id=$('#delete-role-dialog').dataset.roleId;state=ST_TTS_HOST.deleteRoute(id);drafts.delete(id);$('#delete-role-dialog').close();render();toast('角色配音已删除');}
   if(button.id==='save-as')openName('preset');
   if(button.id==='new-preset')openName('new-preset');
   if(button.id==='add-entry'){const p=presetDraft();const id='entry-'+crypto.randomUUID();p.entries.push({id,title:'新条目',text:'',enabled:true});p.openEntry=id;render();syncPreset();document.querySelector('[data-entry-title="'+id+'"]').focus();}
@@ -116,7 +118,8 @@ document.addEventListener('click',async event=>{
   if(button.id==='stop')ST_TTS_HOST.stop();
   if(button.id==='clear-cache'){await ST_TTS_HOST.clearCache();await updateCacheSummary();toast('语音缓存已清理');}
   if(button.id==='audition'){draft().voice=$('#role-voice').value.trim();if(!hasVoice(draft())){$('#role-voice').reportValidity();return;}ST_TTS_HOST.audition(draft());toast('正在准备试听');}
-  if(button.dataset.saveKey){const input=$('#engine-key');try{ST_TTS_HOST.setKey(selectedEngine,input.value);input.value='';input.placeholder=ST_TTS_HOST.keyStatus(selectedEngine)?'当前页面已填写':'尚未填写';toast('密钥已更新');}catch(e){toast(e.message);}}
+  if(button.dataset.clearKey){try{ST_TTS_HOST.clearKey(selectedEngine);$('#engine-key').value='';$('#engine-key').placeholder='尚未填写';toast('密钥已清除');}catch(e){toast(e.message);}}
+  if(button.dataset.saveKey){const input=$('#engine-key');try{ST_TTS_HOST.setKey(selectedEngine,input.value);input.value='';input.placeholder=ST_TTS_HOST.keyStatus(selectedEngine)?'已保存在此浏览器':'尚未填写';toast('密钥已保存');}catch(e){toast(e.message);}}
   if(button.dataset.check){button.disabled=true;try{const result=await ST_TTS_HOST.voices(selectedEngine,connectionDraft(selectedEngine));checked.add(selectedEngine);toast(result.note);if(tab==='engines')render();}catch(e){toast(e.message);button.disabled=false;}}
   if(button.id==='load-voices'||button.id==='more-voices'){const r=draft(),more=button.id==='more-voices';button.disabled=true;try{const cursor=more?voiceCursor[r.engine]:null;const query={search:$('#voice-search').value,page:more?(cursor?.page||0)+1:0,token:cursor?.token||''};const result=await ST_TTS_HOST.voices(r.engine,state.connections[r.engine],query);voiceLists[r.engine]=more?[...voiceLists[r.engine],...result.voices]:result.voices;voiceCursor[r.engine]={...result,page:query.page};render();toast(result.note);}catch(e){toast(e.message);button.disabled=false;}}
   if(button.dataset.reveal){const input=button.parentElement.querySelector('input');input.type=input.type==='password'?'text':'password';button.textContent=input.type==='password'?'显示':'隐藏';button.setAttribute('aria-label',`${button.textContent} ${engines[button.dataset.reveal].name} 密钥`);}
@@ -132,7 +135,7 @@ document.addEventListener('change',event=>{
   if(event.target.dataset.connectionField){const c=connectionDraft(selectedEngine);c[event.target.dataset.connectionField]=event.target.value;TTSParameters.normalize(selectedEngine,c);redrawSettings();}
   if(event.target.id==='preset-select'){state.activePreset=event.target.value;persist();render();}
 });
-document.addEventListener('input',event=>{const t=event.target;if(t.id==='preset-format'){presetDraft().format=t.value;syncPreset();}if(t.dataset.entryTitle||t.dataset.entryText){const p=presetDraft(),entry=p.entries.find(e=>e.id===(t.dataset.entryTitle||t.dataset.entryText));if(t.dataset.entryTitle){entry.title=t.value;t.closest('details').querySelector('summary').textContent=t.value||'未命名条目';}else entry.text=t.value;syncPreset();}});
+document.addEventListener('input',event=>{const t=event.target;if(t.id==='role-voice'){draft().voice=t.value;$('#route-state').textContent='未保存';}if(t.id==='preset-format'){presetDraft().format=t.value;syncPreset();}if(t.dataset.entryTitle||t.dataset.entryText){const p=presetDraft(),entry=p.entries.find(e=>e.id===(t.dataset.entryTitle||t.dataset.entryText));if(t.dataset.entryTitle){entry.title=t.value;t.closest('details').querySelector('summary').textContent=t.value||'未命名条目';}else entry.text=t.value;syncPreset();}});
 function validatePreset(p){return ST_TTS_HOST.validatePreset(p);}
 document.addEventListener('submit',event=>{
   if(event.target.id==='role-form'){event.preventDefault();const r=draft();r.voice=$('#role-voice').value;r.language=$('#role-language').value;r.model=$('#role-model').value;if(!hasVoice(r))return;const resume=ST_TTS_HOST.pendingRole()===r.name;state.routes=state.routes.map(role=>role.id===r.id?{...r}:role);persist();if(resume){render();$('#chat-drawer').showModal();ST_TTS_HOST.resume();toast('配音已保存，继续播放');}else{if(phase!=='idle')stopPlayback('配音已更新');render();toast('配音已保存');}}
@@ -142,6 +145,7 @@ document.addEventListener('submit',event=>{
 $('#name-form').addEventListener('submit',event=>{
   event.preventDefault();const name=$('#new-name').value.trim();if(!name){$('#name-error').textContent='请输入名称';return;}
   const items=modalAction==='role'?state.routes:state.presets;if(items.some(item=>item.name===name)){$('#name-error').textContent='这个名称已存在';return;}
+  if(modalAction==='role'&&!ST_TTS_HOST.validRoleName(name)){$('#name-error').textContent='请填写实际角色名';return;}
   if(modalAction==='role'){const id='role-'+Date.now();state.routes.push({id,name,engine:'fish',voice:'',language:''});state.selected=id;drafts.delete(id);tab='roles';$('.workspace').classList.add('mobile-edit');}
   else{const p=modalAction==='new-preset'?{injection:{...injectionDefaults},entries:[{id:'entry-'+crypto.randomUUID(),title:'台词生成规则',text:originalPrompt,enabled:true}],format:defaultFormat}:presetDraft();const error=validatePreset(p);if(error){$('#name-error').textContent=error;return;}const id='preset-'+crypto.randomUUID();state.presets.push({...savedPreset(p),id,name});state.activePreset=id;}
   persist();$('#name-dialog').close();render();toast(modalAction==='role'?'角色已添加':modalAction==='new-preset'?'预设已新增':'预设已另存');
@@ -152,12 +156,12 @@ $('#close-chat').addEventListener('click',()=>{pauseChat();$('#chat-drawer').clo
 $('#chat-drawer').addEventListener('cancel',pauseChat);
 $('#close-settings').addEventListener('click',()=>ST_TTS_HOST.close());
 window.stTtsUpdate=value=>{phase=value.phase;$('#stop').disabled=['idle','error'].includes(phase);$('#progress-fill').style.width=value.total?Math.round(value.index/value.total*100)+'%':'0%';renderChat();$('#player-status').textContent=value.message;$('#play-all').textContent=['playing','generating'].includes(phase)?'暂停':phase==='paused'?'继续播放':'整条播放';updateCacheSummary();if(phase==='error')toast(value.message);};
-window.stTtsOpenRole=id=>{state=ST_TTS_HOST.getState();drafts.clear();openRole(id);};
+window.stTtsOpenRole=id=>{state=ST_TTS_HOST.getState();for(const key of drafts.keys())if(!state.routes.some(r=>r.id===key))drafts.delete(key);openRole(id);};
 
 Object.assign(helps,{
  'floating':['悬浮播放器','拖动圆球选择位置，松手后吸附到左右边缘，闲置时收成一小条。点击直接打开插件设置。整条播放、暂停和停止位于插件入口与「听见这一刻」。音波跟随实际音频；关闭动效或开启系统减少动态效果后保持静态。关闭悬浮播放器不影响聊天里的播放按钮。'],
  'cache-settings':['语音缓存','音频保存在这台设备的浏览器中，最多约 200 MB，按保存时间清理旧段。关闭复用不会删除现有缓存；手动清理会停止当前播放。账户和浏览器不同，缓存互不共用。'],
- 'key':['引擎密钥','密钥仅留在当前页面内存，刷新后需重新填写。点击播放会把台词与声音设置发送给对应引擎，并可能消耗账户额度。'],
+ 'key':['引擎密钥','密钥保存在当前浏览器的本地存储中（未加密），按酒馆账户隔离，刷新后自动恢复。清理浏览器数据或换浏览器后需重新填写。可用「清除密钥」移除，不进入提示词或预设。点击播放会把台词与声音设置发送给对应引擎，并可能消耗账户额度。'],
  'chat':['聊天播放','点击一句或整条播放。遇到未配音角色，选好音色并保存后继续。此处显示当前聊天最新一条带语音标签的回复。'],
  'preview':['台词格式','四个字段各出现一次，字段之间和首尾都需要固定分隔符。字段中的分隔文字使用 HTML 实体转义。'],
  'capabilities':['表达能力','提示词按角色引擎与模型附加规则。模型表达效果还取决于音色和台词内容。MiniMax 的 fluent、whisper 使用 2.6 系列；语气词标签使用 2.8 系列。'],
