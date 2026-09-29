@@ -138,12 +138,14 @@ export function readSubscription(data = {}) {
   return {tier, active, unlimited, usage, anlas, checkedAt: Date.now()};
 }
 
+/** Readable error with the HTTP status kept on it (the queue retries 429). */
 function failure(status, text) {
-  if (status === 401) return Error('NovelAI 密钥无效或已过期，请在引擎卡包里重新填写');
-  if (status === 402) return Error('Anlas 不足，或当前订阅不支持这次生成');
-  if (status === 429) return Error('NovelAI 正在处理上一张图，请稍后再试');
-  if (status === 400) return Error('NovelAI 拒绝了这次请求：' + (text || '参数无效').slice(0, 160));
-  return Error(`NovelAI 暂时不可用（${status}）`);
+  const message = status === 401 ? 'NovelAI 密钥无效或已过期，请在引擎卡包里重新填写'
+    : status === 402 ? 'Anlas 不足，或当前订阅不支持这次生成'
+    : status === 429 ? 'NovelAI 账号正忙（可能有人在用同一个账号出图），重试几次后仍然没空，已停下'
+    : status === 400 ? 'NovelAI 拒绝了这次请求：' + (text || '参数无效').slice(0, 160)
+    : `NovelAI 暂时不可用（${status}）`;
+  return Object.assign(Error(message), {status});
 }
 
 export class NovelAIClient {

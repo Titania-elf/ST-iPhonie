@@ -45,7 +45,7 @@ export function settingsApp(ctx) {
           <div class="field"><div class="meter-label"><span>播放音量</span><output>${Math.round(phone.volume * 100)}%</output></div><input class="slider" type="range" data-field="volume" min="0" max="100" value="${Math.round(phone.volume * 100)}" aria-label="播放音量"></div>
         </div>`
       + groupTitle('绘图')
-      + `<div class="group">${toggle('drawEnabled', '正文出图', s.draw.enabled, '开启后，绘图预设会加进聊天请求，让模型在正文里写出图标签。')}${toggle('drawAuto', '新回复自动出图', s.draw.auto, '只在免费档内自动画；超出免费档或读不到订阅时，正文里显示“点击生成”。')}${toggle('drawGuard', '免费档守卫', s.draw.guard, '步数不超过 28、尺寸不超过 1024×1024，不会发出扣 Anlas 的请求。')}</div>`
+      + `<div class="group">${toggle('drawEnabled', '正文出图', s.draw.enabled, '开启后，绘图预设会加进聊天请求，让模型在正文里写出图标签。')}${toggle('drawAuto', '新回复自动出图', s.draw.auto, '只在免费档内自动画；超出免费档或读不到订阅时，正文里显示“点击生成”。')}${toggle('drawFold', '正文图片默认收起', s.draw.fold, '正文里只留一个小缩略图，点开再看。每张图也能单独收起或展开。')}${toggle('drawGuard', '免费档守卫', s.draw.guard, '步数不超过 28、尺寸不超过 1024×1024，不会发出扣 Anlas 的请求。')}</div>`
       + groupTitle('手机')
       + `<div class="group">${toggle('lockOnOpen', '打开时显示锁屏', phone.lockOnOpen, '锁屏可随时跳过，是插件内的外观，不是手机安全锁。')}<button class="list-row" data-action="lock"><span><strong>看一眼锁屏</strong></span>${icon('lock')}</button></div>`
       + groupTitle('存储')
@@ -73,6 +73,7 @@ export function settingsApp(ctx) {
     else if (key === 'drawEnabled') api.saveDraw({enabled: el.checked});
     else if (key === 'drawAuto') api.saveDraw({auto: el.checked});
     else if (key === 'drawGuard') api.saveDraw({guard: el.checked});
+    else if (key === 'drawFold') api.saveDraw({fold: el.checked});
     else if (key === 'defaultLanguage') api.updateGeneral({defaultLanguage: el.value});
     else if (key === 'volume') await api.setVolume(Number(el.value) / 100);
     else if (key === 'lockOnOpen') await api.savePhone({lockOnOpen: el.checked});

@@ -37,7 +37,7 @@ const DEFAULT_STYLE = {id: 'default', name: '默认画风', artist: '', positive
 const DEFAULT_PRESET = {id: 'default', name: '默认出图规则', count: 1, injection: {position: 'in_chat', depth: 1, role: 'system'}, entries: [{id: 'rule', title: '出图规则', enabled: true, text: DEFAULT_DRAW_RULE}]};
 
 export function defaultDraw() {
-  return {enabled: false, auto: true, guard: true, params: defaultDrawParams(), styles: [structuredClone(DEFAULT_STYLE)], activeStyle: 'default', presets: [structuredClone(DEFAULT_PRESET)], activePreset: 'default'};
+  return {enabled: false, auto: true, guard: true, fold: false, queue: {gap: 3, retries: 4}, params: defaultDrawParams(), styles: [structuredClone(DEFAULT_STYLE)], activeStyle: 'default', presets: [structuredClone(DEFAULT_PRESET)], activePreset: 'default'};
 }
 
 const text = (value, max) => String(value ?? '').slice(0, max);
@@ -48,6 +48,9 @@ export function normalizeDraw(value) {
   d.enabled = !!d.enabled;
   d.auto = d.auto !== false;
   d.guard = d.guard !== false;
+  d.fold = !!d.fold;
+  const n = (v, min, max, fallback) => { const x = Math.round(Number(v)); return Number.isFinite(x) ? Math.min(max, Math.max(min, x)) : fallback; };
+  d.queue = {gap: n(d.queue?.gap, 0, 60, 3), retries: n(d.queue?.retries, 0, 10, 4)};
   d.params = normalizeDrawParams(d.params);
   d.styles = (Array.isArray(d.styles) && d.styles.length ? d.styles : base.styles).map(s => ({id: String(s.id || crypto.randomUUID()), name: text(s.name, 60) || '画风', artist: text(s.artist, 4000), positive: text(s.positive, 4000), negative: text(s.negative, 4000)}));
   d.activeStyle = d.styles.some(s => s.id === d.activeStyle) ? d.activeStyle : d.styles[0].id;

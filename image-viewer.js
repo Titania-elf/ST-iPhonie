@@ -1,5 +1,6 @@
 // Full-screen image viewer shared by the tavern page (pictures in the chat) and the phone (album, drawing app).
-// Zoom with the wheel, pinch or the buttons; drag to move; double-click or double-tap to switch between fit and 2.5x.
+// It opens at the size the picture had on the page (`from`), then zooms freely: wheel, pinch or the buttons;
+// drag to move; double-click or double-tap switches between that size and 2.5x.
 // It brings its own styles, so it works in any document.
 
 const STYLE_ID = 'sttts-viewer-style';
@@ -19,10 +20,11 @@ const CSS = `
 `;
 
 /**
- * Opens the viewer. actions: [{label, danger?, run}] extra buttons; `run` may return a promise; the viewer
+ * Opens the viewer. from: the element the picture was shown in (its size and place are where the viewer starts).
+ * actions: [{label, danger?, run}] extra buttons; `run` may return a promise; the viewer
  * closes after an action unless it returns false.
  */
-export function openImageViewer({doc = document, src, alt = '', actions = []}) {
+export function openImageViewer({doc = document, src, alt = '', actions = [], from = null}) {
   const win = doc.defaultView;
   if (!doc.getElementById(STYLE_ID)) {
     const style = doc.createElement('style');
@@ -37,13 +39,14 @@ export function openImageViewer({doc = document, src, alt = '', actions = []}) {
   root.setAttribute('aria-modal', 'true');
   root.setAttribute('aria-label', '查看图片');
   root.innerHTML = `<img alt=""><button class="sttts-viewer-close" data-v="close" aria-label="关闭">×</button>
-    <div class="sttts-viewer-bar"><button data-v="out" aria-label="缩小">－</button><output aria-live="polite"></output><button data-v="in" aria-label="放大">＋</button><button data-v="fit">适应屏幕</button><button data-v="full">原始大小</button>${actions.map((a, i) => `<button data-action="${i}"${a.danger ? ' data-danger' : ''}></button>`).join('')}</div>`;
+    <div class="sttts-viewer-bar"><button data-v="out" aria-label="缩小">－</button><output aria-live="polite"></output><button data-v="in" aria-label="放大">＋</button><button data-v="home">复原</button><button data-v="fit">适应屏幕</button><button data-v="full">实际像素</button>${actions.map((a, i) => `<button data-action="${i}"${a.danger ? ' data-danger' : ''}></button>`).join('')}</div>`;
   const img = root.querySelector('img'), label = root.querySelector('output');
   img.alt = alt;
   actions.forEach((a, i) => { root.querySelector(`[data-action="${i}"]`).textContent = a.label; });
   doc.body.append(root);
 
-  let s = 1, tx = 0, ty = 0, fit = 1, closed = false;
+  let s = 1, tx = 0, ty = 0, fit = 1, base = 1, closed = false, opened = false;
+  const start = from?.getBoundingClientRect?.();
   const pointers = new Map();
   let gesture = null, lastTap = null;
   const size = () => ({w: root.clientWidth, h: root.clientHeight});
@@ -61,20 +64,31 @@ export function openImageViewer({doc = document, src, alt = '', actions = []}) {
     label.textContent = Math.round(s * 100) + '%';
   }
   function zoomAt(next, x, y, animate) {
-    const max = Math.max(4, fit * 8), min = Math.min(fit, 1) * .9;
+    const max = Math.max(4, fit * 8, base * 8), min = Math.min(fit, base, 1) * .5;
     next = Math.min(max, Math.max(min, next));
     tx = x - (x - tx) * next / s;
     ty = y - (y - ty) * next / s;
     s = next;
     apply(animate);
   }
-  function reset(animate = false) {
+  function measure() {
     const {w, h} = size(), n = nat();
     // Leave room for the button bar when there is space; a hidden viewer (0×0) keeps 100%.
     const room = h > 240 ? h - 90 : h;
     fit = w > 0 && room > 0 ? Math.min(w / n.w, room / n.h, 1) : 1;
-    s = fit; tx = 0; ty = 0;
-    apply(animate);
+    base = start?.width > 0 ? start.width / n.w : fit;
+  }
+  /** Back to the size the picture had on the page, centred. */
+  function home(animate = false) { measure(); s = base; tx = 0; ty = 0; apply(animate); }
+  function fitView(animate = false) { measure(); s = fit; tx = 0; ty = 0; apply(animate); }
+  function reset() {
+    if (opened) { home(); return; }
+    opened = true;
+    measure();
+    s = base;
+    // Start exactly over the picture on the page, then glide to the centre.
+    if (start?.width > 0) { tx = start.left; ty = start.top; img.style.transform = `translate(${tx}px,${ty}px) scale(${s})`; label.textContent = Math.round(s * 100) + '%'; win.requestAnimationFrame(() => win.requestAnimationFrame(() => { tx = 0; ty = 0; apply(true); })); }
+    else apply();
   }
   const center = () => { const {w, h} = size(); return [w / 2, h / 2]; };
 
@@ -90,7 +104,7 @@ export function openImageViewer({doc = document, src, alt = '', actions = []}) {
     doc.removeEventListener('keydown', onKey, true);
     if (focus?.isConnected) focus.focus?.({preventScroll: true});
   }
-  const onResize = () => reset();
+  const onResize = () => home();
   const onKey = e => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
     else if (e.key === '+' || e.key === '=') zoomAt(s * 1.25, ...center(), true);
@@ -142,7 +156,7 @@ export function openImageViewer({doc = document, src, alt = '', actions = []}) {
     const r = root.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top, now = Date.now();
     if (lastTap && now - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
       lastTap = null;
-      if (s > fit * 1.05) reset(true); else zoomAt(Math.max(fit * 2.5, 1), x, y, true);
+      if (s > base * 1.05) home(true); else zoomAt(base * 2.5, x, y, true);
     } else lastTap = {t: now, x: e.clientX, y: e.clientY};
   };
   root.addEventListener('pointerup', end);
@@ -154,7 +168,8 @@ export function openImageViewer({doc = document, src, alt = '', actions = []}) {
     if (v === 'close') close();
     else if (v === 'in') zoomAt(s * 1.5, ...center(), true);
     else if (v === 'out') zoomAt(s / 1.5, ...center(), true);
-    else if (v === 'fit') reset(true);
+    else if (v === 'home') home(true);
+    else if (v === 'fit') fitView(true);
     else if (v === 'full') zoomAt(1, ...center(), true);
     else if (b.dataset.action !== undefined) {
       const result = await actions[Number(b.dataset.action)].run();

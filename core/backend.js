@@ -11,6 +11,7 @@ import { NovelAIClient, NAI_MODELS, NAI_MODEL_NAMES, NAI_SAMPLERS, NAI_SCHEDULES
 import { PIC_TAG_FORMAT, DEFAULT_DRAW_RULE, DRAW_COUNT_MAX, drawPromptPlan, validateDrawPreset, normalizeDraw } from './draw.js';
 import { defaultChat, normalizeChatPreset, normalizeContact, validateChatPreset, validateContact, chatContacts, buildChatRequest, activeChatPreset } from './chat.js';
 import { ChatStore } from './chats.js';
+import { DrawQueue } from './draw-queue.js';
 
 export const BACKEND_API_VERSION = '1.0.0';
 const ENGINES = ['fish', 'mini', 'eleven'];
@@ -36,7 +37,7 @@ export class TTSBackend {
         this.novelai = novelai || new NovelAIClient();
         this.chats = chats || new ChatStore(this.settings.scope, { indexedDB });
         this.subscription = null;
-        this.drawQueue = Promise.resolve();
+        this.drawQueue = new DrawQueue({ gap: () => this.settings.draw.queue.gap * 1000, retries: () => this.settings.draw.queue.retries, onChange: queue => this.emit('draw', { queue }) });
         this.listeners = new Set();
         this.revision = 0;
         this.closed = false;
@@ -185,7 +186,8 @@ export class TTSBackend {
     saveDraw(patch) {
         if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw Error('绘图设置格式无效');
         const next = this.getState(), draw = next.draw;
-        for (const key of ['enabled', 'auto', 'guard']) if (key in patch) { if (typeof patch[key] !== 'boolean') throw Error('开关设置无效'); draw[key] = patch[key]; }
+        if ('queue' in patch) draw.queue = normalizeDraw({ queue: { ...draw.queue, ...clone(patch.queue) } }).queue;
+        for (const key of ['enabled', 'auto', 'guard', 'fold']) if (key in patch) { if (typeof patch[key] !== 'boolean') throw Error('开关设置无效'); draw[key] = patch[key]; }
         if ('params' in patch) draw.params = normalizeDrawParams({ ...draw.params, ...clone(patch.params) });
         if ('activeStyle' in patch) { if (!draw.styles.some(s => s.id === patch.activeStyle)) throw Error('画风预设不存在'); draw.activeStyle = patch.activeStyle; }
         if ('activePreset' in patch) { if (!draw.presets.some(p => p.id === patch.activePreset)) throw Error('绘图预设不存在'); draw.activePreset = patch.activePreset; }
@@ -241,17 +243,18 @@ export class TTSBackend {
         return { params: effective, clamped: JSON.stringify(effective) !== JSON.stringify(requested), free: isFree(effective, this.subscription), guard: this.settings.draw.guard,
             v5: isV5(effective.model), usage: this.subscription?.usage ? clone(this.subscription.usage) : null };
     }
-    /** Generates one image and keeps it in the album. Requests run one at a time, as NovelAI allows. */
-    generateImage({ prompt, negative = '', characters = [], params, allowPaid = false, name = '' } = {}) {
+    /** Generates one image and keeps it in the album. Requests wait in the NovelAI queue (see draw-queue.js).
+     *  key identifies the job in the queue (the same key joins the job already waiting); label is shown in the line. */
+    generateImage({ prompt, negative = '', characters = [], params, allowPaid = false, name = '', key, label = '' } = {}) {
         this.assertOpen();
         if (!String(prompt || '').trim()) return Promise.reject(Error('请先写提示词'));
         const quote = this.drawQuote(params);
         if (quote.free === false && !allowPaid) return Promise.reject(Error('这张图会扣 Anlas，需要确认后再生成'));
         const request = buildImageRequest({ prompt, negative, characters, params: quote.params });
-        const job = this.drawQueue.then(async () => {
+        const job = this.drawQueue.add({ key, label: label || String(prompt).slice(0, 40), task: async signal => {
             this.assertOpen();
             this.emit('draw', { phase: 'generating' });
-            const blob = await this.novelai.generate(request.body);
+            const blob = await this.novelai.generate(request.body, signal);
             this.assertOpen();
             const photo = await this.library.addPhoto({ name: (name || 'NovelAI') + '-' + request.seed + '.png', blob });
             this.emit('library', { collection: 'photos' });
@@ -259,8 +262,8 @@ export class TTSBackend {
             // Paid images change the Anlas balance and V5 images use up the allowance: read the subscription again next time.
             if (this.subscription && (quote.free === false || isV5(request.params.model))) this.subscription.checkedAt = 0;
             return { photoId: photo.id, seed: request.seed, params: request.params, prompt: request.body.input, blob };
-        });
-        this.drawQueue = job.catch(error => { this.emit('draw', { phase: 'error', message: error.message }); });
+        } });
+        job.catch(error => { this.emit('draw', { phase: error.cancelled ? 'cancelled' : 'error', message: error.message }); });
         return job;
     }
     // ---------- Chat ----------
@@ -433,6 +436,7 @@ export class TTSBackend {
             saveDrawPreset: preset => this.saveDrawPreset(preset), deleteDrawPreset: id => this.deleteDrawPreset(id), previewDrawPrompt: preset => this.previewDrawPrompt(preset),
             naiSubscription: refresh => this.naiSubscription(refresh), drawQuote: params => this.drawQuote(params),
             generateImage: input => this.generateImage(input).then(({ blob, ...result }) => result),
+            drawQueue: () => this.drawQueue.list(), cancelDraw: key => this.drawQueue.cancel(key), cancelAllDraws: () => this.drawQueue.cancelAll(),
             reference: file => this.reference(file), listReferences: () => this.library.listReferences(), deleteReference: id => this.deleteReference(id),
             engineSchema: (engine, connection) => this.getEngineSchema(engine, connection),
             validateConnection: (engine, connection) => { try { modelCheck(engine, connection.model); return TTSParameters.validate(engine, connection); } catch (error) { return message(error); } },
@@ -476,6 +480,7 @@ export class TTSBackend {
         if (this.closing) return this.closing;
         this.closed = true; this.prepared = null; this.listeners.clear(); this.providers.clear();
         this.chats.close();
+        this.drawQueue.cancelAll();
         this.closing = Promise.all([this.player.close(), this.cache.close(), this.library.close()]);
         await this.closing;
     }

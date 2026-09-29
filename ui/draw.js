@@ -9,6 +9,9 @@ const POSITION = i => i < 0 ? '自动' : 'ABCDE'[i % 5] + (Math.floor(i / 5) + 1
 export function drawApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'draw'), urls = new Map();
   let tab = 'prompt', prompt = '', negative = '', characters = [], seed = -1, results = [], current = -1, busy = false, subscription = null, styleDraft = null, epoch = 0;
+  let queue = api.drawQueue?.() || [];
+  const jobState = j => j.state === 'running' ? '正在画' : j.state === 'busy' ? `账号正忙，稍后重试（第 ${j.attempt} 次）` : j.state === 'spacing' ? '马上开始' : `第 ${j.position + 1} 位`;
+  const queueCard = () => queue.length ? `<div class="group pad queue-card"><div class="row-heading"><strong style="flex:1">NovelAI 排队 · ${queue.length} 张</strong>${btn('cancel-all', '全部取消', 'text-button')}</div>${queue.map(j => `<div class="setting-row"><span>${esc(j.label || '图片')}</span><small>${esc(jobState(j))}</small>${j.state === 'running' ? '' : btn('cancel-job', icon('close'), 'text-button', `data-key="${esc(j.key)}" aria-label="取消这张"`)}</div>`).join('')}</div>` : '';
   const state = () => api.getState().draw;
   const style = () => { const d = state(); return d.styles.find(s => s.id === d.activeStyle) || d.styles[0]; };
   const urlFor = async id => {
@@ -61,14 +64,20 @@ export function drawApp(ctx) {
         <div class="field"><span>种子${help('填 -1 或留空表示每次随机。')}</span><div class="inline-row">${input('seed', seed >= 0 ? seed : '', 'number', 'min="-1" placeholder="随机"')}${btn('dice', icon('dice'), 'round-button', 'aria-label="随机一个种子"')}</div></div>
         ${/^nai-diffusion-5/.test(d.params.model) ? '' : toggle('variety', 'Variety+', d.params.variety, '让构图更多变，适合 V4 / 4.5。')}
       </div>
-      <div class="group">${toggle('guard', '免费档守卫', d.guard, '开启时步数不超过 28、尺寸不超过 1024×1024，不会发出扣 Anlas 的请求。关闭后，会扣点的生成每次都先问你。')}</div>`;
+      <div class="group">${toggle('guard', '免费档守卫', d.guard, '开启时步数不超过 28、尺寸不超过 1024×1024，不会发出扣 Anlas 的请求。关闭后，会扣点的生成每次都先问你。')}</div>
+      ${groupTitle('排队', help('一个 NovelAI 账号同一时间只能画一张。几个人共用账号时，同时请求会得到 429，太频繁还可能被风控。\n\n插件里所有出图都排成一队，一张画完再发下一张（同一个浏览器里开的几个酒馆页面也会互相等）；两张之间留出间隔；遇到 429 就等一会儿再试，等待时间一次比一次长。'))}
+      <div class="group pad">
+        <div class="field"><div class="meter-label"><span>两张图之间至少间隔</span><output>${d.queue.gap} 秒</output></div><input class="slider" type="range" data-queue="gap" min="0" max="60" value="${d.queue.gap}" aria-label="两张图之间的间隔秒数"></div>
+        <div class="field"><div class="meter-label"><span>账号正忙（429）时重试</span><output>${d.queue.retries} 次</output></div><input class="slider" type="range" data-queue="retries" min="0" max="10" value="${d.queue.retries}" aria-label="429 重试次数"></div>
+      </div>`;
     if (tab === 'chat') body = `
-      <div class="group">${toggle('enabled', '正文出图', d.enabled, '开启后，会把「预设 · 绘图」里的出图规则加进聊天请求，让模型在正文里写出图标签。')}${toggle('auto', '新回复自动出图', d.auto, '只在免费档内自动画；超出免费档或读不到订阅时，正文里会显示“点击生成”。')}</div>
+      <div class="group">${toggle('enabled', '正文出图', d.enabled, '开启后，会把「预设 · 绘图」里的出图规则加进聊天请求，让模型在正文里写出图标签。')}${toggle('auto', '新回复自动出图', d.auto, '只在免费档内自动画；超出免费档或读不到订阅时，正文里会显示“点击生成”。')}${toggle('fold', '正文图片默认收起', d.fold, '收起后正文里只留一个小缩略图，点开再看，手机上不占地方。每张图也可以单独收起或展开。')}</div>
       <div class="group pad"><p class="hint" style="padding:6px 0">模型写的标签长这样：</p><pre class="code-preview">${esc(api.picTagFormat)}</pre><p class="hint" style="padding:0">插件识别后拼上当前画风的固定串，再补上出场角色的外貌 tag（在角色 App 里填写），交给 NovelAI。图片会上传到酒馆，并存进相册。</p></div>
       <p class="hint">每条回复固定出 ${(d.presets.find(p => p.id === d.activePreset) || d.presets[0]).count} 张图，在出图规则里改张数。</p><div class="actions">${btn('open-presets', icon('edit') + '编辑出图规则', 'secondary')}</div>`;
     const sub = subscription ? `${TIERS[subscription.tier] || '订阅'} · ${subscription.anlas} Anlas` : keyed ? '读取中' : '';
     v.draw(heading('绘图', keyed ? `<span class="chip">${esc(sub)}</span>` : '', 'NovelAI')
       + (keyed ? '' : `<div class="banner">${icon('key')}<span>还没有填写 NovelAI 密钥。</span>${btn('go-key', '去填写', 'chip-button')}</div>`)
+      + queueCard()
       + `<div class="draw-meta">${btn('pick-style', icon('layers') + esc(style().name) + icon('down'), 'chip-button')}${costChip(q)}</div>
         <div class="canvas-card"><div class="canvas-main${main ? '' : ' empty'}" style="aspect-ratio:${p.width}/${p.height}">${main ? `<button type="button" class="canvas-zoom" data-action="zoom" aria-label="放大查看"><img src="${esc(main)}" alt="生成的图片"></button>` : `<span>${p.width} × ${p.height}<br>还没有图</span>`}${busy ? '<span class="canvas-busy">NovelAI 正在画……</span>' : ''}</div>
           ${results.length ? `<div class="canvas-side">${thumbs.map((url, i) => `<button class="thumb" data-action="thumb" data-index="${i}" aria-pressed="${i === current}" aria-label="第 ${i + 1} 张">${url ? `<img src="${esc(url)}" alt="">` : ''}</button>`).join('')}</div>` : ''}</div>
@@ -103,7 +112,11 @@ export function drawApp(ctx) {
     render();
   };
   v.refresh = () => { styleDraft = null; render(); refreshSubscription(); };
-  v.onDraw = event => { if (event.subscription) { subscription = event.subscription; render(); } };
+  v.onDraw = event => {
+    if (event.subscription) subscription = event.subscription;
+    if (event.queue) queue = event.queue;
+    if (event.subscription || event.queue) render();
+  };
   const dispose = v.dispose;
   v.dispose = () => { epoch++; for (const url of urls.values()) ctx.win.URL.revokeObjectURL(url); urls.clear(); dispose(); };
 
@@ -121,6 +134,8 @@ export function drawApp(ctx) {
   });
   v.on('input', '[data-param]', el => { el.previousElementSibling.querySelector('output').textContent = el.dataset.param === 'scale' ? Number(el.value).toFixed(1) : el.value; });
   v.on('change', '[data-param]', el => { api.saveDraw({params: {[el.dataset.param]: Number(el.value)}}); render(); });
+  v.on('input', '[data-queue]', el => { el.previousElementSibling.querySelector('output').textContent = el.value + (el.dataset.queue === 'gap' ? ' 秒' : ' 次'); });
+  v.on('change', '[data-queue]', el => { api.saveDraw({queue: {[el.dataset.queue]: Number(el.value)}}); });
   v.on('change', 'select[data-field]', el => { api.saveDraw({params: {[el.dataset.field]: el.value}}); render(); });
   v.on('change', 'input.switch[data-field]', el => {
     const key = el.dataset.field;
@@ -135,6 +150,8 @@ export function drawApp(ctx) {
       case 'size': { const [, , width, height] = SIZES.find(s => s[0] === el.dataset.size); api.saveDraw({params: {width, height}}); render(); break; }
       case 'dice': seed = Math.floor(Math.random() * 4294967295); render(); break;
       case 'thumb': current = index; render(); break;
+      case 'cancel-job': api.cancelDraw(el.dataset.key); break;
+      case 'cancel-all': if (await ctx.confirm('取消所有排队的图？', '正在画的那一张也会停下。')) api.cancelAllDraws(); break;
       case 'reuse-seed': seed = results[current].seed; tab = 'params'; render(); ctx.notify('已填入这张图的种子'); break;
       case 'go-key': ctx.open('engines'); ctx.editEngine?.('nai'); break;
       case 'open-presets': ctx.open('presets'); ctx.showPresetKind?.('draw'); break;
@@ -142,7 +159,7 @@ export function drawApp(ctx) {
       case 'remove-char': characters.splice(index, 1); render(); break;
       case 'add-custom': characters.push({name: '角色', prompt: '', position: -1}); render(); break;
       case 'add-char': pickCharacter(); break;
-      case 'zoom': { const img = el.querySelector('img'); if (img) openImageViewer({doc: ctx.doc, src: img.src, alt: '生成的图片'}); break; }
+      case 'zoom': { const img = el.querySelector('img'); if (img) openImageViewer({doc: ctx.doc, src: img.src, alt: '生成的图片', from: img}); break; }
       case 'suggest':
         await v.busy(el, async () => {
           el.innerHTML = icon('spin') + '正在读剧情…';
@@ -180,13 +197,13 @@ export function drawApp(ctx) {
         prompt: [s.artist, s.positive, prompt].map(x => (x || '').trim()).filter(Boolean).join(', '),
         negative: [s.negative, negative].map(x => (x || '').trim()).filter(Boolean).join(', '),
         characters: characters.filter(c => c.prompt.trim()).map(c => ({prompt: c.prompt, position: c.position})),
-        params: {...state().params, seed}, allowPaid, name: 'NovelAI'
+        params: {...state().params, seed}, allowPaid, name: 'NovelAI', label: '绘图 App · ' + (prompt.trim().slice(0, 24) || s.name)
       });
       results.unshift(result);
       results = results.slice(0, 6);
       current = 0;
       if (allowPaid) refreshSubscription(true);
-    } catch (error) { ctx.notify(error.message); }
+    } catch (error) { if (!error.cancelled) ctx.notify(error.message); }
     busy = false;
     render();
   }

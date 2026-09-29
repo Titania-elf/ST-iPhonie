@@ -98,7 +98,7 @@ export function galleryApp(ctx) {
       case 'photo': current = el.dataset.id; await render(); break;
       case 'zoom': {
         const img = el.querySelector('img'), id = current;
-        openImageViewer({doc: ctx.doc, src: img.src, alt: img.alt, actions: [
+        openImageViewer({doc: ctx.doc, src: img.src, alt: img.alt, from: img, actions: [
           {label: '设为壁纸', run: async () => { await api.savePhone({wallpaper: {kind: 'photo', photoId: id}}); ctx.notify('已设为壁纸'); }},
           {label: '删除', danger: true, run: async () => { if (!await ctx.confirm('删除这张照片？', '使用它的壁纸和图标会恢复默认。')) return false; await api.deletePhoto(id); current = null; await render(); }}
         ]});

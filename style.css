@@ -56,6 +56,14 @@
 #chat [data-sttts-pic] img{display:block;width:100%;height:auto;cursor:zoom-in}
 #chat .sttts-pic-removed{display:inline-flex;align-items:center;gap:8px;font-size:.8em;color:color-mix(in srgb,var(--sttts-body) 60%,transparent)}
 #chat .sttts-pic-removed button{font:inherit;color:var(--sttts-quote);background:transparent;border:0;padding:2px 4px;cursor:pointer;min-height:24px}
+#chat [data-sttts-pic][data-state="generating"] .sttts-pic-removed{margin-bottom:6px}
+/* Folded: a small thumbnail and a line, so pictures do not fill a phone screen. */
+#chat [data-sttts-pic][data-folded]{width:auto;margin:4px 0 8px}
+#chat .sttts-pic-fold{display:inline-flex;align-items:center;gap:8px;font:inherit;font-size:.82em;color:var(--sttts-quote);background:color-mix(in srgb,var(--sttts-body) 7%,transparent);border:0;border-radius:10px;padding:4px 10px 4px 4px;cursor:pointer;min-height:44px}
+#chat .sttts-pic-fold img{width:36px;height:36px;object-fit:cover;border-radius:7px;display:block;cursor:pointer}
+#chat .sttts-pic-pager{display:inline-flex;align-items:center;gap:2px;font-variant-numeric:tabular-nums;color:var(--sttts-quote)}
+#chat .sttts-pic-pager button{font-size:1.2em!important;min-width:28px}
+#chat .sttts-pic-pager button:disabled{opacity:.35;cursor:default}
 #chat .sttts-pic-wait{display:grid;place-items:center;aspect-ratio:832/1216;max-height:420px;padding:16px;text-align:center;font-size:.85em;color:color-mix(in srgb,var(--sttts-body) 75%,transparent);background:linear-gradient(110deg,transparent 30%,color-mix(in srgb,var(--sttts-body) 8%,transparent) 50%,transparent 70%) 0 0/200% 100%}
 #chat [data-sttts-pic][data-state="generating"] .sttts-pic-wait{animation:sttts-shimmer 1.4s linear infinite}
 #chat .sttts-pic-wait button,#chat .sttts-pic-bar button{font:inherit;font-size:.85em;color:var(--sttts-quote);background:transparent;border:1px solid currentColor;border-radius:999px;padding:4px 12px;cursor:pointer;min-height:30px}

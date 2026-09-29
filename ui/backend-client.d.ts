@@ -87,16 +87,23 @@ export interface DrawSettings {
     auto: boolean;
     /** Keep requests inside the free tier (<=28 steps, <=1024x1024). */
     guard: boolean;
+    /** Pictures in the chat start folded. */
+    fold: boolean;
+    queue: DrawQueueSettings;
     params: DrawParams;
     styles: DrawStyle[]; activeStyle: string;
     presets: DrawPreset[]; activePreset: string;
 }
-export interface DrawSettingsPatch { enabled?: boolean; auto?: boolean; guard?: boolean; params?: Partial<DrawParams>; activeStyle?: string; activePreset?: string; }
+export interface DrawSettingsPatch { enabled?: boolean; auto?: boolean; guard?: boolean; fold?: boolean; queue?: Partial<DrawQueueSettings>; params?: Partial<DrawParams>; activeStyle?: string; activePreset?: string; }
+/** gap: seconds between two NovelAI requests (0-60). retries: how often an "account busy" (429) is retried (0-10). */
+export interface DrawQueueSettings { gap: number; retries: number; }
+/** A NovelAI job: waiting in line, keeping the gap (spacing), waiting after a 429 (busy), or running. */
+export interface DrawJob { key: string; label: string; state: 'waiting' | 'spacing' | 'busy' | 'running'; attempt: number; until: number; position: number; }
 /** unlimited: an active Opus subscription (free small images). usage: the V5 allowance, when NovelAI reports it. */
 export interface NovelAISubscription { tier: number; active: boolean; unlimited: boolean; usage: { percent: number; negative: boolean } | null; anlas: number; checkedAt: number; }
 export interface DrawQuote { params: DrawParams; clamped: boolean; /** null when the subscription is unknown. */ free: boolean | null; guard: boolean; v5: boolean; usage: NovelAISubscription['usage']; }
 export interface DrawCharacter { prompt: string; negative?: string; /** 0-24 on a 5x5 grid, -1 lets the model decide. */ position: number; }
-export interface DrawInput { prompt: string; negative?: string; characters?: DrawCharacter[]; params?: Partial<DrawParams>; allowPaid?: boolean; name?: string; }
+export interface DrawInput { prompt: string; negative?: string; characters?: DrawCharacter[]; params?: Partial<DrawParams>; allowPaid?: boolean; name?: string; /** Queue key; the same key joins the waiting job. */ key?: string; label?: string; }
 export interface DrawResult { photoId: string; seed: number; params: DrawParams; prompt: string; }
 export interface SettingsSnapshot { state: Settings; revision: number; }
 
@@ -274,7 +281,7 @@ export type BackendEvent =
     | { type: 'keys'; revision: number; engine: Engine; configured: boolean }
     | { type: 'library'; revision: number; collection: LibraryCollection }
     | { type: 'phone'; revision: number; preferences: PhonePreferences }
-    | { type: 'draw'; revision: number; phase?: 'generating' | 'done' | 'error'; message?: string; subscription?: NovelAISubscription }
+    | { type: 'draw'; revision: number; phase?: 'generating' | 'done' | 'error' | 'cancelled'; message?: string; subscription?: NovelAISubscription; queue?: DrawJob[] }
     /** A chat changed; typing is set while a reply is being generated. threadId is null when a chat was created. */
     | { type: 'chat'; revision: number; threadId: string | null; typing?: boolean; bring?: boolean };
 
@@ -319,6 +326,10 @@ export interface BackendFacade {
     previewDrawPrompt(preset?: DrawPreset): string;
     /** Cached for ten minutes unless refresh is true; null without a NovelAI key. */
     naiSubscription(refresh?: boolean): Promise<NovelAISubscription | null>;
+    /** Jobs waiting for NovelAI, first one running. */
+    drawQueue(): DrawJob[];
+    cancelDraw(key: string): boolean;
+    cancelAllDraws(): void;
     drawQuote(params?: Partial<DrawParams>): DrawQuote;
     /** Generates one image and saves it to the album. Rejects paid requests unless allowPaid. */
     generateImage(input: DrawInput): Promise<DrawResult>;
