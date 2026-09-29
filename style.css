@@ -47,17 +47,18 @@
 @keyframes sttts-think{50%{transform:scaleY(.45)}}
 @keyframes sttts-wait{50%{opacity:.55}}
 
-/* ---------- In-text pictures (<img> tags written by the model) ---------- */
-#chat .sttts-pic{--sttts-quote:var(--SmartThemeQuoteColor,currentColor);--sttts-body:var(--SmartThemeBodyColor,currentColor);display:block;width:min(100%,300px);margin:8px 0 12px}
+/* ---------- In-text pictures (<img> tags written by the model) ----------
+   The placeholder is matched by [data-sttts-pic]: the tavern prefixes classes inside messages with custom-. */
+#chat [data-sttts-pic]{--sttts-quote:var(--SmartThemeQuoteColor,currentColor);--sttts-body:var(--SmartThemeBodyColor,currentColor);display:block;width:min(100%,300px);margin:8px 0 12px}
 #chat .sttts-pic-frame{position:relative;display:block;border-radius:12px;overflow:hidden;background:color-mix(in srgb,var(--sttts-body) 8%,transparent);box-shadow:0 0 0 1px color-mix(in srgb,var(--sttts-body) 16%,transparent)}
-#chat .sttts-pic img{display:block;width:100%;height:auto;cursor:zoom-in}
+#chat [data-sttts-pic] img{display:block;width:100%;height:auto;cursor:zoom-in}
 #chat .sttts-pic-wait{display:grid;place-items:center;aspect-ratio:832/1216;max-height:420px;padding:16px;text-align:center;font-size:.85em;color:color-mix(in srgb,var(--sttts-body) 75%,transparent);background:linear-gradient(110deg,transparent 30%,color-mix(in srgb,var(--sttts-body) 8%,transparent) 50%,transparent 70%) 0 0/200% 100%}
-#chat .sttts-pic[data-state="generating"] .sttts-pic-wait{animation:sttts-shimmer 1.4s linear infinite}
+#chat [data-sttts-pic][data-state="generating"] .sttts-pic-wait{animation:sttts-shimmer 1.4s linear infinite}
 #chat .sttts-pic-wait button,#chat .sttts-pic-bar button{font:inherit;font-size:.85em;color:var(--sttts-quote);background:transparent;border:1px solid currentColor;border-radius:999px;padding:4px 12px;cursor:pointer;min-height:30px}
 #chat .sttts-pic-bar{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin-top:5px;font-size:.78em;color:color-mix(in srgb,var(--sttts-body) 65%,transparent)}
 #chat .sttts-pic-bar button{border:0;padding:2px 4px;min-height:24px}
-#chat .sttts-pic[data-state="error"] .sttts-pic-wait{color:var(--sttts-quote)}
-#chat .sttts-pic[data-state="idle"] .sttts-pic-wait,#chat .sttts-pic[data-state="error"] .sttts-pic-wait{aspect-ratio:auto;min-height:110px}
+#chat [data-sttts-pic][data-state="error"] .sttts-pic-wait{color:var(--sttts-quote)}
+#chat [data-sttts-pic][data-state="idle"] .sttts-pic-wait,#chat [data-sttts-pic][data-state="error"] .sttts-pic-wait{aspect-ratio:auto;min-height:110px}
 @keyframes sttts-shimmer{to{background-position:-200% 0}}
 @media(max-width:540px){#chat [data-sttts-action="line"]{min-height:32px;height:32px}}
 @media(prefers-reduced-motion:reduce){#chat [data-sttts-action="line"],#chat [data-sttts-bar],#chat .sttts-pic-wait{transition:none;animation:none!important}}

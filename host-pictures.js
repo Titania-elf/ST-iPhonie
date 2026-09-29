@@ -89,10 +89,11 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
     }
   }
 
-  /** Fills every picture placeholder in the rendered chat. */
+  /** Fills every picture placeholder in the rendered chat. The tavern's sanitizer renames classes in messages
+   *  (sttts-pic becomes custom-sttts-pic), so placeholders are found by their data attributes. */
   function decorate(currentMessage) {
     for (const element of document.querySelectorAll('#chat .mes[mesid]')) {
-      const placeholders = element.querySelectorAll('.sttts-pic');
+      const placeholders = element.querySelectorAll('[data-sttts-pic]');
       if (!placeholders.length) continue;
       const id = Number(element.getAttribute('mesid')), message = context().chat[id];
       if (!message || !currentMessage(id)) continue;
@@ -108,7 +109,7 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
   /** Handles clicks inside picture blocks. Returns true when the click was ours. */
   function click(event) {
     const button = event.target.closest('[data-sttts-pic-action]');
-    const box = button?.closest('.sttts-pic');
+    const box = button?.closest('[data-sttts-pic]');
     if (!box || box.dataset.stttsToken !== marker) return false;
     event.preventDefault();
     const id = Number(box.closest('.mes[mesid]')?.getAttribute('mesid')), message = context().chat[id];
