@@ -1,14 +1,16 @@
 import { normalizeSettings, validateSettings, modelRules } from './state.js';
 import { normalizeRoute, switchRouteEngine, removeRoute } from './routes.js';
-import { DEFAULT_PROMPT, DEFAULT_FORMAT, promptPlan, validatePreset, parseDialogue, isPlaceholderRole } from './protocol.js';
+import { DEFAULT_PROMPT, DEFAULT_FORMAT, promptPlan, validatePreset, parseDialogue, isPlaceholderRole, knownFormats } from './protocol.js';
 import { TTSParameters } from './parameters.js';
 import { LocalKeyStore } from './keys.js';
 import { Providers, buildRequest } from './providers.js';
 import { AudioCache } from './cache.js';
 import { DialoguePlayer } from './player.js';
-import { LocalLibrary, PHONE_APPS, PHONE_WALLPAPERS, PHONE_GLYPHS } from './library.js';
-import { NovelAIClient, NAI_MODELS, NAI_SAMPLERS, NAI_SCHEDULES, buildImageRequest, guardParams, isFree, normalizeDrawParams } from './novelai.js';
-import { PIC_TAG_FORMAT, DEFAULT_DRAW_RULE, drawPromptPlan, validateDrawPreset, normalizeDraw } from './draw.js';
+import { LocalLibrary, PHONE_APPS, PHONE_WALLPAPERS, PHONE_GLYPHS, PHONE_SKINS } from './library.js';
+import { NovelAIClient, NAI_MODELS, NAI_MODEL_NAMES, NAI_SAMPLERS, NAI_SCHEDULES, buildImageRequest, guardParams, isFree, isV5, normalizeDrawParams } from './novelai.js';
+import { PIC_TAG_FORMAT, DEFAULT_DRAW_RULE, DRAW_COUNT_MAX, drawPromptPlan, validateDrawPreset, normalizeDraw } from './draw.js';
+import { defaultChat, normalizeChatPreset, normalizeContact, validateChatPreset, validateContact, chatContacts, buildChatRequest, activeChatPreset } from './chat.js';
+import { ChatStore } from './chats.js';
 
 export const BACKEND_API_VERSION = '1.0.0';
 const ENGINES = ['fish', 'mini', 'eleven'];
@@ -22,7 +24,7 @@ const message = error => error instanceof TypeError ? '设置格式无效，请�
 /** Framework-independent operations. Host callbacks own SillyTavern persistence and rendering. */
 export class TTSBackend {
     constructor({ settings, persist = () => {}, notify = () => {}, change = () => {}, unknown = () => {},
-        providers = new Providers(), cache, library, keyStore, sink, novelai, indexedDB = globalThis.indexedDB } = {}) {
+        providers = new Providers(), cache, library, keyStore, sink, novelai, chats, indexedDB = globalThis.indexedDB } = {}) {
         this.settings = normalizeSettings(settings);
         validateSettings(this.settings);
         this.persist = persist;
@@ -32,6 +34,7 @@ export class TTSBackend {
         this.library = library || new LocalLibrary(this.settings.scope, { indexedDB });
         this.keyStore = keyStore || new LocalKeyStore(this.settings.scope);
         this.novelai = novelai || new NovelAIClient();
+        this.chats = chats || new ChatStore(this.settings.scope, { indexedDB });
         this.subscription = null;
         this.drawQueue = Promise.resolve();
         this.listeners = new Set();
@@ -161,7 +164,7 @@ export class TTSBackend {
         return promptPlan(state, modelRules(state)).map(entry => entry.text).join('\n\n');
     }
     parse(text) {
-        const formats = [...new Set([this.settings.presets.find(p => p.id === this.settings.activePreset)?.format, ...this.settings.presets.map(p => p.format)].filter(Boolean))];
+        const formats = knownFormats(this.settings);
         for (const format of formats) { const lines = parseDialogue(text, format); if (lines.length) return { format, lines }; }
         return { format: formats[0], lines: [] };
     }
@@ -235,7 +238,8 @@ export class TTSBackend {
     drawQuote(params) {
         const requested = normalizeDrawParams(params || this.settings.draw.params);
         const effective = this.settings.draw.guard ? guardParams(requested) : requested;
-        return { params: effective, clamped: JSON.stringify(effective) !== JSON.stringify(requested), free: isFree(effective, this.subscription), guard: this.settings.draw.guard };
+        return { params: effective, clamped: JSON.stringify(effective) !== JSON.stringify(requested), free: isFree(effective, this.subscription), guard: this.settings.draw.guard,
+            v5: isV5(effective.model), usage: this.subscription?.usage ? clone(this.subscription.usage) : null };
     }
     /** Generates one image and keeps it in the album. Requests run one at a time, as NovelAI allows. */
     generateImage({ prompt, negative = '', characters = [], params, allowPaid = false, name = '' } = {}) {
@@ -252,11 +256,66 @@ export class TTSBackend {
             const photo = await this.library.addPhoto({ name: (name || 'NovelAI') + '-' + request.seed + '.png', blob });
             this.emit('library', { collection: 'photos' });
             this.emit('draw', { phase: 'done' });
-            if (quote.free === false) this.subscription = null;
+            // Paid images change the Anlas balance and V5 images use up the allowance: read the subscription again next time.
+            if (this.subscription && (quote.free === false || isV5(request.params.model))) this.subscription.checkedAt = 0;
             return { photoId: photo.id, seed: request.seed, params: request.params, prompt: request.body.input, blob };
         });
         this.drawQueue = job.catch(error => { this.emit('draw', { phase: 'error', message: error.message }); });
         return job;
+    }
+    // ---------- Chat ----------
+    /** The voice tag format used for voice messages: the active voice preset's format. */
+    voiceFormat() { return (this.settings.presets.find(p => p.id === this.settings.activePreset) || this.settings.presets[0]).format || DEFAULT_FORMAT; }
+    saveChatPreset(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('聊天预设格式无效');
+        const next = this.getState(), preset = validateChatPreset(normalizeChatPreset({ ...clone(value), id: value.id || crypto.randomUUID() }));
+        const index = next.chat.presets.findIndex(p => p.id === preset.id);
+        if (index < 0) next.chat.presets.push(preset); else next.chat.presets[index] = preset;
+        this.save(next);
+        return clone(preset);
+    }
+    deleteChatPreset(id) {
+        const next = this.getState();
+        if (next.chat.presets.length === 1) throw Error('请至少保留一个聊天预设');
+        next.chat.presets = next.chat.presets.filter(p => p.id !== id);
+        return this.save(next).chat;
+    }
+    selectChatPreset(id) {
+        const next = this.getState();
+        if (!next.chat.presets.some(p => p.id === id)) throw Error('聊天预设不存在');
+        next.chat.activePreset = id;
+        return this.save(next).chat;
+    }
+    saveContact(value) {
+        const next = this.getState(), contact = validateContact(normalizeContact(clone(value || {})), next.routes);
+        if (next.chat.contacts.some(c => c.name === contact.name && c.id !== contact.id)) throw Error('已经有同名的联系人');
+        const index = next.chat.contacts.findIndex(c => c.id === contact.id);
+        if (index < 0) next.chat.contacts.push(contact); else next.chat.contacts[index] = contact;
+        this.save(next);
+        return clone(contact);
+    }
+    deleteContact(id) {
+        const next = this.getState();
+        next.chat.contacts = next.chat.contacts.filter(c => c.id !== id);
+        return this.save(next).chat;
+    }
+    previewChatPrompt(preset) {
+        const p = validateChatPreset(normalizeChatPreset(clone(preset || activeChatPreset(this.settings.chat))));
+        const contact = chatContacts(this.settings)[0] || { name: '联系人', persona: '', voice: false };
+        const thread = { type: 'dm', name: contact.name, members: [contact.name], messages: [{ from: 'me', kind: 'text', text: '（这里是手机里的聊天记录）' }] };
+        return buildChatRequest({ preset: p, thread, members: [{ ...contact, card: contact.persona ? '' : '（酒馆角色卡里的设定）' }], story: [{ name: '（最近的剧情）', text: '……' }], user: '{{user}}', voiceFormat: this.voiceFormat() })
+            .map(m => `【${m.role}】\n${m.content}`).join('\n\n');
+    }
+    async chatMutate(threadId, task) {
+        this.assertOpen();
+        const result = await task();
+        this.emit('chat', { threadId });
+        return result;
+    }
+    /** Plays one voice message through the normal player (cache, favourites and the island all work). */
+    speak(line) {
+        if (!line?.role || !line.text) throw Error('这条语音没有内容');
+        return this.player.start([{ role: line.role, emotion: line.emotion || 'calm', text: line.text, translation: line.translation || '' }], () => !this.closed);
     }
     async base64(blob) {
         const bytes = new Uint8Array(await blob.arrayBuffer()); let text = '';
@@ -381,17 +440,29 @@ export class TTSBackend {
             getPhoto: id => this.library.getPhoto(id), deletePhoto: id => this.mutateLibrary('photos', 'deletePhoto', id),
             listNotes: () => this.library.listNotes(), saveNote: value => this.mutateLibrary('notes', 'saveNote', value), deleteNote: id => this.mutateLibrary('notes', 'deleteNote', id),
             getPhone: () => this.getPhone(), savePhone: patch => this.savePhone(patch), libraryStats: () => this.library.stats(),
+            saveChatPreset: preset => this.saveChatPreset(preset), deleteChatPreset: id => this.deleteChatPreset(id), selectChatPreset: id => this.selectChatPreset(id),
+            previewChatPrompt: preset => this.previewChatPrompt(preset), validateChatPreset: preset => { try { validateChatPreset(normalizeChatPreset(clone(preset))); return ''; } catch (error) { return message(error); } },
+            saveContact: contact => this.saveContact(contact), deleteContact: id => this.deleteContact(id), chatContacts: () => clone(chatContacts(this.settings)),
+            listThreads: () => this.chats.list(), getThread: id => this.chats.get(id), chatUnread: () => this.chats.unread(),
+            createThread: value => this.chatMutate(null, () => this.chats.create(clone(value))),
+            updateThread: (id, patch) => this.chatMutate(id, () => this.chats.update(id, clone(patch))),
+            deleteThread: id => this.chatMutate(id, () => this.chats.remove(id)),
+            appendChat: (id, messages, options) => this.chatMutate(id, () => this.chats.append(id, clone(messages), clone(options || {}))),
+            deleteChatMessages: (id, ids) => this.chatMutate(id, () => this.chats.removeMessages(id, clone(ids))),
+            markThreadRead: id => this.chatMutate(id, () => this.chats.markRead(id)),
+            speak: line => this.speak(clone(line)), voiceFormat: () => this.voiceFormat(),
         };
         return Object.freeze({ apiVersion: BACKEND_API_VERSION, defaultPrompt: DEFAULT_PROMPT, defaultFormat: DEFAULT_FORMAT,
-            picTagFormat: PIC_TAG_FORMAT, defaultDrawRule: DEFAULT_DRAW_RULE,
-            drawCatalog: Object.freeze({ models: NAI_MODELS, samplers: NAI_SAMPLERS, schedules: NAI_SCHEDULES }),
-            phoneCatalog: Object.freeze({ apps: PHONE_APPS, wallpapers: PHONE_WALLPAPERS, glyphs: PHONE_GLYPHS }),
+            picTagFormat: PIC_TAG_FORMAT, defaultDrawRule: DEFAULT_DRAW_RULE, drawCountMax: DRAW_COUNT_MAX, defaultChatPreset: Object.freeze((({ id, ...rest }) => rest)(defaultChat().presets[0])),
+            drawCatalog: Object.freeze({ models: NAI_MODELS, modelNames: NAI_MODEL_NAMES, samplers: NAI_SAMPLERS, schedules: NAI_SCHEDULES }),
+            phoneCatalog: Object.freeze({ apps: PHONE_APPS, wallpapers: PHONE_WALLPAPERS, glyphs: PHONE_GLYPHS, skins: PHONE_SKINS }),
             ...Object.fromEntries(Object.entries(methods).map(([name, fn]) => [name, (...args) => { this.assertOpen(); return fn(...args); }])),
         });
     }
     async close() {
         if (this.closing) return this.closing;
         this.closed = true; this.prepared = null; this.listeners.clear(); this.providers.clear();
+        this.chats.close();
         this.closing = Promise.all([this.player.close(), this.cache.close(), this.library.close()]);
         await this.closing;
     }

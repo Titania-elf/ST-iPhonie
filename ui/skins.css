@@ -1,0 +1,66 @@
+/* ST-iPhonie skins. Loaded after phone.css. The default skin ("sky", 晴空贴纸) is phone.css itself.
+   To add a skin: a token block for day and night plus component rules here, a wallpaper and a picker entry of the
+   same key in wallpapers.js, and the key in PHONE_SKINS / PHONE_WALLPAPERS (core/library.js).
+   Each skin sets the full colour token set for day and night, then restyles a handful of shared components:
+   device frame, app background, cards, buttons, switches, segmented controls, app icons, dock and widgets. */
+
+/* =====================================================================
+   Frutiger Aero · 水感玻璃: glossy glass, aqua and grass green, soap bubbles
+   ===================================================================== */
+:root[data-skin=aero]{
+  color-scheme:light;
+  --page:#d6f3ff;--bg:#effbff;--card:#fbfeff;--card2:#e4f5fb;--ink:#0b3850;--ink2:#46707f;--line:#bfe2ee;
+  --accent:#1aa7e0;--accent-ink:#0a6a98;--accent-soft:#d2f0fc;--accent-btn:#1494d2;--on-accent:#fff;
+  --pink:#5cc93a;--dot:#bfe6f5;--shadow:0 10px 22px -12px rgba(0,110,160,.5);
+  --danger:#c8364f;--danger-soft:#ffe3e8;
+  --aero-gloss:linear-gradient(180deg,rgba(255,255,255,.95),rgba(255,255,255,.72));
+  --aero-edge:rgba(255,255,255,.95);
+  font-family:"Segoe UI","Microsoft YaHei UI","PingFang SC","HarmonyOS Sans SC",system-ui,sans-serif;
+}
+:root[data-skin=aero][data-theme=dark]{
+  color-scheme:dark;
+  --page:#021623;--bg:#04202f;--card:#0a3044;--card2:#0e3a50;--ink:#e3f8ff;--ink2:#9ccbdc;--line:#1a4d63;
+  --accent:#48d2ff;--accent-ink:#8fe2ff;--accent-soft:#0f4660;--accent-btn:#28b6ea;--on-accent:#021623;
+  --pink:#7ee25a;--dot:#12465c;--shadow:0 10px 24px -12px rgba(0,0,0,.8);
+  --danger:#ff90a4;--danger-soft:#44162a;
+  --aero-gloss:linear-gradient(180deg,rgba(120,220,255,.16),rgba(120,220,255,.05));
+  --aero-edge:rgba(140,225,255,.28);
+}
+:root[data-skin=aero] .device{background:linear-gradient(135deg,#ffffff,#bfe9fb 30%,#f4fcff 52%,#8fd3ef 78%,#e9f9ff);box-shadow:0 0 0 1px #7cc3e0,inset 0 2px 0 #fff,0 24px 50px -20px rgba(0,90,140,.5)}
+:root[data-skin=aero][data-theme=dark] .device{background:linear-gradient(135deg,#1c5a75,#062536 35%,#155069 60%,#031a26);box-shadow:0 0 0 1px #2a7593,0 24px 50px -20px #000}
+:root[data-skin=aero] .app-frame{background:radial-gradient(130% 55% at 50% -12%,#bdeeff 0,#bdeeff00 70%),radial-gradient(90% 40% at 100% 110%,#d8f7c4 0,#d8f7c400 70%),var(--bg)}
+:root[data-skin=aero][data-theme=dark] .app-frame{background:radial-gradient(130% 55% at 50% -12%,#0b4a66 0,#0b4a6600 70%),radial-gradient(90% 40% at 100% 110%,#0d4a3a 0,#0d4a3a00 70%),var(--bg)}
+:root[data-skin=aero] .view:before{background-image:radial-gradient(circle 16px at 70% 30%,#ffffff00 0 60%,var(--aero-edge) 80%,#fff0 100%),radial-gradient(circle 9px at 40% 60%,#ffffff00 0 55%,var(--aero-edge) 80%,#fff0 100%),radial-gradient(circle 6px at 88% 72%,#ffffff00 0 50%,var(--aero-edge) 80%,#fff0 100%);background-size:120px 110px;opacity:.9}
+:root[data-skin=aero] .group,:root[data-skin=aero] details,:root[data-skin=aero] .role-card,:root[data-skin=aero] .code-preview{background:var(--aero-gloss),var(--card);border:1px solid var(--aero-edge);box-shadow:inset 0 1px 0 var(--aero-edge),var(--shadow)}
+:root[data-skin=aero] .page-heading h1 span{background:none;padding:0;color:var(--accent-ink);text-shadow:0 1px 0 #fff,0 0 14px rgba(40,180,240,.35)}
+:root[data-skin=aero][data-theme=dark] .page-heading h1 span{text-shadow:0 0 14px rgba(72,210,255,.5)}
+:root[data-skin=aero] .primary,:root[data-skin=aero] .segmented button[aria-pressed=true],:root[data-skin=aero] .engine-tab[aria-pressed=true],:root[data-skin=aero] .play-round{
+  --gel:var(--e-btn,var(--accent-btn));
+  background:linear-gradient(180deg,color-mix(in srgb,var(--gel) 35%,#fff) 0%,color-mix(in srgb,var(--gel) 80%,#fff) 46%,var(--gel) 50%,color-mix(in srgb,var(--gel) 80%,#fff) 100%);
+  border:1px solid color-mix(in srgb,var(--gel) 75%,#000);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.85),0 4px 12px -4px color-mix(in srgb,var(--gel) 80%,transparent);
+  text-shadow:0 -1px 0 color-mix(in srgb,var(--gel) 60%,#000)}
+:root[data-skin=aero] .primary:active:not(:disabled){transform:translateY(1px);box-shadow:inset 0 2px 6px rgba(0,0,0,.2)}
+:root[data-skin=aero] .secondary,:root[data-skin=aero] .danger{background:var(--aero-gloss),var(--card);border:1px solid var(--aero-edge);box-shadow:inset 0 1px 0 var(--aero-edge),0 3px 10px -4px rgba(0,100,150,.4)}
+:root[data-skin=aero] .secondary:active:not(:disabled),:root[data-skin=aero] .danger:active:not(:disabled){transform:translateY(1px);box-shadow:inset 0 2px 6px rgba(0,0,0,.15)}
+:root[data-skin=aero] .segmented{background:var(--aero-gloss),var(--card2);box-shadow:inset 0 1px 3px rgba(0,80,120,.2)}
+:root[data-skin=aero] .switch{background:linear-gradient(180deg,#c5dde6,#e7f3f7);box-shadow:inset 0 1px 3px rgba(0,60,90,.35)}
+:root[data-skin=aero] .switch:checked{background:linear-gradient(180deg,#8fe9ff,#16a6e0 55%,#39c1f2)}
+:root[data-skin=aero] .switch:after{background:radial-gradient(circle at 50% 30%,#fff,#dff4fb 70%);border:1px solid #9ccfe0}
+:root[data-skin=aero] .icon-tile{border-radius:16px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.6),0 1px 0 rgba(255,255,255,.7),0 8px 16px -6px color-mix(in srgb,var(--t2) 80%,#000)}
+:root[data-skin=aero] .icon-tile:after{inset:2px 2px 48% 2px;border-radius:14px 14px 50% 50%/14px 14px 26% 26%;background:linear-gradient(rgba(255,255,255,.75),rgba(255,255,255,.08))}
+:root[data-skin=aero] .phone-dock{background:linear-gradient(180deg,rgba(255,255,255,.55),rgba(255,255,255,.2) 50%,rgba(255,255,255,.35));box-shadow:inset 0 1px 0 #fff,inset 0 0 0 1px rgba(255,255,255,.7),0 10px 24px -10px rgba(0,80,130,.5)}
+:root[data-skin=aero] .widget,:root[data-skin=aero] .control-tile{background:var(--aero-gloss);border:1px solid var(--aero-edge);box-shadow:inset 0 1px 0 var(--aero-edge),0 10px 24px -12px rgba(0,80,130,.55)}
+:root[data-skin=aero] .chip-button,:root[data-skin=aero] .chip{box-shadow:inset 0 1px 0 rgba(255,255,255,.7),inset 0 0 0 1px color-mix(in srgb,var(--e-btn,var(--accent-btn)) 30%,transparent)}
+:root[data-skin=aero] .field input,:root[data-skin=aero] .field textarea,:root[data-skin=aero] .select select,:root[data-skin=aero] input.search{box-shadow:inset 0 1px 3px rgba(0,70,110,.18)}
+
+/* ---------- Skin picker (settings) ---------- */
+.skin-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px 0 6px}
+.skin-choice{display:flex;flex-direction:column;align-items:stretch;gap:6px;font-size:12px;font-weight:800;color:var(--ink);text-align:center;min-height:44px}
+.skin-choice>span{position:relative;display:block;aspect-ratio:3/4;border-radius:14px;overflow:hidden;box-shadow:inset 0 0 0 2px var(--line)}
+.skin-choice[aria-pressed=true]>span{box-shadow:0 0 0 3px var(--accent-btn)}
+.skin-choice i{position:absolute;left:12%;right:12%;height:18%;border-radius:6px}
+.skin-choice i:nth-of-type(1){top:44%}
+.skin-choice i:nth-of-type(2){top:68%;right:40%}
+.skin-choice b{position:absolute;left:12%;top:12%;width:24%;aspect-ratio:1;border-radius:6px}
+@media (prefers-reduced-motion:reduce){:root[data-skin] .primary,:root[data-skin] .secondary{transition:none}}

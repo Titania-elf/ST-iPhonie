@@ -6,20 +6,21 @@
  *             createdAt,updatedAt,blob}; listFavorites omits blob.
  * Phone: {wallpaper:{kind:'builtin',key}|{kind:'photo',photoId},
  *         icons:{[appId]:{kind:'glyph',key}|{kind:'photo',photoId}},
- *         iconStyle:'color'|'glass'|'mono',lockOnOpen:boolean,volume:number (0..1)}.
+ *         iconStyle:'color'|'glass'|'mono',skin:PHONE_SKINS[number],lockOnOpen:boolean,volume:number (0..1)}.
  * savePhone merges icon entries; null resets an individual icon. Theme stays in
  * the existing extension settings and is composed by the backend facade.
  * getPhoto/getReference/getFavorite return null for missing IDs; deletes return
  * whether an owned row existed. Every write resolves only after transaction commit.
  */
 export const LIBRARY_LIMITS = Object.freeze({total:256*1024*1024,photo:12*1024*1024,reference:20*1024*1024});
-export const PHONE_APPS = Object.freeze(['roles','engines','presets','library','gallery','notes','listen','settings','draw']);
-export const PHONE_WALLPAPERS = Object.freeze(['sky','silver','midnight','rose','sand']);
+export const PHONE_APPS = Object.freeze(['roles','engines','presets','library','gallery','notes','listen','settings','draw','chat']);
+export const PHONE_WALLPAPERS = Object.freeze(['sky','silver','midnight','rose','sand','aero']);
+export const PHONE_SKINS = Object.freeze(['sky','aero']);
 export const PHONE_GLYPHS = Object.freeze(['default',...PHONE_APPS,'wave','book','music','camera','sliders','note','person','microphone','star','headphones']);
 const STORES = ['notes','photos','favorites','phone','references'];
 const IMAGE_TYPES = new Set(['image/jpeg','image/png','image/webp','image/avif','image/gif']);
 const encoder = new TextEncoder();
-const defaults = () => ({wallpaper:{kind:'builtin',key:'sky'},icons:{},iconStyle:'color',lockOnOpen:false,volume:1});
+const defaults = () => ({wallpaper:{kind:'builtin',key:'sky'},icons:{},iconStyle:'color',skin:'sky',lockOnOpen:false,volume:1});
 const fail = (message,code='INVALID') => Object.assign(new Error(message),{code});
 function fields(value, allowed) {
  if(!value||Object.prototype.toString.call(value)!=='[object Object]')throw fail('请提供有效的设置内容');
@@ -160,11 +161,12 @@ export class LocalLibrary {
  }
  async getFavorite(id){return publicRow(await this.#read('favorites',identifier(id)));}
  async deleteFavorite(id){return this.#remove('favorites',id);}
- async getPhone(){const row=await this.#read('phone','preferences');if(!row)return defaults();const result=publicRow(row);delete result.id;delete result.createdAt;delete result.updatedAt;return result;}
+ async getPhone(){const row=await this.#read('phone','preferences');if(!row)return defaults();const result={...defaults(),...publicRow(row)};delete result.id;delete result.createdAt;delete result.updatedAt;if(!PHONE_SKINS.includes(result.skin))result.skin='sky';if(result.wallpaper?.kind==='builtin'&&!PHONE_WALLPAPERS.includes(result.wallpaper.key))result.wallpaper=defaults().wallpaper;return result;}
  async savePhone(patch){
-  fields(patch,['wallpaper','icons','iconStyle','lockOnOpen','volume']);
+  fields(patch,['wallpaper','icons','iconStyle','skin','lockOnOpen','volume']);
   let clean;try{clean=structuredClone(patch);}catch{throw fail('手机设置包含无法保存的内容');}
   if('iconStyle'in clean&&!['color','glass','mono'].includes(clean.iconStyle))throw fail('图标样式无效');
+  if('skin'in clean&&!PHONE_SKINS.includes(clean.skin))throw fail('主题风格无效');
   if('lockOnOpen'in clean&&typeof clean.lockOnOpen!=='boolean')throw fail('锁屏设置无效');
   if('volume'in clean&&(typeof clean.volume!=='number'||!Number.isFinite(clean.volume)||clean.volume<0||clean.volume>1))throw fail('音量必须在 0 到 1 之间');
   if('wallpaper'in clean)this.#appearance(clean.wallpaper,'wallpaper');

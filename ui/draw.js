@@ -25,8 +25,8 @@ export function drawApp(ctx) {
   }
   function costChip(q) {
     if (!api.keyStatus('nai')) return '<span class="chip" data-engine="none">未填密钥</span>';
-    if (q.free === true) return `<span class="chip">${icon(q.guard ? 'lock' : 'unlock')}免费档 · 0 Anlas</span>`;
-    if (q.free === false) return `<span class="chip warn">${icon('alert')}会扣 Anlas</span>`;
+    if (q.free === true) return `<span class="chip">${icon(q.guard ? 'lock' : 'unlock')}${q.v5 ? `V5 免费额度 ${q.usage.percent}%` : '免费档 · 0 Anlas'}</span>`;
+    if (q.free === false) return `<span class="chip warn">${icon('alert')}${q.v5 && q.usage && q.params.steps <= 28 && q.params.width * q.params.height <= 1048576 ? 'V5 免费额度用完 · 会扣 Anlas' : '会扣 Anlas'}</span>`;
     return `<span class="chip" data-engine="none">${icon(q.guard ? 'lock' : 'unlock')}免费档内 · 订阅未确认</span>`;
   }
 
@@ -51,20 +51,20 @@ export function drawApp(ctx) {
       + `<div class="actions">${btn('add-char', icon('add') + '从角色里添加', 'secondary')}${btn('add-custom', icon('add') + '手动添加', 'secondary')}</div>`;
     if (tab === 'params') body = `
       <div class="group pad">
-        ${field('模型', select('model', d.params.model, api.drawCatalog.models.map(m => [m, m])))}
+        ${field('模型', select('model', d.params.model, api.drawCatalog.models.map(m => [m, api.drawCatalog.modelNames[m] || m])), /^nai-diffusion-5/.test(d.params.model) ? 'V5 对 Opus 不是无限的：免费档内的图用一份会慢慢恢复的免费额度，用完后改扣 Anlas。V4.5 及更早的模型仍然无限。' : '')}
         <div class="field"><span>尺寸</span><div class="size-chips">${SIZES.map(([k, label, w, h]) => `<button data-action="size" data-size="${k}" aria-pressed="${size === k}" ${d.guard && w * h > 1048576 ? 'disabled' : ''}><i style="width:${w / 100}px;height:${h / 100}px"></i>${label}<small>${w}×${h}</small></button>`).join('')}</div></div>
         <div class="field"><div class="meter-label"><span>步数${d.guard ? ' · 免费档最多 28' : ''}</span><output>${d.params.steps}</output></div><input class="slider" type="range" data-param="steps" min="1" max="${d.guard ? 28 : 50}" value="${d.params.steps}" aria-label="步数"></div>
         <div class="field"><div class="meter-label"><span>提示词相关性 CFG</span><output>${d.params.scale.toFixed(1)}</output></div><input class="slider" type="range" data-param="scale" min="0" max="10" step="0.1" value="${d.params.scale}" aria-label="CFG"></div>
         ${field('采样器', select('sampler', d.params.sampler, api.drawCatalog.samplers.map(m => [m, m])))}
         ${field('噪声调度', select('schedule', d.params.schedule, api.drawCatalog.schedules.map(m => [m, m])))}
         <div class="field"><span>种子${help('填 -1 或留空表示每次随机。')}</span><div class="inline-row">${input('seed', seed >= 0 ? seed : '', 'number', 'min="-1" placeholder="随机"')}${btn('dice', icon('dice'), 'round-button', 'aria-label="随机一个种子"')}</div></div>
-        ${toggle('variety', 'Variety+', d.params.variety, '让构图更多变，适合 V4 / 4.5。')}
+        ${/^nai-diffusion-5/.test(d.params.model) ? '' : toggle('variety', 'Variety+', d.params.variety, '让构图更多变，适合 V4 / 4.5。')}
       </div>
       <div class="group">${toggle('guard', '免费档守卫', d.guard, '开启时步数不超过 28、尺寸不超过 1024×1024，不会发出扣 Anlas 的请求。关闭后，会扣点的生成每次都先问你。')}</div>`;
     if (tab === 'chat') body = `
       <div class="group">${toggle('enabled', '正文出图', d.enabled, '开启后，会把「预设 · 绘图」里的出图规则加进聊天请求，让模型在正文里写出图标签。')}${toggle('auto', '新回复自动出图', d.auto, '只在免费档内自动画；超出免费档或读不到订阅时，正文里会显示“点击生成”。')}</div>
       <div class="group pad"><p class="hint" style="padding:6px 0">模型写的标签长这样：</p><pre class="code-preview">${esc(api.picTagFormat)}</pre><p class="hint" style="padding:0">插件识别后拼上当前画风的固定串，再补上出场角色的外貌 tag（在角色 App 里填写），交给 NovelAI。图片会上传到酒馆，并存进相册。</p></div>
-      <div class="actions">${btn('open-presets', icon('edit') + '编辑出图规则', 'secondary')}</div>`;
+      <p class="hint">每条回复固定出 ${(d.presets.find(p => p.id === d.activePreset) || d.presets[0]).count} 张图，在出图规则里改张数。</p><div class="actions">${btn('open-presets', icon('edit') + '编辑出图规则', 'secondary')}</div>`;
     const sub = subscription ? `${TIERS[subscription.tier] || '订阅'} · ${subscription.anlas} Anlas` : keyed ? '读取中' : '';
     v.draw(heading('绘图', keyed ? `<span class="chip">${esc(sub)}</span>` : '', 'NovelAI')
       + (keyed ? '' : `<div class="banner">${icon('key')}<span>还没有填写 NovelAI 密钥。</span>${btn('go-key', '去填写', 'chip-button')}</div>`)

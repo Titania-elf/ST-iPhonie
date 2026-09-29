@@ -70,6 +70,7 @@ export interface Settings {
     presets: Preset[];
     floating?: { side: 'left' | 'right'; y: number };
     draw: DrawSettings;
+    chat: ChatSettings;
 }
 export interface DrawParams {
     model: string; width: number; height: number; steps: number; scale: number;
@@ -78,7 +79,7 @@ export interface DrawParams {
 /** 画风预设: artist and fixed tags sent to NovelAI. */
 export interface DrawStyle { id: string; name: string; artist: string; positive: string; negative: string; }
 /** 绘图预设: rules injected into the chat request so the model writes <img> tags. */
-export interface DrawPreset { id: string; name: string; injection: Injection; entries: PresetEntry[]; }
+export interface DrawPreset { id: string; name: string; /** Pictures per reply, 1 to drawCountMax. */ count: number; injection: Injection; entries: PresetEntry[]; }
 export interface DrawSettings {
     /** Inject the drawing preset into chat requests. */
     enabled: boolean;
@@ -91,12 +92,31 @@ export interface DrawSettings {
     presets: DrawPreset[]; activePreset: string;
 }
 export interface DrawSettingsPatch { enabled?: boolean; auto?: boolean; guard?: boolean; params?: Partial<DrawParams>; activeStyle?: string; activePreset?: string; }
-export interface NovelAISubscription { tier: number; active: boolean; unlimited: boolean; anlas: number; checkedAt: number; }
-export interface DrawQuote { params: DrawParams; clamped: boolean; /** null when the subscription is unknown. */ free: boolean | null; guard: boolean; }
+/** unlimited: an active Opus subscription (free small images). usage: the V5 allowance, when NovelAI reports it. */
+export interface NovelAISubscription { tier: number; active: boolean; unlimited: boolean; usage: { percent: number; negative: boolean } | null; anlas: number; checkedAt: number; }
+export interface DrawQuote { params: DrawParams; clamped: boolean; /** null when the subscription is unknown. */ free: boolean | null; guard: boolean; v5: boolean; usage: NovelAISubscription['usage']; }
 export interface DrawCharacter { prompt: string; negative?: string; /** 0-24 on a 5x5 grid, -1 lets the model decide. */ position: number; }
 export interface DrawInput { prompt: string; negative?: string; characters?: DrawCharacter[]; params?: Partial<DrawParams>; allowPaid?: boolean; name?: string; }
 export interface DrawResult { photoId: string; seed: number; params: DrawParams; prompt: string; }
 export interface SettingsSnapshot { state: Settings; revision: number; }
+
+/** 聊天预设: how phone contacts reply, how much they see, and how a chat is brought into the story. */
+export interface ChatPreset {
+    id: string; name: string;
+    /** Recent story messages the reply prompt includes (0-40). */ context: number;
+    /** Recent chat messages the reply prompt includes (2-200). */ history: number;
+    /** Template for 带进剧情; must contain {{聊天记录}}. */ bring: string;
+    /** Where the brought chat is injected into the next story request. */ injection: Injection;
+    entries: Array<{ id: string; title: string; enabled: boolean; text: string }>;
+}
+/** A contact added by hand; story roles come from the 角色 App. */
+export interface Contact { id: string; name: string; persona: string; }
+export interface ChatSettings { presets: ChatPreset[]; activePreset: string; contacts: Contact[]; }
+export interface ChatContact { name: string; source: 'role' | 'manual'; id?: string; voice: boolean; engine: Engine | 'none'; language: string; persona: string; }
+export interface ChatMessage { id: string; from: 'me' | string; kind: 'text' | 'voice' | 'photo' | 'system'; text: string; translation?: string; emotion?: string; photoId?: string; at: number; }
+export interface ChatThread { id: string; type: 'dm' | 'group'; name: string; members: string[]; unread: number; createdAt: number; updatedAt: number; messages: ChatMessage[]; }
+export interface ChatThreadSummary extends Omit<ChatThread, 'messages'> { count: number; last: ChatMessage | null; }
+export type ChatMessageInput = Omit<ChatMessage, 'id' | 'at'>;
 export interface PromptPlanEntry {
     key: string;
     text: string;
@@ -184,8 +204,10 @@ export interface VoiceList {
     note: string;
 }
 
-export type PhoneApp = 'roles' | 'engines' | 'presets' | 'library' | 'gallery' | 'notes' | 'listen' | 'settings';
-export type BuiltinWallpaper = 'sky' | 'silver' | 'midnight' | 'rose' | 'sand';
+export type PhoneApp = 'roles' | 'engines' | 'presets' | 'library' | 'gallery' | 'notes' | 'listen' | 'settings' | 'draw' | 'chat';
+export type BuiltinWallpaper = 'sky' | 'silver' | 'midnight' | 'rose' | 'sand' | 'aero';
+/** Look of the whole phone: colours, cards, buttons and icons. Each skin also has a matching wallpaper of the same key. */
+export type PhoneSkin = 'sky' | 'aero';
 export type PhoneGlyph = 'default' | PhoneApp | 'wave' | 'book' | 'music' | 'camera' | 'sliders' | 'note' | 'person' | 'microphone' | 'star' | 'headphones';
 export type Wallpaper = { kind: 'builtin'; key: BuiltinWallpaper } | { kind: 'photo'; photoId: string };
 export type AppIcon = { kind: 'glyph'; key: PhoneGlyph } | { kind: 'photo'; photoId: string };
@@ -193,6 +215,7 @@ export interface PhonePreferences {
     wallpaper: Wallpaper;
     icons: Partial<Record<PhoneApp, AppIcon>>;
     iconStyle: 'color' | 'glass' | 'mono';
+    skin: PhoneSkin;
     lockOnOpen: boolean;
     volume: number;
     theme: Theme;
@@ -205,6 +228,7 @@ export interface PhoneCatalog {
     readonly apps: readonly PhoneApp[];
     readonly wallpapers: readonly BuiltinWallpaper[];
     readonly glyphs: readonly PhoneGlyph[];
+    readonly skins: readonly PhoneSkin[];
 }
 export interface LocalTimestamps { createdAt: number; updatedAt: number; }
 export interface Note extends LocalTimestamps { id: string; title: string; text: string; }
@@ -250,7 +274,9 @@ export type BackendEvent =
     | { type: 'keys'; revision: number; engine: Engine; configured: boolean }
     | { type: 'library'; revision: number; collection: LibraryCollection }
     | { type: 'phone'; revision: number; preferences: PhonePreferences }
-    | { type: 'draw'; revision: number; phase?: 'generating' | 'done' | 'error'; message?: string; subscription?: NovelAISubscription };
+    | { type: 'draw'; revision: number; phase?: 'generating' | 'done' | 'error'; message?: string; subscription?: NovelAISubscription }
+    /** A chat changed; typing is set while a reply is being generated. threadId is null when a chat was created. */
+    | { type: 'chat'; revision: number; threadId: string | null; typing?: boolean; bring?: boolean };
 
 /** Framework-independent facade. Methods may throw validation/lifecycle errors. */
 export interface BackendFacade {
@@ -260,7 +286,9 @@ export interface BackendFacade {
     readonly phoneCatalog: PhoneCatalog;
     readonly picTagFormat: string;
     readonly defaultDrawRule: string;
-    readonly drawCatalog: { readonly models: readonly string[]; readonly samplers: readonly string[]; readonly schedules: readonly string[] };
+    readonly drawCountMax: number;
+    readonly defaultChatPreset: Omit<ChatPreset, 'id'>;
+    readonly drawCatalog: { readonly models: readonly string[]; readonly modelNames: Readonly<Record<string, string>>; readonly samplers: readonly string[]; readonly schedules: readonly string[] };
     getState(): Settings;
     getSnapshot(): SettingsSnapshot;
     save(next: Settings, expectedRevision?: number): Settings;
@@ -335,6 +363,31 @@ export interface BackendFacade {
     getPhone(): Promise<PhonePreferences>;
     savePhone(patch: PhonePatch): Promise<PhonePreferences>;
     libraryStats(): Promise<LibraryStats>;
+    saveChatPreset(preset: Partial<ChatPreset> & { name: string }): ChatPreset;
+    deleteChatPreset(id: string): ChatSettings;
+    selectChatPreset(id: string): ChatSettings;
+    /** Reply prompt with sample chat content, for the preset editor. */
+    previewChatPrompt(preset?: ChatPreset): string;
+    /** Empty string when the preset is valid. */
+    validateChatPreset(preset: ChatPreset): string;
+    saveContact(contact: Partial<Contact> & { name: string }): Contact;
+    deleteContact(id: string): ChatSettings;
+    /** Story roles (角色 App) first, then manual contacts. */
+    chatContacts(): ChatContact[];
+    listThreads(): Promise<ChatThreadSummary[]>;
+    getThread(id: string): Promise<ChatThread | null>;
+    chatUnread(): Promise<number>;
+    createThread(value: { type: 'dm' | 'group'; members: string[]; name?: string }): Promise<ChatThread>;
+    updateThread(id: string, patch: { name?: string; members?: string[] }): Promise<ChatThread>;
+    deleteThread(id: string): Promise<boolean>;
+    /** read: the chat is on screen, so new replies do not count as unread. */
+    appendChat(id: string, messages: ChatMessageInput[], options?: { read?: boolean }): Promise<ChatThread>;
+    deleteChatMessages(id: string, ids: string[]): Promise<ChatThread>;
+    markThreadRead(id: string): Promise<ChatThread>;
+    /** Plays a voice message through the normal player. */
+    speak(line: { role: string; text: string; emotion?: string; translation?: string }): Promise<void> | void;
+    /** The voice tag format voice messages use (the active voice preset's format). */
+    voiceFormat(): string;
 }
 
 export interface LatestMessage { id: number; lines: ParsedDialogueLine[]; }
@@ -354,6 +407,14 @@ export interface BackendAPI extends BackendFacade {
     suggestPrompt(): Promise<string>;
     /** A picture the chat asked to open in the drawing app, if any. */
     takeDraw(): (DrawInput & { tag?: string; seed?: number }) | null;
+    /** Generates the contacts' next messages with the tavern's connected model and stores them. */
+    chatReply(threadId: string): Promise<ChatThread>;
+    /** Prepares chat messages to be injected once into the next story reply. */
+    chatBring(threadId: string, messageIds: string[]): Promise<{ threadId: string; name: string; count: number; text: string }>;
+    chatPendingBring(): { threadId: string; name: string; count: number } | null;
+    chatCancelBring(): void;
+    /** True while a reply for this chat is being generated. */
+    chatTyping(threadId: string): boolean;
 }
 export interface PanelHostBridge { connect(source: Window): BackendAPI; }
 

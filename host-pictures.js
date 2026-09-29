@@ -1,4 +1,4 @@
-// In-chat pictures: fills the placeholders left by <img prompt="…"> tags, generates them with NovelAI,
+// In-chat pictures: fills the placeholders left by <img>…</img> tags, generates them with NovelAI,
 // uploads the result to the tavern's image folder and remembers it on the message (message.extra.sttts_pics),
 // so every device that opens the chat sees the same picture.
 import {parsePictures, pictureInputs} from './core/draw.js';

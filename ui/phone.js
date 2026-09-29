@@ -9,9 +9,10 @@ import {presetsApp} from './presets.js';
 import {libraryApp, galleryApp, notesApp, listenApp} from './media-apps.js';
 import {settingsApp} from './settings.js';
 import {drawApp} from './draw.js';
+import {chatApp} from './chat.js';
 
 // App factories, keyed by the ids in apps.js.
-const FACTORIES = {roles: rolesApp, engines: enginesApp, presets: presetsApp, library: libraryApp, gallery: galleryApp, notes: notesApp, listen: listenApp, settings: settingsApp, draw: drawApp};
+const FACTORIES = {roles: rolesApp, engines: enginesApp, presets: presetsApp, library: libraryApp, gallery: galleryApp, notes: notesApp, listen: listenApp, settings: settingsApp, draw: drawApp, chat: chatApp};
 const ACTIVE_PHASES = ['playing', 'paused', 'generating', 'waiting'];
 
 const SIGNAL = '<svg viewBox="0 0 18 12" fill="currentColor" aria-hidden="true"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>';
@@ -22,7 +23,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   const views = new Map(), assets = new Map();
   const media = win.matchMedia('(prefers-color-scheme: dark)'), motion = win.matchMedia('(prefers-reduced-motion: reduce)');
   let panelVisible = true, active = null, locked = false, sheet = null, disposed = false;
-  let preferences = null, appearanceKey = '', appearanceEpoch = 0, toastTimer, animation, openTimer;
+  let preferences = null, appearanceKey = '', appearanceEpoch = 0, toastTimer, animation, openTimer, unread = 0, unreadTimer;
   let playback = api.status();
 
   mount.innerHTML = `
@@ -197,6 +198,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   function applyThemeMode() {
     const mode = preferences?.theme || api.getState().theme;
     doc.documentElement.dataset.theme = mode === 'system' ? (media.matches ? 'dark' : 'light') : mode;
+    doc.documentElement.dataset.skin = preferences?.skin || 'sky';
   }
   function theme() {
     applyThemeMode();
@@ -209,7 +211,8 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     const meta = APPS[id], custom = preferences?.icons?.[id], [t1, t2, tac] = meta.colors;
     const image = custom?.kind === 'photo' ? assets.get(custom.photoId) : null;
     const art = image ? `<img src="${esc(image)}" alt="">` : glyph(custom?.kind === 'glyph' && custom.key !== 'default' ? custom.key : id);
-    return `<button class="app-icon" data-app="${id}" aria-label="${esc(meta.name)}"><span class="icon-tile" style="--t1:${t1};--t2:${t2};--tac:${tac}">${art}</span><span class="app-label">${esc(meta.name)}</span></button>`;
+    const badge = id === 'chat' && unread ? `<span class="badge app-badge">${unread > 99 ? '99+' : unread}</span>` : '';
+    return `<button class="app-icon" data-app="${id}" aria-label="${esc(meta.name)}${badge ? `，${unread} 条未读` : ''}"><span class="icon-tile" style="--t1:${t1};--t2:${t2};--tac:${tac}">${art}</span>${badge}<span class="app-label">${esc(meta.name)}</span></button>`;
   }
   function renderHome() {
     const pages = HOME.pages.map((ids, index) => `<div class="home-page">${index === 0
@@ -261,8 +264,8 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     const photo = phone.wallpaper.kind === 'photo' ? assets.get(phone.wallpaper.photoId) : null;
     const look = wallpaperLook(phone.wallpaper.key, dark);
     const vars = photo
-      ? {'--wall': `linear-gradient(#0000001f,#0000001f),url("${photo}")`, '--wall-size': 'cover', '--wall-ink': '#fff', '--label-halo': '#000'}
-      : {'--wall': look.background, '--wall-size': look.size || 'auto', '--wall-ink': look.ink, '--clock-stroke': look.stroke, '--clock-shadow': look.shadow || look.stroke, '--label-halo': look.halo};
+      ? {'--wall': `linear-gradient(#0000001f,#0000001f),url("${photo}")`, '--wall-size': 'cover', '--wall-pos': 'center', '--wall-ink': '#fff', '--label-halo': '#000'}
+      : {'--wall': look.background, '--wall-size': look.size || 'auto', '--wall-pos': look.pos || 'center', '--wall-ink': look.ink, '--clock-stroke': look.stroke, '--clock-shadow': look.shadow || look.stroke, '--label-halo': look.halo};
     for (const [name, value] of Object.entries(vars)) screen.style.setProperty(name, value);
     screen.dataset.clockStyle = photo ? 'shade' : look.clock;
     screen.dataset.iconStyle = phone.iconStyle;
@@ -427,7 +430,20 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     }
     if (event.type === 'audio-ready') views.get('listen')?.onPlayback?.(api.status());
     if (event.type === 'draw') views.get('draw')?.onDraw?.(event);
+    if (event.type === 'chat') { run(() => views.get('chat')?.onChat?.(event)); countUnread(); }
+    if (event.type === 'settings') run(() => views.get('chat')?.onChat?.({}));
   });
+
+  // Unread chat messages, shown as a badge on the chat icon.
+  function countUnread() {
+    win.clearTimeout(unreadTimer);
+    unreadTimer = win.setTimeout(() => run(async () => {
+      const n = await api.chatUnread();
+      if (disposed || n === unread) return;
+      unread = n;
+      renderHome();
+    }), 120);
+  }
 
   // ---------- Host hooks ----------
   const previousOpenRole = win.stTtsOpenRole, previousVisibility = win.stTtsPanelVisibility, previousOpenDraw = win.stTtsOpenDraw;
@@ -460,6 +476,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     win.clearInterval(clockTimer);
     win.clearTimeout(toastTimer);
     win.clearTimeout(openTimer);
+    win.clearTimeout(unreadTimer);
     win.cancelAnimationFrame(animation);
     win.stTtsOpenRole = previousOpenRole;
     win.stTtsPanelVisibility = previousVisibility;
@@ -469,6 +486,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   applyThemeMode();
   renderHome();
   const clockTimer = win.setInterval(clock, 15000);
+  countUnread();
   paintPlayback(playback);
 
   const fallback = {wallpaper: {kind: 'builtin', key: 'sky'}, icons: {}, iconStyle: 'color', lockOnOpen: false, volume: api.getVolume(), theme: api.getState().theme};

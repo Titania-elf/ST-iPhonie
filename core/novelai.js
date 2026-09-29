@@ -2,15 +2,23 @@
 // The key stays in this browser; nothing here goes through the tavern server.
 
 export const NAI_HOST = 'https://image.novelai.net';
-export const NAI_MODELS = ['nai-diffusion-4-5-full', 'nai-diffusion-4-5-curated', 'nai-diffusion-4-full', 'nai-diffusion-4-curated-preview', 'nai-diffusion-3'];
+export const NAI_MODELS = ['nai-diffusion-5-full', 'nai-diffusion-5-curated', 'nai-diffusion-4-5-full', 'nai-diffusion-4-5-curated', 'nai-diffusion-4-full', 'nai-diffusion-4-curated-preview', 'nai-diffusion-3'];
+export const NAI_MODEL_NAMES = {
+  'nai-diffusion-5-full': 'V5 Full', 'nai-diffusion-5-curated': 'V5 Curated', 'nai-diffusion-4-5-full': 'V4.5 Full', 'nai-diffusion-4-5-curated': 'V4.5 Curated',
+  'nai-diffusion-4-full': 'V4 Full', 'nai-diffusion-4-curated-preview': 'V4 Curated', 'nai-diffusion-3': 'Anime V3'
+};
 export const NAI_SAMPLERS = ['k_euler_ancestral', 'k_euler', 'k_dpmpp_2s_ancestral', 'k_dpmpp_2m_sde', 'k_dpmpp_2m', 'k_dpmpp_sde'];
 export const NAI_SCHEDULES = ['karras', 'exponential', 'polyexponential'];
-// Free for Opus subscribers: one image, at most 28 steps and 1024x1024 pixels.
+// Free for active Opus subscribers: one image, at most 28 steps and 1024x1024 pixels.
+// V4.5 and older are unlimited; V5 draws from a recharging allowance (subscription.usage.percent) and falls back to Anlas when it runs out.
 export const FREE_STEPS = 28;
 export const FREE_PIXELS = 1024 * 1024;
+export const V5_MIN_PERCENT = 2;
 const REFERENCE_PIXELS = 832 * 1216;
 
-export const isV4 = model => /^nai-diffusion-4/.test(model);
+/** V4, V4.5 and V5 take v4_prompt with per-character captions. */
+export const isV4 = model => /^nai-diffusion-[45]/.test(model);
+export const isV5 = model => /^nai-diffusion-5/.test(model);
 
 export function defaultDrawParams() {
   return {model: 'nai-diffusion-4-5-full', width: 832, height: 1216, steps: 28, scale: 5, sampler: 'k_euler_ancestral', schedule: 'karras', seed: -1, cfgRescale: 0, variety: false};
@@ -28,16 +36,20 @@ export function normalizeDrawParams(value = {}) {
   p.scale = num(p.scale, 0, 10, base.scale, .1);
   p.cfgRescale = num(p.cfgRescale, 0, 1, 0, .02);
   p.seed = num(p.seed, -1, 4294967295, -1);
-  p.variety = !!p.variety;
+  p.variety = !!p.variety && !isV5(p.model);
   return p;
 }
 
-/** True only when the request is covered by an unlimited subscription; null when the subscription is unknown. */
+/** True when an active Opus subscription covers the request; false when it costs Anlas; null when that cannot be told yet. */
 export function isFree(params, subscription) {
   const small = params.steps <= FREE_STEPS && params.width * params.height <= FREE_PIXELS;
   if (!small) return false;
   if (!subscription) return null;
-  return !!subscription.unlimited;
+  if (!subscription.unlimited) return false;
+  if (!isV5(params.model)) return true;
+  const usage = subscription.usage;
+  if (!usage) return null;
+  return !usage.negative && usage.percent >= V5_MIN_PERCENT;
 }
 
 /** Clamps parameters into the free range while keeping the aspect ratio (multiples of 64). */
@@ -62,10 +74,10 @@ export function buildImageRequest({prompt, negative = '', characters = [], param
   const p = normalizeDrawParams(params);
   const seed = p.seed >= 0 ? p.seed : Math.floor(Math.random() * 4294967295);
   const parameters = {
-    params_version: 3, width: p.width, height: p.height, scale: p.scale, sampler: p.sampler, steps: p.steps, n_samples: 1, seed,
+    params_version: isV5(p.model) ? 4 : 3, width: p.width, height: p.height, scale: p.scale, sampler: p.sampler, steps: p.steps, n_samples: 1, seed,
     ucPreset: 0, qualityToggle: false, dynamic_thresholding: false, controlnet_strength: 1, legacy: false, add_original_image: false,
     cfg_rescale: p.cfgRescale, noise_schedule: p.schedule, legacy_v3_extend: false, deliberate_euler_ancestral_bug: false, prefer_brownian: true,
-    skip_cfg_above_sigma: p.variety ? Math.pow(p.width * p.height / REFERENCE_PIXELS, .5) * (p.model.includes('4-5') ? 58 : 19) : null,
+    skip_cfg_above_sigma: p.variety && !isV5(p.model) ? Math.pow(p.width * p.height / REFERENCE_PIXELS, .5) * (p.model.includes('4-5') ? 58 : 19) : null,
     negative_prompt: negative
   };
   if (isV4(p.model)) {
@@ -117,6 +129,15 @@ export async function unzipFirstImage(buffer) {
   throw Error('NovelAI 返回的压缩包里没有图片');
 }
 
+/** Subscription summary. Opus (tier 3) while active means free small images; `usage` is the V5 allowance when NovelAI reports it. */
+export function readSubscription(data = {}) {
+  const steps = data.trainingStepsLeft || {}, tier = Number(data.tier) || 0, active = data.active === true;
+  const usage = data.usage && Number.isFinite(Number(data.usage.percent)) ? {percent: Math.max(0, Math.min(100, Math.round(Number(data.usage.percent)))), negative: data.usage.isNegative === true} : null;
+  const unlimited = active && (tier === 3 || data.perks?.unlimitedImageGeneration === true);
+  const anlas = typeof steps === 'number' ? steps : (Number(steps.fixedTrainingStepsLeft) || 0) + (Number(steps.purchasedTrainingSteps) || 0);
+  return {tier, active, unlimited, usage, anlas, checkedAt: Date.now()};
+}
+
 function failure(status, text) {
   if (status === 401) return Error('NovelAI 密钥无效或已过期，请在引擎卡包里重新填写');
   if (status === 402) return Error('Anlas 不足，或当前订阅不支持这次生成');
@@ -136,9 +157,7 @@ export class NovelAIClient {
   async subscription(signal) {
     const response = await this.fetch(NAI_HOST + '/user/subscription', {headers: this.headers(), signal});
     if (!response.ok) throw failure(response.status, await response.text().catch(() => ''));
-    const data = await response.json();
-    const steps = data.trainingStepsLeft || {};
-    return {tier: Number(data.tier) || 0, active: !!data.active, unlimited: !!data.perks?.unlimitedImageGeneration, anlas: (Number(steps.fixedTrainingStepsLeft) || 0) + (Number(steps.purchasedTrainingSteps) || 0), checkedAt: Date.now()};
+    return readSubscription(await response.json());
   }
   async generate(body, signal) {
     const response = await this.fetch(NAI_HOST + '/ai/generate-image', {method: 'POST', headers: this.headers(), body: JSON.stringify(body), signal});

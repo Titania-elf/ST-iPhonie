@@ -20,6 +20,7 @@ const GLYPHS = {
   wave: '<path d="M10 28v8M18 20v24M26 12v40M34 22v20M42 16v32M50 26v12" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><path d="M56 6c.6 2.8 1.3 3.5 4 4-2.7.6-3.4 1.3-4 4-.6-2.7-1.3-3.4-4-4 2.7-.5 3.4-1.2 4-4z" fill="var(--tac)"/>',
   star: '<path d="m32 7 7.4 15 16.6 2.4-12 11.7 2.8 16.5L32 44.8l-14.8 7.8L20 36.1 8 24.4l16.6-2.4z"/><circle cx="26" cy="30" r="2.4" fill="var(--t2)"/><circle cx="38" cy="30" r="2.4" fill="var(--t2)"/><ellipse cx="23" cy="36" rx="3" ry="1.6" fill="var(--tac)"/><ellipse cx="41" cy="36" rx="3" ry="1.6" fill="var(--tac)"/>',
   music: '<path d="M24 46V14l26-6v32" fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round"/><circle cx="18" cy="46" r="8"/><circle cx="44" cy="40" r="8"/><path d="M24 20l26-6" stroke="var(--tac)" stroke-width="4"/>',
+  chat: '<path d="M8 12h34a4 4 0 0 1 4 4v18a4 4 0 0 1-4 4H22l-9 7v-7H8a4 4 0 0 1-4-4V16a4 4 0 0 1 4-4z"/><path d="M50 22h4a4 4 0 0 1 4 4v16a4 4 0 0 1-4 4h-2v6l-8-6H30" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linejoin="round"/><circle cx="15" cy="25" r="3" fill="var(--t2)"/><circle cx="25" cy="25" r="3" fill="var(--t2)"/><circle cx="35" cy="25" r="3" fill="var(--t2)"/><ellipse cx="13" cy="31" rx="3" ry="1.7" fill="var(--tac)"/>',
   sliders: '<path d="M12 18h40M12 32h40M12 46h40" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><circle cx="24" cy="18" r="6" fill="var(--tac)"/><circle cx="42" cy="32" r="6" fill="var(--tac)"/><circle cx="30" cy="46" r="6" fill="var(--tac)"/>'
 };
 
@@ -46,7 +47,10 @@ const LINES = {
   nfc: 'M8 8a6 6 0 0 1 0 8M11.5 5.5a10 10 0 0 1 0 13M15 3a14 14 0 0 1 0 18', sun: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M5 19l1.4-1.4M17.6 6.4 19 5',
   float: 'M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18zM9 12h.01M15 12h.01', volume: 'M4 9v6h4l5 4V5L8 9zM16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11',
   spin: 'M12 3a9 9 0 1 0 9 9', music: 'M10 17V4l10-2v13M10 7l10-2M4 17a3 3 0 1 0 6 0 3 3 0 1 0-6 0M14 15a3 3 0 1 0 6 0 3 3 0 1 0-6 0',
-  sliders: 'M4 7h16M4 17h16M9 4v6M15 14v6', paint: 'M4 20c3 0 4-2 4-4a3 3 0 0 1 3-3l9-9-3-3-9 9a3 3 0 0 1-3 3c-2 0-4 1-4 4z', dice: 'M5 5h14v14H5zM9 9h.01M15 15h.01M15 9h.01M9 15h.01', wand: 'M4 20 16 8M14 4v3M18 8h3M17 5l2-2M19 11l2 1', insert: 'M4 6h16M4 12h9M4 18h9M17 14v6M14 17h6', layers: 'M12 3 3 8l9 5 9-5zM3 13l9 5 9-5', unlock: 'M7 11V8a5 5 0 0 1 9.6-2M5 11h14v10H5z', edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4', mic: 'M9 4a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0zM5 11a7 7 0 0 0 14 0M12 18v3'
+  sliders: 'M4 7h16M4 17h16M9 4v6M15 14v6', paint: 'M4 20c3 0 4-2 4-4a3 3 0 0 1 3-3l9-9-3-3-9 9a3 3 0 0 1-3 3c-2 0-4 1-4 4z', dice: 'M5 5h14v14H5zM9 9h.01M15 15h.01M15 9h.01M9 15h.01', wand: 'M4 20 16 8M14 4v3M18 8h3M17 5l2-2M19 11l2 1', insert: 'M4 6h16M4 12h9M4 18h9M17 14v6M14 17h6', layers: 'M12 3 3 8l9 5 9-5zM3 13l9 5 9-5', unlock: 'M7 11V8a5 5 0 0 1 9.6-2M5 11h14v10H5z', edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4', mic: 'M9 4a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0zM5 11a7 7 0 0 0 14 0M12 18v3',
+  chat: 'M5 5h14v10H10l-5 4z', send: 'M4 11.5 20 4l-6.5 16-2.5-6.5zM11 13.5 20 4', reply: 'M10 7 4 12l6 5M4 12h10a6 6 0 0 1 6 6v1',
+  book: 'M5 4h10a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h10', group: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6M3 19c0-3 2.7-5 6-5s6 2 6 5M16 5a3 3 0 0 1 0 6M17.5 14c2 .6 3.5 2.4 3.5 5',
+  person: 'M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M4 21c0-4 3.6-7 8-7s8 3 8 7', copy: 'M8 8h11v11H8zM5 16V5h11', more: 'M5 12h.01M12 12h.01M19 12h.01'
 };
 
 export function icon(key, filled = false) {

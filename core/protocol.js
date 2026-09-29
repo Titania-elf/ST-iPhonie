@@ -1,6 +1,11 @@
 export const DEFAULT_PROMPT = "正常续写正文与叙事，不要改变角色人设或写作风格。\n每一次角色真正说出口的台词，都必须完整写成 {{格式}}，不得留下没有语音标签的对白。标签前的译文是完整、自然的中文；标签内的文本是同一句台词的完整原语言版本，逐句对应、语义与信息完全一致，不概括、不漏译、不额外扩写。\n角色、情绪、译文和文本都必须填写实际内容。台词语言遵循：{{语言}}。旁白、动作、环境和心理描写继续写成普通正文。\n不要解释规则或输出代码块，不为未说出口的内容生成语音标签。";
 export const isPlaceholderRole=name=>/^\{\{?\s*(?:角色|角色名|role|speaker|char)\s*\}?\}$/iu.test(String(name).trim());
-export const DEFAULT_FORMAT = '“{译文}”<tts role="{角色}" emotion="{情绪}">{文本}</tts>';
+// Plain paired tags (no attributes), so other plugins that exclude <tag></tag> blocks can drop the voice text.
+export const DEFAULT_FORMAT = '“{译文}”<tts>{角色}|{情绪}|{文本}</tts>';
+// Earlier default; replies written with it keep their waves.
+export const LEGACY_FORMATS = Object.freeze(['“{译文}”<tts role="{角色}" emotion="{情绪}">{文本}</tts>']);
+/** Formats tried when reading a reply: the active preset first, then the other presets, then the built-in ones. */
+export function knownFormats(settings){const p=settings.presets.find(p=>p.id===settings.activePreset);return [...new Set([p?.format,...settings.presets.map(p=>p.format),DEFAULT_FORMAT,...LEGACY_FORMATS].filter(Boolean))];}
 const fields=['译文','角色','情绪','文本'];
 export const escapeHTML=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function decodeText(s){return s.replace(/&(?:amp|lt|gt|quot|apos|#\d+|#x[\da-f]+);/gi,m=>{const names={'&amp;':'&','&lt;':'<','&gt;':'>','&quot;':'"','&apos;':"'"};if(names[m.toLowerCase()])return names[m.toLowerCase()];const hex=m[2].toLowerCase()==='x',n=parseInt(m.slice(hex?3:2,-1),hex?16:10);return n>0&&n<=0x10ffff?String.fromCodePoint(n):m;});}

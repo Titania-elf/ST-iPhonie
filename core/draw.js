@@ -1,4 +1,4 @@
-// Drawing settings, the LLM-facing drawing preset, and <img prompt="…"> tags in chat text.
+// Drawing settings, the LLM-facing drawing preset, and <img>…</img> picture tags in chat text.
 //
 // Two kinds of preset live here:
 //   styles  - "画风预设" edited in the drawing app: artist tags, fixed positive and fixed negative tags for NovelAI.
@@ -6,8 +6,26 @@
 import {defaultDrawParams, normalizeDrawParams, guardParams} from './novelai.js';
 import {escapeHTML, isPlaceholderRole} from './protocol.js';
 
-export const PIC_TAG_FORMAT = '<img prompt="英文画面 tag，逗号分隔" characters="画面里的角色名，逗号分隔">';
+// Plain paired tag without attributes, so plugins that exclude <tag></tag> blocks can drop it: <img>prompt|characters</img>.
+export const PIC_TAG_FORMAT = '<img>英文画面 tag，逗号分隔|画面里的角色名，逗号分隔</img>';
 export const DEFAULT_DRAW_RULE = [
+  '在这条回复里挑出 {{出图数量}} 个最有画面感的时刻（换了场景、重要动作、角色登场、情绪到了高点），在每个时刻那一段正文后面单独写一个出图标签，格式：',
+  '{{出图格式}}',
+  '竖线前用英文 danbooru tag 描述这一刻的画面：人数（1girl、2girls、1boy 等）、动作、表情、服装、场景、光线、镜头构图，用英文逗号分隔。不要写画师名和质量词，也不要写角色固定的外貌特征，这些会自动补上。',
+  '竖线后写画面里出现的角色名，用逗号分隔，只写这些名字：{{角色列表}}。画面里没有这些角色时，连同竖线一起省略。',
+  '不要解释这些标签，也不要放进代码块。'
+].join('\n');
+export const DRAW_COUNT_MAX = 10;
+/** Appended after the preset's own rules, so every preset asks for exactly its picture count. */
+export const drawContract = count => [
+  '【出图硬性规则】',
+  `这条回复必须正好写 ${count} 个出图标签，不能多也不能少，也不能省略。`,
+  count > 1 ? '标签分开放在正文里不同的位置，各自描述不同的画面，每个标签单独占一行。' : '标签单独占一行，放在最有画面感的那一段后面。',
+  '标签严格照这个格式写并闭合：{{出图格式}}',
+  '写完正文后自己数一遍标签数量，不对就补上或删掉，再输出。不输出核对过程。'
+].join('\n');
+// The rule text written for the earlier <img prompt="…"> tag. Saved presets that still hold it word for word are updated on load.
+const LEGACY_DRAW_RULE = [
   '画面有明显变化时（换了场景、重要动作、角色登场、情绪到了高点），在那一段正文后面单独写一个出图标签，格式：',
   '{{出图格式}}',
   'prompt 用英文 danbooru tag 描述这一刻的画面：人数（1girl、2girls、1boy 等）、动作、表情、服装、场景、光线、镜头构图，用英文逗号分隔。不要写画师名和质量词，也不要写角色固定的外貌特征，这些会自动补上。',
@@ -15,7 +33,7 @@ export const DEFAULT_DRAW_RULE = [
   '每条回复最多写一个出图标签。不要解释这个标签，也不要放进代码块。'
 ].join('\n');
 const DEFAULT_STYLE = {id: 'default', name: '默认画风', artist: '', positive: 'masterpiece, best quality, very aesthetic, absurdres', negative: 'lowres, bad anatomy, bad hands, text, error, missing fingers, extra digits, cropped, worst quality, jpeg artifacts, signature, watermark, blurry'};
-const DEFAULT_PRESET = {id: 'default', name: '默认出图规则', injection: {position: 'in_chat', depth: 1, role: 'system'}, entries: [{id: 'rule', title: '出图规则', enabled: true, text: DEFAULT_DRAW_RULE}]};
+const DEFAULT_PRESET = {id: 'default', name: '默认出图规则', count: 1, injection: {position: 'in_chat', depth: 1, role: 'system'}, entries: [{id: 'rule', title: '出图规则', enabled: true, text: DEFAULT_DRAW_RULE}]};
 
 export function defaultDraw() {
   return {enabled: false, auto: true, guard: true, params: defaultDrawParams(), styles: [structuredClone(DEFAULT_STYLE)], activeStyle: 'default', presets: [structuredClone(DEFAULT_PRESET)], activePreset: 'default'};
@@ -34,8 +52,9 @@ export function normalizeDraw(value) {
   d.activeStyle = d.styles.some(s => s.id === d.activeStyle) ? d.activeStyle : d.styles[0].id;
   d.presets = (Array.isArray(d.presets) && d.presets.length ? d.presets : base.presets).map(p => ({
     id: String(p.id || crypto.randomUUID()), name: text(p.name, 60) || '出图规则',
+    count: Math.min(DRAW_COUNT_MAX, Math.max(1, Math.round(Number(p.count)) || 1)),
     injection: {...DEFAULT_PRESET.injection, ...p.injection},
-    entries: (Array.isArray(p.entries) ? p.entries : []).map(e => ({id: String(e.id || crypto.randomUUID()), title: text(e.title, 80), enabled: e.enabled !== false, text: text(e.text, 20000), ...(e.injection ? {injection: {...DEFAULT_PRESET.injection, ...e.injection}} : {})}))
+    entries: (Array.isArray(p.entries) ? p.entries : []).map(e => ({id: String(e.id || crypto.randomUUID()), title: text(e.title, 80), enabled: e.enabled !== false, text: e.text === LEGACY_DRAW_RULE ? DEFAULT_DRAW_RULE : text(e.text, 20000), ...(e.injection ? {injection: {...DEFAULT_PRESET.injection, ...e.injection}} : {})}))
   }));
   d.activePreset = d.presets.some(p => p.id === d.activePreset) ? d.activePreset : d.presets[0].id;
   return d;
@@ -49,7 +68,7 @@ export function validateDrawPreset(p) {
   }
   const body = p.entries.filter(e => e.enabled).map(e => e.text).join('\n');
   if (!body.trim()) throw Error('至少启用一条出图规则');
-  if (!body.includes('{{出图格式}}') && !/<img\s/i.test(body)) throw Error('出图规则里需要包含 {{出图格式}}，让模型知道标签怎么写');
+  if (!body.includes('{{出图格式}}') && !/<img[\s>]/i.test(body)) throw Error('出图规则里需要包含 {{出图格式}}，让模型知道标签怎么写');
   return p;
 }
 
@@ -63,11 +82,14 @@ export function drawPromptPlan(settings, preset) {
   if (!p) return [];
   const names = settings.routes.filter(r => !isPlaceholderRole(r.name)).map(r => r.name);
   const list = names.length ? names.join('、') : '（还没有角色，按正文里的名字写）';
-  return p.entries.filter(e => e.enabled && e.text.trim()).map((e, index) => {
+  const count = Math.min(DRAW_COUNT_MAX, Math.max(1, Math.round(Number(p.count)) || 1));
+  const fill = t => t.replaceAll('{{出图格式}}', PIC_TAG_FORMAT).replaceAll('{{角色列表}}', list).replaceAll('{{出图数量}}', String(count));
+  const entries = p.entries.filter(e => e.enabled && e.text.trim());
+  return entries.map((e, index) => {
     const i = e.injection || p.injection;
     return {
       key: 'sttts.entry.draw.' + String(index).padStart(4, '0'),
-      text: e.text.replaceAll('{{出图格式}}', PIC_TAG_FORMAT).replaceAll('{{角色列表}}', list),
+      text: fill(e.text) + (index === entries.length - 1 ? '\n\n' + fill(drawContract(count)) : ''),
       position: {in_chat: 1, in_prompt: 0, before_prompt: 2}[i.position],
       depth: i.position === 'in_chat' ? Number(i.depth) : 0,
       role: i.position === 'in_chat' ? {system: 0, user: 1, assistant: 2}[i.role] : 0
@@ -76,7 +98,9 @@ export function drawPromptPlan(settings, preset) {
 }
 
 // ---------- <img> tags in chat text ----------
-const TAG = /<img\b([^<>]*?)\/?>/gi;
+// Current form: <img>prompt|characters</img>. Earlier form: <img prompt="…" characters="…"> (still read, so old replies keep their pictures).
+const PAIRED = /<img\b([^<>]*)>([^<]*)<\/img\s*>/gi;
+const SINGLE = /<img\b([^<>]*?)\/?>/gi;
 const attribute = (source, name) => {
   const m = source.match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|“([^”]*)”)`, 'i'));
   return m ? (m[1] ?? m[2] ?? m[3] ?? '').trim() : null;
@@ -87,17 +111,24 @@ export function hashText(value) {
   return h.toString(36);
 }
 
-/** Finds model-written picture tags: only <img> tags with a prompt attribute and no src. */
+/** Finds model-written picture tags: <img>prompt|characters</img>, or the older <img prompt="…">. Images with src are left alone. */
 export function parsePictures(message) {
+  message = String(message);
+  const tags = [];
+  for (const m of message.matchAll(PAIRED)) {
+    if (/\bsrc\s*=/i.test(m[1])) continue;
+    const [body, ...who] = m[2].split(/[|｜]/);
+    tags.push({start: m.index, end: m.index + m[0].length, prompt: attribute(m[1], 'prompt') ?? body.trim(), who: attribute(m[1], 'characters') ?? who.join(',')});
+  }
+  for (const m of message.matchAll(SINGLE)) {
+    if (tags.some(t => t.start <= m.index && m.index < t.end) || /\bsrc\s*=/i.test(m[1])) continue;
+    tags.push({start: m.index, end: m.index + m[0].length, prompt: attribute(m[1], 'prompt'), who: attribute(m[1], 'characters') || ''});
+  }
   const found = [];
-  for (const m of String(message).matchAll(TAG)) {
-    const source = m[1];
-    if (/\bsrc\s*=/i.test(source)) continue;
-    const prompt = attribute(source, 'prompt');
-    if (!prompt) continue;
-    const characters = (attribute(source, 'characters') || '').split(/[,，、]/).map(x => x.trim()).filter(Boolean);
-    const index = found.length;
-    found.push({index, start: m.index, end: m.index + m[0].length, prompt: prompt.slice(0, 4000), characters, hash: hashText(index + '|' + prompt + '|' + characters.join(','))});
+  for (const tag of tags.sort((a, b) => a.start - b.start)) {
+    if (!tag.prompt) continue;
+    const characters = tag.who.split(/[,，、]/).map(x => x.trim()).filter(Boolean), index = found.length;
+    found.push({index, start: tag.start, end: tag.end, prompt: tag.prompt.slice(0, 4000), characters, hash: hashText(index + '|' + tag.prompt + '|' + characters.join(','))});
   }
   return found;
 }

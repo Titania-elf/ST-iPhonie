@@ -1,7 +1,7 @@
 import {createView, btn, field, select, toggle, heading, size, languageField, languageOptions, groupTitle} from './common.js';
 import {icon, GLYPH_NAMES} from './icons.js';
 import {APPS} from './apps.js';
-import {wallpapers} from './wallpapers.js';
+import {wallpapers, skins} from './wallpapers.js';
 
 const IMAGE_TYPES = 'image/png,image/jpeg,image/webp,image/avif,image/gif';
 
@@ -14,7 +14,7 @@ export function settingsApp(ctx) {
     const d = appearance;
     v.draw(heading('壁纸与图标', '', 'Appearance')
       + groupTitle('壁纸')
-      + `<div class="group pad"><div class="wallpaper-options">${Object.entries(wallpapers).map(([key, w]) => `<button class="wallpaper-choice" data-action="wallpaper" data-key="${key}" aria-pressed="${d.wallpaper.kind === 'builtin' && d.wallpaper.key === key}"><span style="background:${w.background}"></span>${w.name}</button>`).join('')}</div>
+      + `<div class="group pad"><div class="wallpaper-options">${Object.entries(wallpapers).map(([key, w]) => `<button class="wallpaper-choice" data-action="wallpaper" data-key="${key}" aria-pressed="${d.wallpaper.kind === 'builtin' && d.wallpaper.key === key}"><span style="--p:${w.background};--ps:${w.size || 'auto'};--pp:${w.pos || 'center'}"></span>${w.name}</button>`).join('')}</div>
         <label class="secondary file-button">${icon('image')}选择本地图片作壁纸<input type="file" data-personal-file="wallpaper" aria-label="选择本地壁纸" accept="${IMAGE_TYPES}"></label>
         ${d.wallpaper.kind === 'photo' ? '<p class="hint">现在用的是自定义照片。</p>' : ''}
         ${field('图标外观', select('iconStyle', d.iconStyle, [['color', '彩色'], ['glass', '玻璃'], ['mono', '单色']]))}</div>`
@@ -33,7 +33,8 @@ export function settingsApp(ctx) {
     v.draw(heading('设置', '', 'Settings')
       + groupTitle('外观')
       + `<div class="group pad">
-          <div class="field"><span>主题</span><div class="segmented" style="margin:0">${[['system', '跟随系统'], ['light', '日间'], ['dark', '夜间']].map(([key, label]) => `<button data-action="theme" data-value="${key}" aria-pressed="${phone.theme === key}">${label}</button>`).join('')}</div></div>
+          <div class="field"><span>主题风格</span><div class="skin-options">${Object.entries(skins).map(([key, s]) => `<button class="skin-choice" data-action="skin" data-value="${key}" aria-pressed="${(phone.skin || 'sky') === key}"><span style="background:${s.preview[0]}"><b style="background:${s.preview[3]}"></b><i style="background:${s.preview[1]}"></i><i style="background:${s.preview[2]}"></i></span>${s.name}</button>`).join('')}</div></div>
+          <div class="field"><span>日夜</span><div class="segmented" style="margin:0">${[['system', '跟随系统'], ['light', '日间'], ['dark', '夜间']].map(([key, label]) => `<button data-action="theme" data-value="${key}" aria-pressed="${phone.theme === key}">${label}</button>`).join('')}</div></div>
           <button class="list-row" data-action="appearance"><span><strong>壁纸与图标</strong><small>${wallName} · ${({color: '彩色', glass: '玻璃', mono: '单色'})[phone.iconStyle]}图标</small></span>${icon('next')}</button>
         </div>`
       + groupTitle('配音')
@@ -87,6 +88,8 @@ export function settingsApp(ctx) {
   v.on('click', '[data-action]', async el => {
     switch (el.dataset.action) {
       case 'theme': await api.savePhone({theme: el.dataset.value}); await render(); break;
+      // A skin brings its own wallpaper, unless a personal photo is the wallpaper.
+      case 'skin': { const p = await api.getPhone(); await api.savePhone({skin: el.dataset.value, ...(p.wallpaper.kind === 'builtin' ? {wallpaper: {kind: 'builtin', key: el.dataset.value}} : {})}); await render(); break; }
       case 'appearance': { const p = await api.getPhone(); appearance = {wallpaper: p.wallpaper, icons: p.icons, iconStyle: p.iconStyle}; await render(); break; }
       case 'wallpaper': appearance.wallpaper = {kind: 'builtin', key: el.dataset.key}; await render(); break;
       case 'cancel-appearance': appearance = null; await render(); break;
@@ -95,7 +98,7 @@ export function settingsApp(ctx) {
       case 'clear-cache':
         if (await ctx.confirm('清理语音缓存？', '正在播放的音频会停止，收藏和其他资料会保留。')) { await v.busy(el, () => api.clearCache()); await render(); ctx.notify('语音缓存已清理'); }
         break;
-      case 'about': ctx.help('ST-iPhonie\n酒馆里的小手机：角色配音、听取、NovelAI 绘图、收藏、相册和备忘录。\n\n密钥和本地资料保存在当前浏览器与酒馆地址。状态栏的信号和电量是装饰。语音只在你点击播放或试听后生成。'); break;
+      case 'about': ctx.help('ST-iPhonie\n酒馆里的小手机：聊天、角色配音、听取、NovelAI 绘图、收藏、相册和备忘录。\n\n密钥和本地资料保存在当前浏览器与酒馆地址。状态栏的信号和电量是装饰。语音只在你点击播放或试听后生成。'); break;
     }
   });
   render().catch(e => ctx.notify(e.message));

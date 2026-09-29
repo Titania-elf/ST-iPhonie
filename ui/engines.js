@@ -45,7 +45,8 @@ export function enginesApp(ctx) {
       + `<div class="group">
           <div class="setting-row"><span>档位</span><small>${subscription ? TIERS[subscription.tier] || '未知' : saved ? (subscriptionError ? '读取失败' : '读取中') : '—'}</small></div>
           <div class="setting-row"><span>Anlas 余额</span><strong>${subscription ? subscription.anlas : '—'}</strong></div>
-          <div class="setting-row"><span>无限小图</span><small>${subscription ? (subscription.unlimited ? '可用：28 步以内、1024×1024 以内不扣点' : '不可用：每张图都会扣 Anlas') : '—'}</small></div>
+          <div class="setting-row"><span>免费小图</span><small>${subscription ? (subscription.unlimited ? 'V4.5 及更早：无限（28 步、1024×1024 以内）' : subscription.active ? '仅 Opus 可用：每张图都会扣 Anlas' : '订阅未生效：每张图都会扣 Anlas') : '—'}</small></div>
+          ${subscription?.unlimited ? `<div class="setting-row"><span>V5 免费额度</span><small>${subscription.usage ? (subscription.usage.negative || subscription.usage.percent < 2 ? `${subscription.usage.percent}% · 已用完，会扣 Anlas` : `还剩 ${subscription.usage.percent}%，会慢慢恢复`) : '未读到'}</small></div>` : ''}
         </div>${subscriptionError ? `<p class="error-copy hint">${esc(subscriptionError)}</p>` : ''}`
       + `<div class="group">${toggle('guard', '免费档守卫', d.guard, '开启时绘图参数不会超出免费档，不会发出扣 Anlas 的请求。')}</div>
         <div class="actions">${btn('open-draw', icon('paint') + '打开绘图', 'primary')}</div>`);
