@@ -1,5 +1,6 @@
 import {createView, esc, engines, btn, heading, empty, size, field, input, textArea, groupTitle, avatar} from './common.js';
 import {icon, wave, halo} from './icons.js';
+import {openImageViewer} from '../image-viewer.js';
 
 const NOTE_COLORS = ['#fff4b0', '#ffd9e6', '#d9ecff', '#e3f5d9', '#efe0ff', '#ffe6cc'];
 const hash = text => [...String(text)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7);
@@ -65,7 +66,7 @@ export function galleryApp(ctx) {
       if (v.disposed || ticket !== epoch) return;
       clear();
       if (!photo) { current = null; return render(); }
-      v.draw(heading('照片', '', 'Photo') + `<img class="photo-full" src="${esc(urlFor(photo.blob))}" alt="${esc(photo.name)}"><p class="hint">${esc(photo.name)} · ${size(photo.size)}</p><div class="actions">${btn('wallpaper', icon('image') + '设为壁纸', 'primary')}${btn('delete-photo', icon('trash') + '删除', 'danger')}</div>`);
+      v.draw(heading('照片', '', 'Photo') + `<button type="button" class="photo-zoom" data-action="zoom" aria-label="放大查看"><img class="photo-full" src="${esc(urlFor(photo.blob))}" alt="${esc(photo.name)}"></button><p class="hint">${esc(photo.name)} · ${size(photo.size)}</p><div class="actions">${btn('wallpaper', icon('image') + '设为壁纸', 'primary')}${btn('delete-photo', icon('trash') + '删除', 'danger')}</div>`);
       return;
     }
     const rows = await api.listPhotos();
@@ -95,6 +96,14 @@ export function galleryApp(ctx) {
   v.on('click', '[data-action]', async el => {
     switch (el.dataset.action) {
       case 'photo': current = el.dataset.id; await render(); break;
+      case 'zoom': {
+        const img = el.querySelector('img'), id = current;
+        openImageViewer({doc: ctx.doc, src: img.src, alt: img.alt, actions: [
+          {label: '设为壁纸', run: async () => { await api.savePhone({wallpaper: {kind: 'photo', photoId: id}}); ctx.notify('已设为壁纸'); }},
+          {label: '删除', danger: true, run: async () => { if (!await ctx.confirm('删除这张照片？', '使用它的壁纸和图标会恢复默认。')) return false; await api.deletePhoto(id); current = null; await render(); }}
+        ]});
+        break;
+      }
       case 'wallpaper': await api.savePhone({wallpaper: {kind: 'photo', photoId: current}}); ctx.notify('已设为壁纸'); break;
       case 'delete-photo': if (await ctx.confirm('删除这张照片？', '使用它的壁纸和图标会恢复默认。')) { await api.deletePhoto(current); current = null; await render(); } break;
     }

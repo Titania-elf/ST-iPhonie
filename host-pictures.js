@@ -1,7 +1,9 @@
 // In-chat pictures: fills the placeholders left by <img>…</img> tags, generates them with NovelAI,
 // uploads the result to the tavern's image folder and remembers it on the message (message.extra.sttts_pics),
-// so every device that opens the chat sees the same picture.
+// so every device that opens the chat sees the same picture. Pictures open in a zoomable viewer and can be deleted;
+// a deleted picture keeps a small record ({removed: true}) so it is not drawn again automatically.
 import {parsePictures, pictureInputs} from './core/draw.js';
+import {openImageViewer} from './image-viewer.js';
 import {TIER_NAMES} from './core/novelai.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -10,6 +12,7 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
   const jobs = new Map(); // `${messageId}:${hash}` -> {state: 'generating'|'error', message}
 
   const stored = (message, hash) => message?.extra?.sttts_pics?.[hash] || null;
+  const shown = (message, hash) => { const pic = stored(message, hash); return pic?.url && !pic.removed ? pic : null; };
 
   async function upload(blob, name) {
     const ctx = context();
@@ -20,6 +23,12 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
     });
     if (!response.ok) throw Error('图片已生成，但上传到酒馆失败（' + response.status + '）');
     return (await response.json()).path;
+  }
+  /** Deletes a picture file from the tavern's image folder. A file that is already gone counts as deleted. */
+  async function removeFile(url) {
+    if (!url) return;
+    const response = await fetch('/api/images/delete', {method: 'POST', headers: context().getRequestHeaders(), body: JSON.stringify({path: url})});
+    if (!response.ok && response.status !== 404) throw Error('没能从酒馆删除图片文件（' + response.status + '）');
   }
 
   /** Asks before spending Anlas. Returns false when the user declines or the key is missing. */
@@ -33,7 +42,8 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
     return globalThis.confirm(why + '\n确定要生成吗？') ? 'paid' : false;
   }
 
-  async function generate(id, tag, interactive) {
+  /** replace: the url of the picture being redrawn; its file is deleted once the new picture is stored. */
+  async function generate(id, tag, interactive, replace = '') {
     const ctx = context(), message = ctx.chat[id], key = id + ':' + tag.hash;
     if (!message || jobs.get(key)?.state === 'generating') return;
     const permission = await allowed(interactive);
@@ -41,15 +51,17 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
     jobs.set(key, {state: 'generating'});
     scheduleRender();
     try {
-      const result = await backend.generateImage({...pictureInputs(settings(), tag), allowPaid: permission === 'paid', name: 'chat'});
+      const inputs = pictureInputs(settings(), tag, message.mes);
+      const result = await backend.generateImage({...inputs, allowPaid: permission === 'paid', name: 'chat'});
       const url = await upload(result.blob, 'st-iphonie-' + Date.now());
       // Only store the picture when the same message is still there with this tag.
       const now = context().chat[id];
       if (now === message && parsePictures(now.mes).some(t => t.hash === tag.hash)) {
         now.extra ??= {};
         now.extra.sttts_pics ??= {};
-        now.extra.sttts_pics[tag.hash] = {url, seed: result.seed, width: result.params.width, height: result.params.height, model: result.params.model, steps: result.params.steps, prompt: tag.prompt, at: Date.now()};
+        now.extra.sttts_pics[tag.hash] = {url, seed: result.seed, width: result.params.width, height: result.params.height, model: result.params.model, steps: result.params.steps, prompt: tag.prompt, characters: inputs.names, at: Date.now()};
         await context().saveChat();
+        if (replace && replace !== url) removeFile(replace).catch(() => {});
       }
       jobs.delete(key);
     } catch (error) {
@@ -69,16 +81,19 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
 
   function frame(inner) { return `<span class="sttts-pic-frame">${inner}</span>`; }
   function fill(el, id, message, tag) {
-    const pic = stored(message, tag.hash), job = jobs.get(id + ':' + tag.hash);
-    const state = pic ? 'done' : job?.state || 'idle';
+    const record = stored(message, tag.hash), pic = shown(message, tag.hash), job = jobs.get(id + ':' + tag.hash);
+    const state = job?.state || (pic ? 'done' : record?.removed ? 'removed' : 'idle');
     const signature = state + '|' + (pic?.url || job?.message || '');
     if (el.dataset.stttsRendered === signature) return;
     el.dataset.stttsRendered = signature;
     el.dataset.state = state;
     const s = settings();
-    if (pic) {
-      el.innerHTML = frame(`<a href="${esc(pic.url)}" target="_blank" rel="noopener"><img src="${esc(pic.url)}" alt="${esc(tag.prompt)}" loading="lazy"></a>`)
-        + `<span class="sttts-pic-bar"><span>NovelAI · ${pic.width}×${pic.height}</span><button type="button" data-sttts-pic-action="redo">重画</button><button type="button" data-sttts-pic-action="open">在绘图中打开</button></span>`;
+    if (state === 'done') {
+      const who = pic.characters ? (pic.characters.length ? ' · ' + pic.characters.join('、') : ' · 没有补角色外貌') : '';
+      el.innerHTML = frame(`<button type="button" class="sttts-pic-zoom" data-sttts-pic-action="zoom" aria-label="放大查看"><img src="${esc(pic.url)}" alt="${esc(tag.prompt)}" loading="lazy"></button>`)
+        + `<span class="sttts-pic-bar"><span>NovelAI · ${pic.width}×${pic.height}${esc(who)}</span><button type="button" data-sttts-pic-action="zoom">放大</button><button type="button" data-sttts-pic-action="redo">重画</button><button type="button" data-sttts-pic-action="open">在绘图中打开</button><button type="button" data-sttts-pic-action="delete">删除</button></span>`;
+    } else if (state === 'removed') {
+      el.innerHTML = `<span class="sttts-pic-removed">图片已删除<button type="button" data-sttts-pic-action="draw">重新生成</button></span>`;
     } else if (state === 'generating') {
       el.innerHTML = frame('<span class="sttts-pic-wait">NovelAI 正在画……</span>');
     } else if (state === 'error') {
@@ -115,13 +130,52 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
     const id = Number(box.closest('.mes[mesid]')?.getAttribute('mesid')), message = context().chat[id];
     const tag = message && parsePictures(message.mes).find(t => t.hash === box.dataset.stttsHash);
     if (!tag) return true;
-    const action = button.dataset.stttsPicAction;
-    if (action === 'draw' || action === 'redo') {
-      if (action === 'redo') { delete message.extra.sttts_pics[tag.hash]; box.dataset.stttsRendered = ''; }
-      generate(id, tag, true);
-    }
-    if (action === 'open') openDraw({...pictureInputs(settings(), tag), tag: tag.prompt, seed: stored(message, tag.hash)?.seed});
+    act(button.dataset.stttsPicAction, id, message, tag);
     return true;
+  }
+  function act(action, id, message, tag) {
+    const pic = shown(message, tag.hash);
+    if (action === 'draw') generate(id, tag, true);
+    if (action === 'redo') generate(id, tag, true, pic?.url || '');
+    if (action === 'open') openDraw({...pictureInputs(settings(), tag, message.mes), tag: tag.prompt, seed: pic?.seed});
+    if (action === 'zoom' && pic) openImageViewer({doc: document, src: pic.url, alt: tag.prompt, actions: [
+      {label: '重画', run: () => act('redo', id, message, tag)},
+      {label: '删除', danger: true, run: () => remove(id, tag).then(done => done ? undefined : false)}
+    ]});
+    if (action === 'delete') remove(id, tag).catch(error => notice(error.message));
+  }
+  /** Deletes one picture (file and record). Returns false when the user cancels. */
+  async function remove(id, tag) {
+    const message = context().chat[id], pic = shown(message, tag.hash);
+    if (!pic || !globalThis.confirm('删除这张图？图片文件也会从酒馆删除。之后可以点“重新生成”再画。')) return false;
+    await removeFile(pic.url);
+    message.extra.sttts_pics[tag.hash] = {removed: true, prompt: tag.prompt, at: Date.now()};
+    await context().saveChat();
+    scheduleRender();
+    return true;
+  }
+  /** Pictures stored in the open chat. */
+  function pictureStats() {
+    let count = 0;
+    for (const m of context()?.chat || []) for (const pic of Object.values(m?.extra?.sttts_pics || {})) if (pic?.url && !pic.removed) count++;
+    return {count};
+  }
+  /** Deletes every picture of the open chat from the tavern; their tags show "点击生成" again. */
+  async function clearPictures() {
+    const ctx = context();
+    let count = 0, failed = 0;
+    for (const m of ctx.chat || []) {
+      const pics = m?.extra?.sttts_pics;
+      if (!pics) continue;
+      for (const pic of Object.values(pics)) {
+        if (!pic?.url || pic.removed) continue;
+        try { await removeFile(pic.url); count++; } catch { failed++; }
+      }
+      delete m.extra.sttts_pics;
+    }
+    await ctx.saveChat();
+    scheduleRender();
+    return {count, failed};
   }
 
   // ---------- Bridge helpers for the phone ----------
@@ -158,5 +212,5 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
   }
   const subscriptionLabel = sub => sub ? `${TIER_NAMES[sub.tier] || '未知档位'} · Anlas ${sub.anlas}` : '';
 
-  return {decorate, click, autoPictures, recentMessages, insertImage, suggestPrompt, subscriptionLabel};
+  return {decorate, click, autoPictures, recentMessages, insertImage, suggestPrompt, subscriptionLabel, pictureStats, clearPictures};
 }

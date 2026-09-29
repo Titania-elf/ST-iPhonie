@@ -1,5 +1,6 @@
 import {createView, esc, btn, field, input, select, textArea, toggle, heading, help, groupTitle, plate, avatar, empty} from './common.js';
 import {icon} from './icons.js';
+import {openImageViewer} from '../image-viewer.js';
 
 const SIZES = [['portrait', '竖图', 832, 1216], ['landscape', '横图', 1216, 832], ['square', '方图', 1024, 1024], ['tall', '大竖图', 1024, 1536]];
 const TIERS = {0: '未订阅', 1: 'Tablet', 2: 'Scroll', 3: 'Opus'};
@@ -69,7 +70,7 @@ export function drawApp(ctx) {
     v.draw(heading('绘图', keyed ? `<span class="chip">${esc(sub)}</span>` : '', 'NovelAI')
       + (keyed ? '' : `<div class="banner">${icon('key')}<span>还没有填写 NovelAI 密钥。</span>${btn('go-key', '去填写', 'chip-button')}</div>`)
       + `<div class="draw-meta">${btn('pick-style', icon('layers') + esc(style().name) + icon('down'), 'chip-button')}${costChip(q)}</div>
-        <div class="canvas-card"><div class="canvas-main${main ? '' : ' empty'}" style="aspect-ratio:${p.width}/${p.height}">${main ? `<img src="${esc(main)}" alt="生成的图片">` : `<span>${p.width} × ${p.height}<br>还没有图</span>`}${busy ? '<span class="canvas-busy">NovelAI 正在画……</span>' : ''}</div>
+        <div class="canvas-card"><div class="canvas-main${main ? '' : ' empty'}" style="aspect-ratio:${p.width}/${p.height}">${main ? `<button type="button" class="canvas-zoom" data-action="zoom" aria-label="放大查看"><img src="${esc(main)}" alt="生成的图片"></button>` : `<span>${p.width} × ${p.height}<br>还没有图</span>`}${busy ? '<span class="canvas-busy">NovelAI 正在画……</span>' : ''}</div>
           ${results.length ? `<div class="canvas-side">${thumbs.map((url, i) => `<button class="thumb" data-action="thumb" data-index="${i}" aria-pressed="${i === current}" aria-label="第 ${i + 1} 张">${url ? `<img src="${esc(url)}" alt="">` : ''}</button>`).join('')}</div>` : ''}</div>
         ${shown ? `<p class="hint canvas-meta">${esc(shown.params.model)} · ${shown.params.width}×${shown.params.height} · ${shown.params.steps} 步 · 种子 ${shown.seed}</p>` : ''}
         <div class="draw-actions">${btn('insert', icon('insert') + '插入正文', 'secondary', shown ? '' : 'disabled')}${btn('wallpaper', icon('image') + '设为壁纸', 'secondary', shown ? '' : 'disabled')}${btn('reuse-seed', icon('dice') + '用这个种子', 'secondary', shown ? '' : 'disabled')}</div>
@@ -141,6 +142,7 @@ export function drawApp(ctx) {
       case 'remove-char': characters.splice(index, 1); render(); break;
       case 'add-custom': characters.push({name: '角色', prompt: '', position: -1}); render(); break;
       case 'add-char': pickCharacter(); break;
+      case 'zoom': { const img = el.querySelector('img'); if (img) openImageViewer({doc: ctx.doc, src: img.src, alt: '生成的图片'}); break; }
       case 'suggest':
         await v.busy(el, async () => {
           el.innerHTML = icon('spin') + '正在读剧情…';

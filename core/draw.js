@@ -22,6 +22,7 @@ export const drawContract = count => [
   `这条回复必须正好写 ${count} 个出图标签，不能多也不能少，也不能省略。`,
   count > 1 ? '标签分开放在正文里不同的位置，各自描述不同的画面，每个标签单独占一行。' : '标签单独占一行，放在最有画面感的那一段后面。',
   '标签严格照这个格式写并闭合：{{出图格式}}',
+  '竖线后的角色名只能从这些名字里选，写法一字不差：{{角色列表}}。画面里有谁就写谁，用逗号分隔；插件靠这些名字补上角色外貌。',
   '写完正文后自己数一遍标签数量，不对就补上或删掉，再输出。不输出核对过程。'
 ].join('\n');
 // The rule text written for the earlier <img prompt="…"> tag. Saved presets that still hold it word for word are updated on load.
@@ -145,14 +146,47 @@ export function renderPictures(message, marker) {
   return out + message.slice(at);
 }
 
-/** Final NovelAI inputs for a picture tag: active style + tag prompt, character appearances as V4 character captions. */
-export function pictureInputs(settings, tag) {
-  const draw = settings.draw, style = activeStyle(draw);
-  const characters = tag.characters.map(name => settings.routes.find(r => r.name === name)).filter(r => r?.appearance?.trim()).map(r => ({prompt: r.appearance.trim(), negative: '', position: -1}));
+// ---------- Characters in a picture ----------
+// Names are compared loosely: case, spaces, dots and bracketed notes are ignored, and one name may contain the other
+// (the model may write 澄音（Sumine） or "Sumine" for a role named 澄音 Sumine).
+const loose = name => String(name || '').toLowerCase().replace(/[（(【\[「『][^）)】\]」』]*[）)】\]」』]/g, '').replace(/[\s·・．.\-_'"“”]/g, '');
+function sameName(a, b) {
+  const x = loose(a), y = loose(b);
+  if (!x || !y) return false;
+  return x === y || (Math.min(x.length, y.length) >= 2 && (x.includes(y) || y.includes(x)));
+}
+/** How many people the prompt asks for (1girl, 2boys, 3others …); 0 when it does not say. */
+export function peopleCount(prompt) {
+  let n = 0;
+  for (const m of String(prompt).matchAll(/(?:^|[,\s(])(\d+)\+?\s*(?:girls?|boys?|others?)\b/gi)) n += Number(m[1]);
+  return n;
+}
+/**
+ * Roles whose appearance goes into the picture. Names in the tag come first; when the tag names nobody we know,
+ * the roles mentioned in the story text just before the tag are used, up to the number of people in the prompt.
+ */
+export function pictureRoles(settings, tag, text = '') {
+  const roles = settings.routes.filter(r => r.appearance?.trim() && !isPlaceholderRole(r.name));
+  const named = [];
+  for (const name of tag.characters) {
+    const role = roles.find(r => sameName(r.name, name));
+    if (role && !named.includes(role)) named.push(role);
+  }
+  if (named.length || !text) return named;
+  const before = String(text).slice(Math.max(0, (tag.start ?? 0) - 600), tag.start ?? undefined).toLowerCase();
+  const seen = roles.map(r => [r, before.lastIndexOf(r.name.toLowerCase())]).filter(([, at]) => at >= 0).sort((a, b) => b[1] - a[1]).map(([r]) => r);
+  return seen.slice(0, peopleCount(tag.prompt) || 1);
+}
+
+/** Final NovelAI inputs for a picture tag: active style + tag prompt, character appearances as V4 character captions.
+ *  names: the roles whose appearance was added. text: the message, used when the tag names no known role. */
+export function pictureInputs(settings, tag, text = '') {
+  const draw = settings.draw, style = activeStyle(draw), roles = pictureRoles(settings, tag, text);
   return {
     prompt: [style.artist, style.positive, tag.prompt].map(x => (x || '').trim()).filter(Boolean).join(', '),
     negative: style.negative.trim(),
-    characters,
+    characters: roles.map(r => ({prompt: r.appearance.trim(), negative: '', position: -1})),
+    names: roles.map(r => r.name),
     params: draw.guard ? guardParams(draw.params) : draw.params
   };
 }

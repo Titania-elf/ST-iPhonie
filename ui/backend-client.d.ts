@@ -363,6 +363,10 @@ export interface BackendFacade {
     getPhone(): Promise<PhonePreferences>;
     savePhone(patch: PhonePatch): Promise<PhonePreferences>;
     libraryStats(): Promise<LibraryStats>;
+    /** Album photos made by drawing (the workbench and in-text pictures). */
+    generatedPhotos(): Promise<{ count: number; bytes: number }>;
+    /** Deletes those photos from the album; returns how many were deleted. Imported photos stay. */
+    deleteGeneratedPhotos(): Promise<number>;
     saveChatPreset(preset: Partial<ChatPreset> & { name: string }): ChatPreset;
     deleteChatPreset(id: string): ChatSettings;
     selectChatPreset(id: string): ChatSettings;
@@ -405,6 +409,10 @@ export interface BackendAPI extends BackendFacade {
     insertImage(messageId: number, photoId: string): Promise<{ id: number; url: string }>;
     /** Asks the chat model for picture tags describing the latest scene. */
     suggestPrompt(): Promise<string>;
+    /** Pictures stored in the open tavern chat. */
+    chatPictureStats(): { count: number };
+    /** Deletes every picture of the open chat from the tavern; their tags show "点击生成" again. */
+    clearChatPictures(): Promise<{ count: number; failed: number }>;
     /** A picture the chat asked to open in the drawing app, if any. */
     takeDraw(): (DrawInput & { tag?: string; seed?: number }) | null;
     /** Generates the contacts' next messages with the tavern's connected model and stores them. */

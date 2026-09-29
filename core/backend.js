@@ -317,6 +317,18 @@ export class TTSBackend {
         if (!line?.role || !line.text) throw Error('这条语音没有内容');
         return this.player.start([{ role: line.role, emotion: line.emotion || 'calm', text: line.text, translation: line.translation || '' }], () => !this.closed);
     }
+    /** Album photos made by the drawing app or in-text pictures (named NovelAI-<seed>.png / chat-<seed>.png). */
+    async generatedPhotos() {
+        const rows = (await this.library.listPhotos()).filter(row => /^(?:NovelAI|chat)-\d+\.png$/.test(row.name));
+        return { count: rows.length, bytes: rows.reduce((n, row) => n + (row.size || 0), 0), ids: rows.map(row => row.id) };
+    }
+    async deleteGeneratedPhotos() {
+        const { ids } = await this.generatedPhotos();
+        for (const id of ids) await this.library.deletePhoto(id);
+        this.emit('library', { collection: 'photos' });
+        this.emit('phone', { preferences: await this.getPhone() });
+        return ids.length;
+    }
     async base64(blob) {
         const bytes = new Uint8Array(await blob.arrayBuffer()); let text = '';
         for (let i = 0; i < bytes.length; i += 8192) text += String.fromCharCode(...bytes.subarray(i, i + 8192));
@@ -440,6 +452,7 @@ export class TTSBackend {
             getPhoto: id => this.library.getPhoto(id), deletePhoto: id => this.mutateLibrary('photos', 'deletePhoto', id),
             listNotes: () => this.library.listNotes(), saveNote: value => this.mutateLibrary('notes', 'saveNote', value), deleteNote: id => this.mutateLibrary('notes', 'deleteNote', id),
             getPhone: () => this.getPhone(), savePhone: patch => this.savePhone(patch), libraryStats: () => this.library.stats(),
+            generatedPhotos: () => this.generatedPhotos().then(({ count, bytes }) => ({ count, bytes })), deleteGeneratedPhotos: () => this.deleteGeneratedPhotos(),
             saveChatPreset: preset => this.saveChatPreset(preset), deleteChatPreset: id => this.deleteChatPreset(id), selectChatPreset: id => this.selectChatPreset(id),
             previewChatPrompt: preset => this.previewChatPrompt(preset), validateChatPreset: preset => { try { validateChatPreset(normalizeChatPreset(clone(preset))); return ''; } catch (error) { return message(error); } },
             saveContact: contact => this.saveContact(contact), deleteContact: id => this.deleteContact(id), chatContacts: () => clone(chatContacts(this.settings)),

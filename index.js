@@ -42,6 +42,8 @@ function connect(source){
   recentMessages:()=>{check();return pictures.recentMessages();},
   insertImage:(id,photoId)=>{check();return pictures.insertImage(id,photoId);},
   suggestPrompt:()=>{check();return pictures.suggestPrompt();},
+  chatPictureStats:()=>{check();return pictures.pictureStats();},
+  clearChatPictures:()=>{check();return pictures.clearPictures();},
   takeDraw:()=>{check();const value=pendingDraw;pendingDraw=null;return value;},
   chatReply:threadId=>{check();return chats.reply(threadId);},
   chatBring:(threadId,ids)=>{check();return chats.bring(threadId,ids);},
