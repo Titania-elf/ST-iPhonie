@@ -1,6 +1,6 @@
 {
   "display_name": "ST-TTS · 角色对白",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "author": "ST-TTS contributors",
   "js": "index.js",
   "css": "style.css",

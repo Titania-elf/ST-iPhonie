@@ -2,13 +2,40 @@ import { validateKey } from './keys.js';
 import { TTSParameters as P } from './parameters.js';
 const names={fish:'Fish Audio',mini:'MiniMax',eleven:'ElevenLabs'};
 export const miniBase=c=>'https://'+(c.region==='cn'?'api.minimaxi.com':c.region==='uw'?'api-uw.minimax.io':'api.minimax.io');
+const object=value=>Object.prototype.toString.call(value)==='[object Object]';
+function checkedConnection(engine,connection,route,line,references){
+ if(!Object.hasOwn(P.catalogs,engine))throw Error('引擎无效');
+ if(!object(connection)||!object(connection.params))throw Error('引擎设置格式无效，请重新保存引擎设置');
+ if(!object(route)||route.voice!==undefined&&typeof route.voice!=='string'||route.model!==undefined&&typeof route.model!=='string'||route.language!==undefined&&typeof route.language!=='string')throw Error('角色配音设置无效');
+ if(!object(line)||typeof line.text!=='string'||!line.text.trim())throw Error('朗读文本不能为空');
+ if(!references||typeof references.get!=='function')throw Error('参考音频数据无效，请重新选择文件');
+ const model=route.model||connection.model;
+ if(typeof model!=='string'||!P.catalogs[engine].models.includes(model))throw Error('请选择当前引擎支持的模型');
+ let c;try{c=structuredClone(connection);}catch{throw Error('引擎设置格式无效，请重新保存引擎设置');}
+ c.model=model;c.params={...P.defaults(engine),...c.params};
+ for(const field of P.catalogs[engine].groups.flatMap(group=>group.fields)){
+  const value=c.params[field.key],invalid=()=>{throw Error(field.label+'格式无效，请检查此项设置');};
+  if(field.type==='rows'){
+   if(!Array.isArray(value))invalid();
+   for(const row of value){
+    if(!object(row))invalid();
+    for(const column of field.columns){
+     const cell=row[column.key];
+     if(cell===undefined&&column.optional)continue;
+     if(column.type==='boolean'&&typeof cell!=='boolean'||column.type==='number'&&typeof cell!=='number'||!['number','boolean'].includes(column.type)&&typeof cell!=='string')invalid();
+    }
+   }
+  }else if(field.type==='boolean'&&typeof value!=='boolean'||field.type==='number'&&typeof value!=='number'&&value!==''||field.type==='select'&&!['string','number'].includes(typeof value)||['text','textarea','lines'].includes(field.type)&&typeof value!=='string')invalid();
+ }
+ return c;
+}
 export function buildRequest(engine,connection,route,line,references=new Map()){
- const c=structuredClone(connection);c.model=route.model||c.model;P.normalize(engine,c);const error=P.validate(engine,c);if(error)throw Error(error);
+ const c=checkedConnection(engine,connection,route,line,references);P.normalize(engine,c);const error=P.validate(engine,c);if(error)throw Error(error);
  if(engine==='fish'&&c.model==='drama-3-preview')throw Error('这个模型尚未列入 Fish 兼容通道，请选择 S2 或 S1');
  if(engine==='eleven'&&c.model==='eleven_v3_conversational')throw Error('此模型用于实时对话通道，请选择 eleven_v3');
  if(!route.voice?.trim()&&!(engine==='fish'&&c.params.references.length)&&!(engine==='mini'&&c.params.timbre_weights.length))throw Error('请先选择角色音色');
  const request=P.requestPreview(engine,c,route.voice,line.text,c.model);
- if(engine==='fish'&&c.params.references.length){request.body.provider.options['fish-audio'].references=c.params.references.map(r=>{const audio=references.get(r.audio);if(!audio)throw Error('请在引擎设置重新选择参考音频：'+r.audio);return {audio,text:r.text};});}
+ if(engine==='fish'&&c.params.references.length){request.body.provider.options['fish-audio'].references=c.params.references.map(r=>{const audio=references.get(r.audio);if(typeof audio!=='string'||!audio)throw Error('请在引擎设置重新选择参考音频：'+r.audio);return {audio,text:r.text};});}
  if(engine==='mini'&&!request.body.voice_setting.emotion){if(!P.tags('mini',c.model).includes(line.emotion))throw Error('MiniMax '+c.model+' 不支持情绪 '+line.emotion+'，请修改台词或在引擎设置选择固定情绪');request.body.voice_setting.emotion=line.emotion;}
  if(engine==='eleven'&&!request.body.language_code&&c.model!=='eleven_multilingual_v2'&&route.language)request.body.language_code=route.language;
  const url=new URL(request.url);for(const [k,v] of Object.entries(request.query||{}))url.searchParams.set(k,String(v));
@@ -19,19 +46,20 @@ export function wavePCM(bytes,rate=24000,channels=1){if(bytes.length%2||!Number.
 function g711(bytes,alaw){const out=new Uint8Array(bytes.length*2),v=new DataView(out.buffer);bytes.forEach((b,i)=>{let n;if(alaw){b^=0x55;const seg=(b&112)>>4;n=(b&15)<<4;if(seg===0)n+=8;else{n+=264;if(seg>1)n<<=seg-1;}n=b&128?n:-n;}else{b=~b&255;n=(((b&15)<<3)+132)<<((b&112)>>4);n=(b&128)?132-n:n-132;}v.setInt16(i*2,n,true);});return out;}
 export function audioBlob(bytes,request){let format=request.format.split('_')[0];if(request.format==='pcmu_raw'||format==='ulaw'||format==='alaw'){bytes=g711(bytes,format==='alaw');format='pcm';}if(format==='pcm'){bytes=wavePCM(bytes,request.sampleRate,request.channels);format='wav';}if(!bytes.length)throw Error('语音接口没有返回音频');return new Blob([bytes],{type:({mp3:'audio/mpeg',wav:'audio/wav',pcmu:'audio/wav',opus:'audio/ogg',flac:'audio/flac'})[format]||'application/octet-stream'});}
 const limit=64*1024*1024;
-export async function limitedBytes(response){const reader=response.body?.getReader();if(!reader)return new Uint8Array(await response.arrayBuffer());const chunks=[];let size=0;try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>limit)throw Error('单段音频过大，请缩短台词');chunks.push(value);}}catch(e){await reader.cancel().catch(()=>{});throw e;}const out=new Uint8Array(size);let at=0;for(const c of chunks){out.set(c,at);at+=c.length;}return out;}
+export async function limitedBytes(response){const reader=response.body?.getReader();if(!reader){const bytes=new Uint8Array(await response.arrayBuffer());if(bytes.length>limit)throw Error('单段音频过大，请缩短台词');return bytes;}const chunks=[];let size=0;try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>limit)throw Error('单段音频过大，请缩短台词');chunks.push(value);}}catch(e){await reader.cancel().catch(()=>{});throw e;}const out=new Uint8Array(size);let at=0;for(const c of chunks){out.set(c,at);at+=c.length;}return out;}
+async function fetchWithPolicy(fetcher,url,init,signal){try{return await fetcher(url,{...init,credentials:'omit',redirect:'error',referrerPolicy:'no-referrer',signal:signal?AbortSignal.any([signal,AbortSignal.timeout(120000)]):AbortSignal.timeout(20000)});}catch(e){if(signal?.aborted)throw new DOMException('已停止','AbortError');if(e.name==='TimeoutError')throw Error('请求超时，请稍后手动重试');throw Error('无法连接语音服务，请检查网络或浏览器跨域限制');}}
 function checkMini(json){const code=json.base_resp?.status_code;if(code!==undefined&&code!==0)throw Error('MiniMax 返回错误 '+code+'；请检查账户、模型与音色设置');}
 export async function decodeMini(response,request,fetcher,signal){
  const raw=new TextDecoder().decode(await limitedBytes(response));let chunks=[],last;
  if(request.body.stream){for(const event of raw.split(/\r?\n\r?\n/)){const data=event.split(/\r?\n/).filter(l=>l.startsWith('data:')).map(l=>l.slice(5).trim()).join('\n');if(!data||data==='[DONE]')continue;let item;try{item=JSON.parse(data);}catch{throw Error('MiniMax 流式响应不完整');}checkMini(item);last=item;if(item.data?.audio){const bytes=hexBytes(item.data.audio);if(item.data.status===2&&!request.body.stream_options?.exclude_aggregated_audio)chunks=[bytes];else chunks.push(bytes);}}if(last?.data?.status!==2)throw Error('MiniMax 音频流未完整结束');}
- else{let json;try{json=JSON.parse(raw);}catch{throw Error('MiniMax 返回了无效响应');}checkMini(json);if(request.body.output_format==='url'){let url;try{url=new URL(json.data?.audio);}catch{throw Error('MiniMax 未返回音频地址');}if(url.protocol!=='https:')throw Error('音频下载地址必须使用 HTTPS');const downloaded=await fetcher(url.href,{credentials:'omit',referrerPolicy:'no-referrer',signal});if(!downloaded.ok)throw Error('音频下载失败：HTTP '+downloaded.status);return audioBlob(await limitedBytes(downloaded),request);}chunks=[hexBytes(json.data?.audio)];}
+ else{let json;try{json=JSON.parse(raw);}catch{throw Error('MiniMax 返回了无效响应');}checkMini(json);if(request.body.output_format==='url'){let url;try{url=new URL(json.data?.audio);}catch{throw Error('MiniMax 未返回音频地址');}if(url.protocol!=='https:')throw Error('音频下载地址必须使用 HTTPS');const downloaded=await fetchWithPolicy(fetcher,url.href,{},signal);if(!downloaded.ok)throw Error('音频下载失败：HTTP '+downloaded.status);return audioBlob(await limitedBytes(downloaded),request);}chunks=[hexBytes(json.data?.audio)];}
  const bytes=new Uint8Array(chunks.reduce((n,c)=>n+c.length,0));let at=0;for(const c of chunks){bytes.set(c,at);at+=c.length;}return audioBlob(bytes,request);
 }
 export class Providers{
  constructor(fetcher=globalThis.fetch.bind(globalThis)){this.fetcher=fetcher;this.keys=new Map();this.references=new Map();}
  setKey(engine,key){key=validateKey(engine,key);if(key)this.keys.set(engine,key);else this.keys.delete(engine);}
  headers(engine){const key=this.keys.get(engine);if(!key)throw Error('请先填写 '+names[engine]+' 的 API Key');return engine==='eleven'?{'xi-api-key':key}:{Authorization:'Bearer '+key};}
- async fetch(url,init,signal){try{return await this.fetcher(url,{...init,credentials:'omit',redirect:'error',referrerPolicy:'no-referrer',signal:signal?AbortSignal.any([signal,AbortSignal.timeout(120000)]):AbortSignal.timeout(20000)});}catch(e){if(signal?.aborted)throw new DOMException('已停止','AbortError');if(e.name==='TimeoutError')throw Error('请求超时，请稍后手动重试');throw Error('无法连接语音服务，请检查网络或浏览器跨域限制');}}
+ async fetch(url,init,signal){return fetchWithPolicy(this.fetcher,url,init,signal);}
  async synthesize(request,signal){const response=await this.fetch(request.url,{method:'POST',headers:{...this.headers(request.engine),'Content-Type':'application/json'},body:JSON.stringify(request.body)},signal);if(!response.ok)throw Error(names[request.engine]+'：HTTP '+response.status+(response.status===401?'，请检查密钥':response.status===429?'，请检查额度或稍后重试':''));if(request.engine==='mini')return decodeMini(response,request,this.fetcher,signal);if(response.headers.get('Content-Type')?.includes('json'))throw Error(names[request.engine]+' 未返回音频');return audioBlob(await limitedBytes(response),request);}
  async voices(engine,c,{search='',page=0,token=''}={}){const headers=this.headers(engine);let url,init={headers};if(engine==='fish'){url=new URL('https://api.fish.audio/model');url.searchParams.set('page_size','50');url.searchParams.set('page_number',String(page+1));if(search)url.searchParams.set('title',search);}else if(engine==='mini'){url=miniBase(c)+'/v1/get_voice';init={method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({voice_type:'all'})};}else{url=new URL('https://api.elevenlabs.io/v2/voices');url.searchParams.set('page_size','100');if(search)url.searchParams.set('search',search);if(token)url.searchParams.set('next_page_token',token);}
  const response=await this.fetch(String(url),init);if(!response.ok)throw Error(names[engine]+' 音色读取失败：HTTP '+response.status);const data=await response.json();if(engine==='mini')checkMini(data);const source=engine==='fish'?data.items:engine==='mini'?[...(data.system_voice||[]),...(data.voice_cloning||[]),...(data.voice_generation||[])]:data.voices;if(!Array.isArray(source))throw Error('音色列表格式不符');return {voices:source.map(v=>({id:v._id||v.voice_id,name:v.title||v.voice_name||v.name||v.voice_id})).filter(v=>typeof v.id==='string'),more:engine==='fish'?source.length===50:!!data.has_more,token:data.next_page_token||'',note:engine==='fish'?'已读取公开音色；此结果不能确认密钥有效':'音色列表已读取'};}

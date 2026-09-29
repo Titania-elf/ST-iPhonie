@@ -1,0 +1,14 @@
+export function desktopIcon(key){
+const pictures={
+roles:'<rect x="12" y="9" width="36" height="47" rx="6" fill="#ffffff" opacity=".96"/><path d="M48 17h5m-5 10h5m-5 10h5m-5 10h5" stroke="#ffffff" stroke-width="3"/><circle cx="30" cy="26" r="8" fill="#2875e3"/><path d="M18 47v-4c0-11 24-11 24 0v4z" fill="#2875e3"/>',
+engines:'<rect x="23" y="9" width="18" height="31" rx="9" fill="#ffffff"/><path d="M16 30v3a16 16 0 0 0 32 0v-3M32 49v7m-9 0h18" stroke="#ffffff" stroke-width="4" fill="none"/>',
+presets:'<rect x="15" y="11" width="34" height="44" rx="5" fill="#ffffff"/><rect x="15" y="11" width="34" height="10" rx="4" fill="#ffe6a6"/><path d="M22 29h20M22 37h20M22 45h13" stroke="#c1831e" stroke-width="3"/>',
+settings:'<circle cx="32" cy="32" r="19" fill="none" stroke="#f6f6f8" stroke-width="8"/><path d="M32 7v7m0 36v7M7 32h7m36 0h7M14 14l6 6m24 24 6 6M14 50l6-6m24-24 6-6" stroke="#f6f6f8" stroke-width="7"/><circle cx="32" cy="32" r="9" fill="#565760" stroke="#dfe0e6" stroke-width="3"/>',
+listen:'<path d="M17 36V29a15 15 0 0 1 30 0v7" stroke="#ffffff" stroke-width="4" fill="none"/><rect x="11" y="31" width="12" height="21" rx="6" fill="#ffffff"/><rect x="41" y="31" width="12" height="21" rx="6" fill="#ffffff"/>',
+library:'<path d="M11 29v6m7-14v22m7-29v36m7-27v18m7-32v46m7-31v16m7-9v2" stroke="#ffffff" stroke-width="4"/>',
+notes:'<rect x="10" y="8" width="44" height="49" rx="5" fill="#ffffff"/><path d="M10 19h44" stroke="#ffe4a4" stroke-width="10"/><path d="M17 31h30M17 40h30M17 49h20" stroke="#d2c8a8" stroke-width="2"/>',
+gallery:['#ea777f','#e79968','#e6bc62','#a1b778','#6caebb','#7b9cca','#9989c1','#c186ad'].map((c,i)=>'<ellipse cx="32" cy="20" rx="8" ry="13" fill="'+c+'" fill-opacity=".86" transform="rotate('+i*45+' 32 32)"/>').join('')};
+return '<svg class="desktop-glyph" viewBox="0 0 64 64" aria-hidden="true" fill="none" stroke="none">'+(pictures[key]||pictures.settings)+'</svg>';}
+export const names={roles:'角色',engines:'引擎',presets:'预设',library:'音频收藏',gallery:'相册',notes:'备忘录',listen:'听取',settings:'设置'};
+export const wave='<span class="wave" aria-hidden="true">'+[9,18,27,19,11].map(h=>'<i style="height:'+h+'px"></i>').join('')+'</span>';
+export function icon(key){const paths={back:'m15 5-7 7 7 7',home:'m3 11 9-8 9 8M6 9v12h12V9M10 21v-7h4v7',close:'m6 6 12 12M6 18 18 6',add:'M12 5v14M5 12h14',next:'m9 5 7 7-7 7',lock:'M7 10V7a5 5 0 0 1 10 0v3M5 10h14v11H5z',play:'m8 5 11 7-11 7z',pause:'M8 5v14M16 5v14',stop:'M6 6h12v12H6z',star:'m12 3 3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z',music:'M10 17V4l10-2v13M10 7l10-2M4 17a3 3 0 1 0 6 0 3 3 0 1 0-6 0M14 15a3 3 0 1 0 6 0 3 3 0 1 0-6 0',sliders:'M4 7h16M4 17h16M9 4v6M15 14v6'};return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="'+(paths[key]||paths.star)+'"/></svg>';}
