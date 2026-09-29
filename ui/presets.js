@@ -52,14 +52,14 @@ export function presetsApp(ctx) {
       + `<div class="group pad">${field('名称', input('name', p.name))}${chat
         ? `${field('读取最近的正文', input('context', p.context, 'number', 'min="0" max="40" step="1"'), '回消息时参考最近几条正文，0 表示不看剧情。')}${field('读取聊天记录', input('history', p.history, 'number', 'min="2" max="200" step="1"'), '回消息时带上最近多少条手机聊天。')}${field('带进剧情的写法', textArea('bring', p.bring, 'class="code" rows="4"'), '选中的聊天消息会按这段文字注入下一次正文，只用一次。需要包含 {{聊天记录}}；也可以用 {{用户}}、{{对象}}。')}`
         : draw
-        ? `${field('每条回复出图数量', input('count', p.count ?? 1, 'number', `min="1" max="${api.drawCountMax}" step="1"`), '模型每条回复固定写这么多个出图标签。规则里写 {{出图数量}} 会换成这个数字；插件还会在规则最后加一段硬性要求，让数量更稳定。张数越多，出图越久。')}<div class="field"><span>出图标签格式${help('规则里写 {{出图格式}} 会换成下面这段；{{角色列表}} 会换成角色 App 里的角色名。别的插件要排除出图内容时，排除标签填 <img></img>。')}</span><pre class="code-preview" style="margin:0">${esc(api.picTagFormat)}</pre></div>`
+        ? `${field('每条回复出图数量', input('count', p.count ?? 1, 'number', `min="1" max="${api.drawCountMax}" step="1"`), '每条回复固定出这么多张图。规则里写 {{出图数量}} 会换成这个数字；插件还会在规则最后加一段硬性要求，让张数更稳定。张数越多，出图越久。')}<div class="field"><span>出图块格式${help('规则里写 {{出图格式}} 会换成下面这段（回复后单独配图时，还会多一行「位置」）；{{角色列表}} 会换成已登记的角色和他们的固定外貌；{{出图数量}} 换成张数。别的插件要排除出图内容时，排除标签填 <img></img>。')}</span><pre class="code-preview" style="margin:0">${esc(api.picTagFormat)}</pre></div>`
         : field('台词格式', textArea('format', p.format, 'class="code"'), '{译文}、{角色}、{情绪}、{文本} 各保留一次。译文供阅读，原语言供语音生成。默认格式是成对的 <tts></tts>，别的插件要排除语音原文时，排除标签填 <tts></tts>。')}</div>
         <details data-group="preset-injection"><summary>${chat ? '带进剧情的插入位置' : '默认插入设置'} ${help(chat ? '带进剧情的文字插在正文请求的哪里。深度与身份仅在聊天内插入时生效。' : '深度与身份仅在聊天内插入时生效；条目可以单独覆盖。')}</summary><div>${injection(p.injection)}</div></details>
         ${groupTitle(draw ? '出图规则' : chat ? '聊天规则' : '提示词条目', btn('add-entry', icon('add') + '条目', 'chip-button'))}
         ${p.entries.map((e, i) => `<details data-group="entry:${esc(e.id)}" ${i === 0 ? 'open' : ''}><summary>${esc(e.title || '未命名条目')}${e.enabled ? '' : ' · 已停用'}</summary><div data-entry="${i}">
           ${toggle('enabled', '启用此条目', e.enabled)}
           ${field('条目名称', input('title', e.title))}
-          ${field(draw ? '规则' : chat ? '规则' : '提示词', textArea('text', e.text, 'class="code"'), draw ? '需要包含 {{出图格式}}，让模型知道标签怎么写。可以用 {{出图数量}}、{{角色列表}}。' : chat ? '可以用 {{用户}}、{{对象}}；写语音消息规则时用 {{语音格式}}、{{可发语音}}。' : '启用规则的合计文字需包含 {{格式}} 和 {{语言}}。')}
+          ${field(draw ? '规则' : chat ? '规则' : '提示词', textArea('text', e.text, 'class="code"'), draw ? '可以用 {{出图格式}}、{{出图数量}}、{{角色列表}}。插件会在最后自动加上格式和张数的硬性要求。' : chat ? '可以用 {{用户}}、{{对象}}；写语音消息规则时用 {{语音格式}}、{{可发语音}}。' : '启用规则的合计文字需包含 {{格式}} 和 {{语言}}。')}
           ${chat ? '' : toggle('customInjection', '单独设置插入位置', !!e.injection)}${!chat && e.injection ? injection(e.injection, i) : ''}
           <div class="entry-tools">${btn('entry-up', icon('up') + '上移', 'text-button', `data-index="${i}" ${i === 0 ? 'disabled' : ''}`)}${btn('entry-down', icon('down') + '下移', 'text-button', `data-index="${i}" ${i === p.entries.length - 1 ? 'disabled' : ''}`)}${btn('delete-entry', icon('trash') + '删除', 'text-button', `data-index="${i}"`)}</div>
         </div></details>`).join('')}

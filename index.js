@@ -2,7 +2,7 @@ import { TTSBackend } from './core/backend.js';
 import { normalizeSettings,validateSettings,modelRules,NAMESPACE } from './core/state.js';
 import { parseDialogue,renderDialogue,promptPlan,validatePreset,isPlaceholderRole,DEFAULT_PROMPT,knownFormats } from './core/protocol.js';
 import { FloatingPlayer } from './core/floating.js';
-import { renderPictures, drawPromptPlan } from './core/draw.js';
+import { renderPictures, drawPromptPlan, withoutPictures } from './core/draw.js';
 import { createPictureHost } from './host-pictures.js';
 import { createChatHost } from './host-chat.js';
 const base=new URL('.',import.meta.url),marker=globalThis.crypto?.randomUUID?.()||'unavailable';
@@ -10,6 +10,9 @@ let active=false,hooked=false,settings,cache,player,panel,frame,observer,renderT
 let renderEpoch=0,pictures=null,chats=null,pendingDraw=null;
 const listeners=[],prompts=new Set();
 const context=()=>globalThis.SillyTavern?.getContext();
+// Generation interceptor (manifest generate_interceptor): picture blocks stay in the chat but are left out of the
+// messages sent to the model, so old pictures do not cost tokens on every request. Replaced, never mutated.
+globalThis.stIphonieInterceptor=function(chat){if(!active||settings?.draw?.strip===false)return;for(let i=0;i<chat.length;i++){const m=chat[i];if(typeof m?.mes==='string'&&/<img\b/i.test(m.mes))chat[i]={...m,mes:withoutPictures(m.mes)};}};
 function notice(message){if(globalThis.toastr)globalThis.toastr.info(message,'ST-iPhonie');else console.info('[ST-iPhonie]',message);}
 function formats(){return knownFormats(settings);}
 function parsed(message){for(const format of formats()){try{const lines=parseDialogue(message,format);if(lines.length)return {format,lines};}catch{}}return {format:formats()[0],lines:[]};}
@@ -43,6 +46,7 @@ function connect(source){
   insertImage:(id,photoId)=>{check();return pictures.insertImage(id,photoId);},
   suggestPrompt:()=>{check();return pictures.suggestPrompt();},
   chatPictureStats:()=>{check();return pictures.pictureStats();},
+  planLatestPictures:()=>{check();return pictures.planLatest();},
   clearChatPictures:()=>{check();return pictures.clearPictures();},
   takeDraw:()=>{check();const value=pendingDraw;pendingDraw=null;return value;},
   chatReply:threadId=>{check();return chats.reply(threadId);},

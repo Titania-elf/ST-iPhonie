@@ -1,43 +1,95 @@
-// Drawing settings, the LLM-facing drawing preset, and <img>…</img> picture tags in chat text.
+// Drawing settings, the LLM-facing drawing preset, and <img>…</img> picture blocks in chat text.
 //
 // Two kinds of preset live here:
 //   styles  - "画风预设" edited in the drawing app: artist tags, fixed positive and fixed negative tags for NovelAI.
-//   presets - "绘图预设" edited in the preset app: rules injected into the chat request so the model writes <img> tags.
+//   presets - "绘图预设" edited in the preset app: the rules the model follows when it plans pictures.
+//
+// A picture block is a plain paired tag (other plugins can exclude <img></img>) holding one line per field:
+//   画幅 portrait/landscape/square · 场景 base tags · 描述 base sentence · 角色 name｜tags｜sentence (one per person)
+//   新外貌 name｜fixed appearance (first appearance of a named character; the plugin saves it to the 角色 App)
+//   位置 Pn (only when pictures are planned after the reply: which paragraph the picture follows)
+// Two ways to get blocks (draw.mode): 'separate' asks the model in its own request after the reply is written and
+// inserts the blocks; 'inline' injects the rules into the story request so the reply carries the blocks itself.
 import {defaultDrawParams, normalizeDrawParams, guardParams} from './novelai.js';
 import {escapeHTML, isPlaceholderRole} from './protocol.js';
 
-// Plain paired tag without attributes, so plugins that exclude <tag></tag> blocks can drop it: <img>prompt|characters</img>.
-export const PIC_TAG_FORMAT = '<img>英文画面 tag，逗号分隔|画面里的角色名，逗号分隔</img>';
-export const DEFAULT_DRAW_RULE = [
-  '在这条回复里挑出 {{出图数量}} 个最有画面感的时刻（换了场景、重要动作、角色登场、情绪到了高点），在每个时刻那一段正文后面单独写一个出图标签，格式：',
-  '{{出图格式}}',
-  '竖线前用英文 danbooru tag 描述这一刻的画面：人数（1girl、2girls、1boy 等）、动作、表情、服装、场景、光线、镜头构图，用英文逗号分隔。不要写画师名和质量词，也不要写角色固定的外貌特征，这些会自动补上。',
-  '竖线后写画面里出现的角色名，用逗号分隔，只写这些名字：{{角色列表}}。画面里没有这些角色时，连同竖线一起省略。',
-  '不要解释这些标签，也不要放进代码块。'
-].join('\n');
+const BLOCK = ['<img>', '画幅：竖 / 横 / 方', '场景：英文 tag', '描述：一两句英文', '角色：名字｜英文 tag｜一句英文（画面里每个人一行）', '新外貌：名字｜固定外貌 tag（只在名单外的新角色第一次出现时写）', '</img>'];
+export const PIC_TAG_FORMAT = BLOCK.join('\n');
+export const PLAN_TAG_FORMAT = [BLOCK[0], '位置：P几（这张图放在哪一段后面）', ...BLOCK.slice(1)].join('\n');
 export const DRAW_COUNT_MAX = 10;
-/** Appended after the preset's own rules, so every preset asks for exactly its picture count. */
+
+// Default drawing rules. Written for this plugin; each entry can be edited or switched off in the preset app.
+export const DEFAULT_DRAW_ENTRIES = Object.freeze([
+  {id: 'pick', title: '挑画面', text: [
+    '从正文里挑出 {{出图数量}} 个最值得画的瞬间：换场景、关键动作、角色登场、情绪到顶点、两个人之间有明显互动的时刻。几张图挑不同的瞬间，不要把同一个画面画两遍。',
+    '每个瞬间写成一个出图块：',
+    '{{出图格式}}',
+    '所有 tag 用英文 danbooru tag，逗号分隔；描述用英文句子，模型对英文理解最稳。只有角色名保持剧情里的原文写法。不要写画师、质量词和通用负面词，插件会自己加。'
+  ].join('\n')},
+  {id: 'scene', title: '场景与镜头', text: [
+    '「场景」写整张图共用的东西：画面里看得见的人数（1girl、2girls、1boy、1girl 1boy……只数镜头里的人，不数在场的人）、地点、时间和天气、镜头、光线、色调，以及几个人共同在做的事。某一个人的长相、衣服、单独的动作不放这里。',
+    '镜头只写一个：close-up、upper body、cowboy shot、full body、wide shot 里选一。这张图的关键动作必须在镜头里：腿、脚、坐姿、躺着这些下半身的事，不要选 close-up 或 upper body。',
+    '正文不会写怎么拍，这部分由你补全：光线如 soft sunlight、golden hour、moonlight、candlelight、backlighting、indoor lighting，色调如 warm colors、cold colors、muted colors、high contrast。',
+    '「描述」用一两句英文讲清整个画面：谁在哪里、彼此的位置、从哪个角度看过去、正在发生什么。同样不写某个人的长相。'
+  ].join('\n')},
+  {id: 'cast', title: '角色', text: [
+    '画面里每个看得见、能单独认出来的人写一行「角色」，按从左到右、从上到下排，三段用｜隔开：名字｜tag｜描述。',
+    '名字：已登记的角色必须和名单一字不差。名单和固定外貌：{{角色列表}}。插件会把固定外貌自动补进去，你不用再写发色瞳色，只写这一张图里会变的东西。',
+    'tag：先写 girl、boy 或 other（数字人数只放在场景里），再写这一刻的衣服、表情、视线、姿势、动作，必要时写左右位置。每个人都必须有表情和视线，而且要用真实存在的 tag。表情如 smile、grin、laughing、blush、embarrassed、pout、frown、surprised、crying、tears、angry、serious、sad、worried、scared、smug、expressionless、half-closed eyes、open mouth；视线从 looking at viewer、looking at another、looking away、looking down、looking up、looking back、closed eyes 里挑一个。正文没写表情就推断一个，实在推断不出写 expressionless，不要自造“温柔的笑”这类短语。',
+    '镜头之外的身体部位不写：选了 upper body 或 close-up，就别再写鞋、袜、裙长和腿，否则模型会硬把它们画进来。',
+    '两个人以上、动作有明确方向时，用 source#、target#、mutual# 标出谁对谁做，比如一人写 source#hug，另一人写 target#hug。露骨场景写清画面里真正露出的部位和动作，不要用 nsfw 这类笼统的词代替；被遮住或出画的部位不写。',
+    '描述：一句英文，讲这个人此刻的样子、朝向、动作和大概位置，不能和 tag 矛盾。',
+    '正文里没有名字、但作为一个具体的人出现的（店员、对手、抱着孩子的路人），也给他一行，名字就用正文对他的称呼，外貌在这一张图里写全；不要替他编名字，也不要登记。成群的人（人群、士兵、围观的学生）不单独写角色，画面需要时在场景里写成一群人。'
+  ].join('\n')},
+  {id: 'truth', title: '忠于正文', text: [
+    '怎么拍可以由你补全，画面里有什么必须来自正文和设定：',
+    '- 在场的人、动作、事件、关键道具严格照正文，不加人、不加剧情。没入镜的人不写。',
+    '- 角色固定的长相照名单和设定，不自己发明。',
+    '- 先定下时代和世界观再具体化：优先看世界书和角色设定，其次看称呼、身份、物件；选一个统一的风格，衣服、建筑、器物前后一致，不混搭互相冲突的年代。',
+    '- 地面、天气、环境也是事实：正文没说下雨就不写 rain、puddles、wet，没说泥路就不写 muddy，只知道在户外就写 outdoors。'
+  ].join('\n')},
+  {id: 'identity', title: '作品角色与新角色', text: [
+    '明确来自已有动画、游戏、小说的角色，tag 第一个写模型认得的英文识别 tag，格式「角色名 (作品名)」，比如 hatsune miku (vocaloid)；括号不转义，作品名不缩写。拿不准是哪部作品就当原创角色，不写。',
+    '名单里没有、但有名字的新角色第一次入画时，在这个出图块里加一行「新外貌」：名字｜固定外貌 tag。只写不会随场景变的特征：1girl 或 1boy、发型发色、瞳色、体型、显眼的特征，作品角色把识别 tag 放最前；不写衣服、表情、动作。名字照正文原文，中文名不要翻译或改成拼音。'
+  ].join('\n')},
+  {id: 'size', title: '画幅', text: '「画幅」写 竖、横、方 之一：单人、站姿、特写、贴得很近的两个人用竖；多人铺开、远景、全景用横。先想好镜头再定画幅，拿不准用竖。'}
+]);
+export const DEFAULT_DRAW_RULE = DEFAULT_DRAW_ENTRIES.map(e => e.text).join('\n\n');
+
+/** Appended to the rules in 'inline' mode: the reply itself carries exactly `count` blocks. */
 export const drawContract = count => [
   '【出图硬性规则】',
-  `这条回复必须正好写 ${count} 个出图标签，不能多也不能少，也不能省略。`,
-  count > 1 ? '标签分开放在正文里不同的位置，各自描述不同的画面，每个标签单独占一行。' : '标签单独占一行，放在最有画面感的那一段后面。',
-  '标签严格照这个格式写并闭合：{{出图格式}}',
-  '竖线后的角色名只能从这些名字里选，写法一字不差：{{角色列表}}。画面里有谁就写谁，用逗号分隔；插件靠这些名字补上角色外貌。',
-  '写完正文后自己数一遍标签数量，不对就补上或删掉，再输出。不输出核对过程。'
-].join('\n');
-// The rule text written for the earlier <img prompt="…"> tag. Saved presets that still hold it word for word are updated on load.
-const LEGACY_DRAW_RULE = [
-  '画面有明显变化时（换了场景、重要动作、角色登场、情绪到了高点），在那一段正文后面单独写一个出图标签，格式：',
+  `这条回复必须正好写 ${count} 个出图块，不能多也不能少。每个出图块单独成段，放在它所画的那一段正文后面${count > 1 ? '，几个出图块分散在正文不同位置' : ''}。`,
+  '出图块严格照这个格式写并闭合：',
   '{{出图格式}}',
-  'prompt 用英文 danbooru tag 描述这一刻的画面：人数（1girl、2girls、1boy 等）、动作、表情、服装、场景、光线、镜头构图，用英文逗号分隔。不要写画师名和质量词，也不要写角色固定的外貌特征，这些会自动补上。',
-  'characters 写画面里出现的角色名，用逗号分隔，只写这些名字：{{角色列表}}。',
-  '每条回复最多写一个出图标签。不要解释这个标签，也不要放进代码块。'
+  '已登记角色的名字只能从名单里选，一字不差。写完正文后自己数一遍出图块，不对就补上或删掉。不输出核对过程。'
 ].join('\n');
+/** Appended to the rules in 'separate' mode: the reply is already written; answer with blocks only. */
+export const planContract = count => [
+  '【出图硬性规则】',
+  `下面的正文已经写好，每一段前面标了 [P1]、[P2]…… 按上面的规则挑 ${count} 个画面，正好输出 ${count} 个出图块，每块第一行写「位置：P几」，表示这张图放在哪一段后面。`,
+  '出图块严格照这个格式写并闭合：',
+  '{{出图格式}}',
+  '只输出出图块，不要复述正文，不要解释，不要放进代码块。已登记角色的名字只能从名单里选，一字不差。'
+].join('\n');
+
+// Rule texts shipped earlier. A preset that still holds one of them word for word gets the current default rules.
+const OLD_DEFAULT_RULES = [
+  ['画面有明显变化时（换了场景、重要动作、角色登场、情绪到了高点），在那一段正文后面单独写一个出图标签，格式：', '{{出图格式}}',
+    'prompt 用英文 danbooru tag 描述这一刻的画面：人数（1girl、2girls、1boy 等）、动作、表情、服装、场景、光线、镜头构图，用英文逗号分隔。不要写画师名和质量词，也不要写角色固定的外貌特征，这些会自动补上。',
+    'characters 写画面里出现的角色名，用逗号分隔，只写这些名字：{{角色列表}}。', '每条回复最多写一个出图标签。不要解释这个标签，也不要放进代码块。'],
+  ['在这条回复里挑出 {{出图数量}} 个最有画面感的时刻（换了场景、重要动作、角色登场、情绪到了高点），在每个时刻那一段正文后面单独写一个出图标签，格式：', '{{出图格式}}',
+    '竖线前用英文 danbooru tag 描述这一刻的画面：人数（1girl、2girls、1boy 等）、动作、表情、服装、场景、光线、镜头构图，用英文逗号分隔。不要写画师名和质量词，也不要写角色固定的外貌特征，这些会自动补上。',
+    '竖线后写画面里出现的角色名，用逗号分隔，只写这些名字：{{角色列表}}。画面里没有这些角色时，连同竖线一起省略。', '不要解释这些标签，也不要放进代码块。']
+].map(lines => lines.join('\n'));
+
 const DEFAULT_STYLE = {id: 'default', name: '默认画风', artist: '', positive: 'masterpiece, best quality, very aesthetic, absurdres', negative: 'lowres, bad anatomy, bad hands, text, error, missing fingers, extra digits, cropped, worst quality, jpeg artifacts, signature, watermark, blurry'};
-const DEFAULT_PRESET = {id: 'default', name: '默认出图规则', count: 1, injection: {position: 'in_chat', depth: 1, role: 'system'}, entries: [{id: 'rule', title: '出图规则', enabled: true, text: DEFAULT_DRAW_RULE}]};
+const DEFAULT_PRESET = {id: 'default', name: '默认出图规则', count: 1, injection: {position: 'in_chat', depth: 1, role: 'system'}, entries: DEFAULT_DRAW_ENTRIES.map(e => ({...e, enabled: true}))};
 
 export function defaultDraw() {
-  return {enabled: false, auto: true, guard: true, fold: false, queue: {gap: 3, retries: 4}, params: defaultDrawParams(), styles: [structuredClone(DEFAULT_STYLE)], activeStyle: 'default', presets: [structuredClone(DEFAULT_PRESET)], activePreset: 'default'};
+  return {enabled: false, auto: true, guard: true, fold: false, mode: 'separate', strip: true,
+    queue: {gap: 3, retries: 4, cloud: {enabled: false, url: '', room: ''}}, params: defaultDrawParams(),
+    styles: [structuredClone(DEFAULT_STYLE)], activeStyle: 'default', presets: [structuredClone(DEFAULT_PRESET)], activePreset: 'default'};
 }
 
 const text = (value, max) => String(value ?? '').slice(0, max);
@@ -49,17 +101,26 @@ export function normalizeDraw(value) {
   d.auto = d.auto !== false;
   d.guard = d.guard !== false;
   d.fold = !!d.fold;
+  d.strip = d.strip !== false;
+  d.mode = d.mode === 'inline' ? 'inline' : 'separate';
   const n = (v, min, max, fallback) => { const x = Math.round(Number(v)); return Number.isFinite(x) ? Math.min(max, Math.max(min, x)) : fallback; };
-  d.queue = {gap: n(d.queue?.gap, 0, 60, 3), retries: n(d.queue?.retries, 0, 10, 4)};
+  const cloud = d.queue?.cloud || {};
+  d.queue = {gap: n(d.queue?.gap, 0, 60, 3), retries: n(d.queue?.retries, 0, 10, 4),
+    cloud: {enabled: !!cloud.enabled, url: text(cloud.url, 300).trim().replace(/\/+$/, ''), room: text(cloud.room, 80).trim()}};
   d.params = normalizeDrawParams(d.params);
   d.styles = (Array.isArray(d.styles) && d.styles.length ? d.styles : base.styles).map(s => ({id: String(s.id || crypto.randomUUID()), name: text(s.name, 60) || '画风', artist: text(s.artist, 4000), positive: text(s.positive, 4000), negative: text(s.negative, 4000)}));
   d.activeStyle = d.styles.some(s => s.id === d.activeStyle) ? d.activeStyle : d.styles[0].id;
-  d.presets = (Array.isArray(d.presets) && d.presets.length ? d.presets : base.presets).map(p => ({
-    id: String(p.id || crypto.randomUUID()), name: text(p.name, 60) || '出图规则',
-    count: Math.min(DRAW_COUNT_MAX, Math.max(1, Math.round(Number(p.count)) || 1)),
-    injection: {...DEFAULT_PRESET.injection, ...p.injection},
-    entries: (Array.isArray(p.entries) ? p.entries : []).map(e => ({id: String(e.id || crypto.randomUUID()), title: text(e.title, 80), enabled: e.enabled !== false, text: e.text === LEGACY_DRAW_RULE ? DEFAULT_DRAW_RULE : text(e.text, 20000), ...(e.injection ? {injection: {...DEFAULT_PRESET.injection, ...e.injection}} : {})}))
-  }));
+  d.presets = (Array.isArray(d.presets) && d.presets.length ? d.presets : base.presets).map(p => {
+    let entries = Array.isArray(p.entries) ? p.entries : [];
+    // A preset that is just an old default rule gets the current default rules.
+    if (entries.length === 1 && OLD_DEFAULT_RULES.includes(entries[0].text)) entries = DEFAULT_PRESET.entries;
+    return {
+      id: String(p.id || crypto.randomUUID()), name: text(p.name, 60) || '出图规则',
+      count: Math.min(DRAW_COUNT_MAX, Math.max(1, Math.round(Number(p.count)) || 1)),
+      injection: {...DEFAULT_PRESET.injection, ...p.injection},
+      entries: entries.map(e => ({id: String(e.id || crypto.randomUUID()), title: text(e.title, 80), enabled: e.enabled !== false, text: text(e.text, 20000), ...(e.injection ? {injection: {...DEFAULT_PRESET.injection, ...e.injection}} : {})}))
+    };
+  });
   d.activePreset = d.presets.some(p => p.id === d.activePreset) ? d.activePreset : d.presets[0].id;
   return d;
 }
@@ -72,28 +133,38 @@ export function validateDrawPreset(p) {
   }
   const body = p.entries.filter(e => e.enabled).map(e => e.text).join('\n');
   if (!body.trim()) throw Error('至少启用一条出图规则');
-  if (!body.includes('{{出图格式}}') && !/<img[\s>]/i.test(body)) throw Error('出图规则里需要包含 {{出图格式}}，让模型知道标签怎么写');
   return p;
 }
 
 export const activeStyle = draw => draw.styles.find(s => s.id === draw.activeStyle) || draw.styles[0];
+const activePreset = (draw, preset) => preset || draw.presets.find(x => x.id === draw.activePreset) || draw.presets[0];
+const countOf = p => Math.min(DRAW_COUNT_MAX, Math.max(1, Math.round(Number(p.count)) || 1));
 
-/** Prompt entries injected with the chat request. Keys share the sttts.entry. prefix so they clear together. */
+/** 名单 for the rules: registered names with their fixed appearance. */
+export function castList(settings) {
+  const roles = settings.routes.filter(r => !isPlaceholderRole(r.name));
+  if (!roles.length) return '（还没有登记的角色）';
+  return roles.map(r => r.appearance?.trim() ? `${r.name}（${r.appearance.trim().slice(0, 160)}）` : `${r.name}（还没有外貌）`).join('；');
+}
+function ruleText(settings, p, format, contract) {
+  const count = countOf(p), list = castList(settings);
+  const fill = t => t.replaceAll('{{出图格式}}', format).replaceAll('{{角色列表}}', list).replaceAll('{{出图数量}}', String(count));
+  const entries = p.entries.filter(e => e.enabled && e.text.trim());
+  return {entries, fill, tail: fill(contract(count))};
+}
+
+/** Prompt entries injected with the story request ('inline' mode only). Keys share the sttts.entry. prefix. */
 export function drawPromptPlan(settings, preset) {
   const draw = settings.draw;
-  if (!draw?.enabled && !preset) return [];
-  const p = preset || draw.presets.find(x => x.id === draw.activePreset);
+  if (!preset && (!draw?.enabled || draw.mode !== 'inline')) return [];
+  const p = activePreset(draw, preset);
   if (!p) return [];
-  const names = settings.routes.filter(r => !isPlaceholderRole(r.name)).map(r => r.name);
-  const list = names.length ? names.join('、') : '（还没有角色，按正文里的名字写）';
-  const count = Math.min(DRAW_COUNT_MAX, Math.max(1, Math.round(Number(p.count)) || 1));
-  const fill = t => t.replaceAll('{{出图格式}}', PIC_TAG_FORMAT).replaceAll('{{角色列表}}', list).replaceAll('{{出图数量}}', String(count));
-  const entries = p.entries.filter(e => e.enabled && e.text.trim());
+  const {entries, fill, tail} = ruleText(settings, p, PIC_TAG_FORMAT, drawContract);
   return entries.map((e, index) => {
     const i = e.injection || p.injection;
     return {
       key: 'sttts.entry.draw.' + String(index).padStart(4, '0'),
-      text: fill(e.text) + (index === entries.length - 1 ? '\n\n' + fill(drawContract(count)) : ''),
+      text: fill(e.text) + (index === entries.length - 1 ? '\n\n' + tail : ''),
       position: {in_chat: 1, in_prompt: 0, before_prompt: 2}[i.position],
       depth: i.position === 'in_chat' ? Number(i.depth) : 0,
       role: i.position === 'in_chat' ? {system: 0, user: 1, assistant: 2}[i.role] : 0
@@ -101,8 +172,52 @@ export function drawPromptPlan(settings, preset) {
   });
 }
 
-// ---------- <img> tags in chat text ----------
-// Current form: <img>prompt|characters</img>. Earlier form: <img prompt="…" characters="…"> (still read, so old replies keep their pictures).
+// ---------- Planning pictures after the reply ('separate' mode) ----------
+const TTS_BLOCK = /<tts\b[^>]*>[\s\S]*?<\/tts\s*>/gi;
+const IMG_BLOCK = /<img\b[^<>]*>[^<]*<\/img\s*>|<img\b[^<>]*\/?>/gi;
+/** Story paragraphs of a reply with their end offsets; picture blocks and voice originals are left out. */
+export function paragraphs(message) {
+  const source = String(message), out = [];
+  const hidden = [...source.matchAll(IMG_BLOCK)].map(m => [m.index, m.index + m[0].length]);
+  let at = 0;
+  for (const line of source.split('\n')) {
+    const start = at, end = at + line.length;
+    at = end + 1;
+    if (hidden.some(([a, b]) => start >= a && end <= b)) continue;
+    const plain = line.replace(IMG_BLOCK, '').replace(TTS_BLOCK, '').replace(/<[^>]+>/g, '').trim();
+    if (plain) out.push({text: plain.slice(0, 1200), end});
+  }
+  return out;
+}
+/** Chat-style request asking for the picture blocks of one reply. before: [{name, text}] earlier messages. */
+export function planRequest(settings, {message, before = [], preset} = {}) {
+  const p = activePreset(settings.draw, preset);
+  const {entries, fill, tail} = ruleText(settings, p, PLAN_TAG_FORMAT, planContract);
+  const system = entries.map(e => fill(e.text)).join('\n\n') + '\n\n' + tail;
+  const context = before.length ? `【前情】\n${before.map(m => `${m.name}：${m.text}`).join('\n')}\n\n` : '';
+  const body = paragraphs(message).map((x, i) => `[P${i + 1}] ${x.text}`).join('\n');
+  return [{role: 'system', content: system}, {role: 'user', content: `${context}【这段正文】\n${body}\n\n（请输出 ${countOf(p)} 个出图块。）`}];
+}
+/** Puts planned blocks into the reply after their paragraphs. Blocks without a usable 位置 go after the last one. */
+export function insertPlanned(message, reply) {
+  const source = String(message), paras = paragraphs(source), blocks = [];
+  for (const m of String(reply).matchAll(/<img\b[^<>]*>([^<]*)<\/img\s*>/gi)) {
+    const at = m[1].match(/(?:^|\n)\s*位置\s*[:：]\s*P?\s*(\d+)/i);
+    const body = m[1].replace(/(?:^|\n)\s*位置\s*[:：][^\n]*/i, '').trim();
+    if (!parseBlock(body)) continue;
+    const index = Math.min(paras.length, Math.max(1, Number(at?.[1]) || paras.length)) - 1;
+    blocks.push({end: paras[index]?.end ?? source.length, text: `<img>\n${body}\n</img>`});
+  }
+  let out = source;
+  for (const b of [...blocks].sort((a, b) => b.end - a.end)) out = out.slice(0, b.end) + '\n\n' + b.text + '\n' + out.slice(b.end);
+  return {text: out, count: blocks.length};
+}
+/** The reply without picture blocks, for prompts ('strip' setting) and for planning again. */
+export const withoutPictures = message => String(message).replace(IMG_BLOCK, m => /\bsrc\s*=/i.test(m) ? m : '').replace(/\n{3,}/g, '\n\n').trim();
+
+// ---------- <img> blocks in chat text ----------
+// Current form: the block above. Earlier forms, still read so old replies keep their pictures:
+// <img>prompt|characters</img> and <img prompt="…" characters="…">.
 const PAIRED = /<img\b([^<>]*)>([^<]*)<\/img\s*>/gi;
 const SINGLE = /<img\b([^<>]*?)\/?>/gi;
 const attribute = (source, name) => {
@@ -115,12 +230,36 @@ export function hashText(value) {
   return h.toString(36);
 }
 
-/** Finds model-written picture tags: <img>prompt|characters</img>, or the older <img prompt="…">. Images with src are left alone. */
+const FIELDS = {画幅: 'size', 尺寸: 'size', 场景: 'tags', 基础: 'tags', 描述: 'nl', 角色: 'cast', 人物: 'cast', 新外貌: 'register', 登记: 'register', 位置: 'at'};
+const split = value => value.split(/[|｜]/).map(x => x.trim());
+/** Reads a block body; null when it has none of the field lines (an older one-line tag). */
+export function parseBlock(body) {
+  const spec = {size: '', tags: '', nl: '', cast: [], register: []};
+  let found = false;
+  for (const line of String(body).split(/\r?\n/)) {
+    const m = line.trim().match(/^([^\s:：|｜]{2,3})\s*[:：]\s*(.*)$/);
+    const key = m && FIELDS[m[1]];
+    if (!key) continue;
+    found = true;
+    const value = m[2].trim();
+    if (key === 'cast') { const [name, tags = '', nl = ''] = split(value); if (name) spec.cast.push({name, tags, nl}); }
+    else if (key === 'register') { const [name, ...rest] = split(value); if (name && rest.join(', ').trim()) spec.register.push({name, appearance: rest.join(', ').trim()}); }
+    else if (key !== 'at') spec[key] = spec[key] ? spec[key] + ', ' + value : value;
+  }
+  return found ? spec : null;
+}
+
+/**
+ * Finds picture blocks: current blocks, <img>prompt|characters</img>, or <img prompt="…">. Images with src are left alone.
+ * Each tag: {index, start, end, prompt (base tags), characters (names), hash, spec (block fields or null)}.
+ */
 export function parsePictures(message) {
   message = String(message);
   const tags = [];
   for (const m of message.matchAll(PAIRED)) {
     if (/\bsrc\s*=/i.test(m[1])) continue;
+    const spec = parseBlock(m[2]);
+    if (spec) { tags.push({start: m.index, end: m.index + m[0].length, prompt: spec.tags, who: spec.cast.map(c => c.name).join(','), spec, body: m[2].trim()}); continue; }
     const [body, ...who] = m[2].split(/[|｜]/);
     tags.push({start: m.index, end: m.index + m[0].length, prompt: attribute(m[1], 'prompt') ?? body.trim(), who: attribute(m[1], 'characters') ?? who.join(',')});
   }
@@ -130,14 +269,15 @@ export function parsePictures(message) {
   }
   const found = [];
   for (const tag of tags.sort((a, b) => a.start - b.start)) {
-    if (!tag.prompt) continue;
+    if (!tag.prompt && !tag.spec?.cast.length) continue;
     const characters = tag.who.split(/[,，、]/).map(x => x.trim()).filter(Boolean), index = found.length;
-    found.push({index, start: tag.start, end: tag.end, prompt: tag.prompt.slice(0, 4000), characters, hash: hashText(index + '|' + tag.prompt + '|' + characters.join(','))});
+    const hash = tag.spec ? hashText(index + '|' + tag.body) : hashText(index + '|' + tag.prompt + '|' + characters.join(','));
+    found.push({index, start: tag.start, end: tag.end, prompt: (tag.prompt || '').slice(0, 4000), characters, hash, spec: tag.spec || null});
   }
   return found;
 }
 
-/** Replaces picture tags with placeholders that the host fills in after rendering. */
+/** Replaces picture blocks with placeholders that the host fills in after rendering. */
 export function renderPictures(message, marker) {
   const tags = parsePictures(message);
   if (!tags.length) return message;
@@ -153,7 +293,9 @@ export function renderPictures(message, marker) {
 // Names are compared loosely: case, spaces, dots and bracketed notes are ignored, and one name may contain the other
 // (the model may write 澄音（Sumine） or "Sumine" for a role named 澄音 Sumine).
 const loose = name => String(name || '').toLowerCase().replace(/[（(【\[「『][^）)】\]」』]*[）)】\]」』]/g, '').replace(/[\s·・．.\-_'"“”]/g, '');
-function sameName(a, b) {
+/** Same name after loose cleanup, without the containment rule: used before saving a new role. */
+export const sameExact = (a, b) => !!loose(a) && loose(a) === loose(b);
+export function sameName(a, b) {
   const x = loose(a), y = loose(b);
   if (!x || !y) return false;
   return x === y || (Math.min(x.length, y.length) >= 2 && (x.includes(y) || y.includes(x)));
@@ -164,13 +306,13 @@ export function peopleCount(prompt) {
   for (const m of String(prompt).matchAll(/(?:^|[,\s(])(\d+)\+?\s*(?:girls?|boys?|others?)\b/gi)) n += Number(m[1]);
   return n;
 }
+const drawable = settings => settings.routes.filter(r => r.appearance?.trim() && !isPlaceholderRole(r.name));
 /**
- * Roles whose appearance goes into the picture. Names in the tag come first; when the tag names nobody we know,
- * the roles mentioned in the story text just before the tag are used, up to the number of people in the prompt.
+ * Roles whose appearance goes into an older one-line picture tag. Names in the tag come first; when the tag names
+ * nobody we know, the roles mentioned in the story just before the tag are used, up to the number of people.
  */
 export function pictureRoles(settings, tag, text = '') {
-  const roles = settings.routes.filter(r => r.appearance?.trim() && !isPlaceholderRole(r.name));
-  const named = [];
+  const roles = drawable(settings), named = [];
   for (const name of tag.characters) {
     const role = roles.find(r => sameName(r.name, name));
     if (role && !named.includes(role)) named.push(role);
@@ -181,15 +323,45 @@ export function pictureRoles(settings, tag, text = '') {
   return seen.slice(0, peopleCount(tag.prompt) || 1);
 }
 
-/** Final NovelAI inputs for a picture tag: active style + tag prompt, character appearances as V4 character captions.
- *  names: the roles whose appearance was added. text: the message, used when the tag names no known role. */
+/** Character prompts count nobody: 1girl/1boy/1other in a fixed appearance become girl/boy/other. */
+const soloTags = tags => String(tags).replace(/\b1\s*(girl|boy|other)\b/gi, '$1');
+function mergeTags(...lists) {
+  const seen = new Set(), out = [];
+  for (const tag of lists.flatMap(l => String(l || '').split(',')).map(t => t.trim()).filter(Boolean)) {
+    const key = tag.toLowerCase();
+    if (!seen.has(key)) { seen.add(key); out.push(tag); }
+  }
+  return out.join(', ');
+}
+/** Width and height for 竖/横/方 from the drawing app's size: same pixel budget, turned the right way. */
+export function sizeFor(params, size) {
+  const s = String(size || '');
+  const long = Math.max(params.width, params.height), short = Math.min(params.width, params.height);
+  if (/竖|portrait|vertical/i.test(s)) return {width: short, height: long};
+  if (/横|landscape|horizontal/i.test(s)) return {width: long, height: short};
+  if (/方|square/i.test(s)) { const side = Math.max(64, Math.floor(Math.sqrt(params.width * params.height) / 64) * 64); return {width: side, height: side}; }
+  return {width: params.width, height: params.height};
+}
+
+/**
+ * Final NovelAI inputs for a picture: active style + base tags + base sentence; one character caption per person
+ * (fixed appearance from the 角色 App or the block's 新外貌 line, then this picture's tags and sentence).
+ * names: the people in the picture. text: the message, used by older one-line tags that name nobody we know.
+ */
 export function pictureInputs(settings, tag, text = '') {
-  const draw = settings.draw, style = activeStyle(draw), roles = pictureRoles(settings, tag, text);
-  return {
-    prompt: [style.artist, style.positive, tag.prompt].map(x => (x || '').trim()).filter(Boolean).join(', '),
-    negative: style.negative.trim(),
-    characters: roles.map(r => ({prompt: r.appearance.trim(), negative: '', position: -1})),
-    names: roles.map(r => r.name),
-    params: draw.guard ? guardParams(draw.params) : draw.params
-  };
+  const draw = settings.draw, style = activeStyle(draw), spec = tag.spec;
+  const sized = {...draw.params, ...sizeFor(draw.params, spec?.size)};
+  const params = draw.guard ? guardParams(sized) : sized;
+  const head = [style.artist, style.positive].map(x => (x || '').trim()).filter(Boolean);
+  if (!spec) {
+    const roles = pictureRoles(settings, tag, text);
+    return {prompt: [...head, tag.prompt].join(', '), negative: style.negative.trim(),
+      characters: roles.map(r => ({prompt: r.appearance.trim(), negative: '', position: -1})), names: roles.map(r => r.name), params};
+  }
+  const roles = drawable(settings);
+  const characters = spec.cast.map(c => {
+    const fixed = roles.find(r => sameName(r.name, c.name))?.appearance || spec.register.find(x => sameName(x.name, c.name))?.appearance || '';
+    return {prompt: [mergeTags(soloTags(fixed), c.tags), c.nl].filter(Boolean).join(', '), negative: '', position: -1};
+  });
+  return {prompt: [...head, spec.tags, spec.nl].filter(Boolean).join(', '), negative: style.negative.trim(), characters, names: spec.cast.map(c => c.name), params};
 }

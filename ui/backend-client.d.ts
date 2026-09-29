@@ -89,6 +89,10 @@ export interface DrawSettings {
     guard: boolean;
     /** Pictures in the chat start folded. */
     fold: boolean;
+    /** 'separate': plan pictures in a request of their own after the reply; 'inline': the reply writes them. */
+    mode: 'separate' | 'inline';
+    /** Leave picture blocks out of the messages sent to the model. */
+    strip: boolean;
     queue: DrawQueueSettings;
     params: DrawParams;
     styles: DrawStyle[]; activeStyle: string;
@@ -96,9 +100,13 @@ export interface DrawSettings {
 }
 export interface DrawSettingsPatch { enabled?: boolean; auto?: boolean; guard?: boolean; fold?: boolean; queue?: Partial<DrawQueueSettings>; params?: Partial<DrawParams>; activeStyle?: string; activePreset?: string; }
 /** gap: seconds between two NovelAI requests (0-60). retries: how often an "account busy" (429) is retried (0-10). */
-export interface DrawQueueSettings { gap: number; retries: number; }
+export interface DrawQueueSettings { gap: number; retries: number; cloud: CloudQueueSettings; }
+/** Shared queue service (cloud-queue/worker.js) that everyone using one NovelAI account joins with the same room code. */
+export interface CloudQueueSettings { enabled: boolean; url: string; room: string; }
 /** A NovelAI job: waiting in line, keeping the gap (spacing), waiting after a 429 (busy), or running. */
-export interface DrawJob { key: string; label: string; state: 'waiting' | 'spacing' | 'busy' | 'running'; attempt: number; until: number; position: number; }
+export interface DrawJob { key: string; label: string; state: 'waiting' | 'spacing' | 'remote' | 'busy' | 'running'; attempt: number; until: number; position: number;
+    /** While waiting in the cloud queue: people ahead, who is drawing, and the shared cooldown in ms. */
+    cloud: { position: number; holder: string; cooldown: number } | null; }
 /** unlimited: an active Opus subscription (free small images). usage: the V5 allowance, when NovelAI reports it. */
 export interface NovelAISubscription { tier: number; active: boolean; unlimited: boolean; usage: { percent: number; negative: boolean } | null; anlas: number; checkedAt: number; }
 export interface DrawQuote { params: DrawParams; clamped: boolean; /** null when the subscription is unknown. */ free: boolean | null; guard: boolean; v5: boolean; usage: NovelAISubscription['usage']; }
@@ -281,7 +289,7 @@ export type BackendEvent =
     | { type: 'keys'; revision: number; engine: Engine; configured: boolean }
     | { type: 'library'; revision: number; collection: LibraryCollection }
     | { type: 'phone'; revision: number; preferences: PhonePreferences }
-    | { type: 'draw'; revision: number; phase?: 'generating' | 'done' | 'error' | 'cancelled'; message?: string; subscription?: NovelAISubscription; queue?: DrawJob[] }
+    | { type: 'draw'; revision: number; phase?: 'generating' | 'done' | 'error' | 'cancelled'; message?: string; subscription?: NovelAISubscription; queue?: DrawJob[]; /** Why the cloud queue could not be used, when it could not. */ cloud?: string }
     /** A chat changed; typing is set while a reply is being generated. threadId is null when a chat was created. */
     | { type: 'chat'; revision: number; threadId: string | null; typing?: boolean; bring?: boolean };
 
@@ -291,6 +299,7 @@ export interface BackendFacade {
     readonly defaultPrompt: string;
     readonly defaultFormat: string;
     readonly phoneCatalog: PhoneCatalog;
+    /** The picture block format shown to the model. */
     readonly picTagFormat: string;
     readonly defaultDrawRule: string;
     readonly drawCountMax: number;
@@ -330,6 +339,10 @@ export interface BackendFacade {
     drawQueue(): DrawJob[];
     cancelDraw(key: string): boolean;
     cancelAllDraws(): void;
+    /** Empty when the cloud queue works or is off. */
+    cloudQueueError(): string;
+    testCloudQueue(value?: Partial<CloudQueueSettings>): Promise<{ ok: true; length: number; holder: string; cooldown: number } | { ok: false; message: string }>;
+    newRoomCode(): string;
     drawQuote(params?: Partial<DrawParams>): DrawQuote;
     /** Generates one image and saves it to the album. Rejects paid requests unless allowPaid. */
     generateImage(input: DrawInput): Promise<DrawResult>;
@@ -422,6 +435,8 @@ export interface BackendAPI extends BackendFacade {
     suggestPrompt(): Promise<string>;
     /** Pictures stored in the open tavern chat. */
     chatPictureStats(): { count: number };
+    /** Plans the pictures of the newest character reply again and queues them. */
+    planLatestPictures(): Promise<boolean>;
     /** Deletes every picture of the open chat from the tavern; their tags show "点击生成" again. */
     clearChatPictures(): Promise<{ count: number; failed: number }>;
     /** A picture the chat asked to open in the drawing app, if any. */

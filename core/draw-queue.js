@@ -3,7 +3,9 @@
 //   - requests from this browser run one at a time, also across tavern tabs (Web Locks when available);
 //   - two requests are at least `gap` apart (the last request time is shared through localStorage);
 //   - a 429 ("account busy") waits and retries with growing pauses, up to `retries` times, instead of failing.
-// Job states: waiting (in line) · spacing (keeping the gap) · busy (429, waiting to retry) · running.
+//   - with a shared cloud queue (remote), each request also waits for its turn among everyone using the account;
+//     when the cloud cannot be reached the job goes ahead with the local rules and remoteError says why.
+// Job states: waiting (in line) · spacing (keeping the gap) · remote (waiting in the cloud queue) · busy (429, waiting to retry) · running.
 
 const LAST_KEY = 'sttts.nai.lastRequest';
 const cancelled = () => Object.assign(Error('已取消'), {cancelled: true});
@@ -28,12 +30,14 @@ function pause(ms, signal) {
 export class DrawQueue {
   /**
    * gap(): milliseconds between two requests. retries(): how often a 429 is retried.
-   * onChange(list): called whenever the line changes. backoff(attempt): pause before retry `attempt` (1-based).
+   * onChange(list, {remoteError}): called whenever the line changes. backoff(attempt): pause before retry `attempt` (1-based).
+   * remote(): the shared cloud queue to wait in, or null.
    */
-  constructor({gap = () => 3000, retries = () => 4, onChange = () => {}, locks = globalThis.navigator?.locks, storage = memoryStorage(), now = Date.now, wait = pause,
+  constructor({gap = () => 3000, retries = () => 4, onChange = () => {}, remote = () => null, locks = globalThis.navigator?.locks, storage = memoryStorage(), now = Date.now, wait = pause,
     backoff = attempt => Math.min(120000, 15000 * 2 ** (attempt - 1)) + Math.random() * 3000} = {}) {
-    Object.assign(this, {gap, retries, onChange, locks, storage, now, wait, backoff});
+    Object.assign(this, {gap, retries, onChange, remote, locks, storage, now, wait, backoff});
     this.jobs = [];
+    this.remoteError = '';
     this.running = false;
   }
   /** Adds a job; the same key joins the job already in line. task(signal) makes the request. */
@@ -48,7 +52,7 @@ export class DrawQueue {
     return job.promise;
   }
   list() {
-    return this.jobs.map(({key, label, state, attempt, until}, position) => ({key, label, state, attempt, until, position}));
+    return this.jobs.map(({key, label, state, attempt, until, cloud}, position) => ({key, label, state, attempt, until, position, cloud: cloud || null}));
   }
   get(key) { return this.list().find(j => j.key === key) || null; }
   cancel(key) {
@@ -61,7 +65,23 @@ export class DrawQueue {
     return true;
   }
   cancelAll() { for (const job of [...this.jobs].reverse()) this.cancel(job.key); }
-  changed() { try { this.onChange(this.list()); } catch { /* a listener cannot stop the queue */ } }
+  changed() { try { this.onChange(this.list(), {remoteError: this.remoteError}); } catch { /* a listener cannot stop the queue */ } }
+  /** Takes a turn in the shared cloud queue; null when there is none or it cannot be reached. */
+  async turn(job, signal) {
+    const remote = this.remote();
+    if (!remote) { this.remoteError = ''; return null; }
+    try {
+      const lease = await remote.acquire({label: job.label, signal, onWait: info => {
+        job.state = 'remote'; job.cloud = {position: info.position, holder: info.holder || '', cooldown: info.cooldown || 0}; this.changed();
+      }});
+      this.remoteError = '';
+      return lease;
+    } catch (error) {
+      if (signal.aborted || error.cancelled) throw cancelled();
+      this.remoteError = error.message;
+      return null;
+    }
+  }
 
   async pump() {
     if (this.running) return;
@@ -86,17 +106,21 @@ export class DrawQueue {
           job.state = 'spacing'; job.until = readyAt; this.changed();
           await this.wait(readyAt - this.now(), signal);
         }
-        job.state = 'running'; job.attempt = attempt; job.until = 0; this.changed();
+        const lease = await this.turn(job, signal);
+        job.state = 'running'; job.attempt = attempt; job.until = 0; job.cloud = null; this.changed();
         try {
           const result = await job.task(signal);
           this.storage.set(this.now());
+          lease?.release('done');
           job.resolve(result);
           return;
         } catch (error) {
           this.storage.set(this.now());
+          const delay = error?.status === 429 ? this.backoff(attempt + 1) : 0;
+          // A 429 makes everyone in the cloud queue wait as well.
+          lease?.release(delay ? 'busy' : 'done', delay);
           if (signal.aborted) throw cancelled();
           if (error?.status !== 429 || attempt >= this.retries()) throw error;
-          const delay = this.backoff(attempt + 1);
           job.state = 'busy'; job.attempt = attempt + 1; job.until = this.now() + delay; this.changed();
           await this.wait(delay, signal);
         }

@@ -8,10 +8,11 @@ import { AudioCache } from './cache.js';
 import { DialoguePlayer } from './player.js';
 import { LocalLibrary, PHONE_APPS, PHONE_WALLPAPERS, PHONE_GLYPHS, PHONE_SKINS } from './library.js';
 import { NovelAIClient, NAI_MODELS, NAI_MODEL_NAMES, NAI_SAMPLERS, NAI_SCHEDULES, buildImageRequest, guardParams, isFree, isV5, normalizeDrawParams } from './novelai.js';
-import { PIC_TAG_FORMAT, DEFAULT_DRAW_RULE, DRAW_COUNT_MAX, drawPromptPlan, validateDrawPreset, normalizeDraw } from './draw.js';
+import { PIC_TAG_FORMAT, DEFAULT_DRAW_RULE, DRAW_COUNT_MAX, drawPromptPlan, planRequest, validateDrawPreset, normalizeDraw } from './draw.js';
 import { defaultChat, normalizeChatPreset, normalizeContact, validateChatPreset, validateContact, chatContacts, buildChatRequest, activeChatPreset } from './chat.js';
 import { ChatStore } from './chats.js';
 import { DrawQueue } from './draw-queue.js';
+import { CloudQueue, newRoomCode, validRoom } from './cloud-queue.js';
 
 export const BACKEND_API_VERSION = '1.0.0';
 const ENGINES = ['fish', 'mini', 'eleven'];
@@ -37,7 +38,8 @@ export class TTSBackend {
         this.novelai = novelai || new NovelAIClient();
         this.chats = chats || new ChatStore(this.settings.scope, { indexedDB });
         this.subscription = null;
-        this.drawQueue = new DrawQueue({ gap: () => this.settings.draw.queue.gap * 1000, retries: () => this.settings.draw.queue.retries, onChange: queue => this.emit('draw', { queue }) });
+        this.drawQueue = new DrawQueue({ gap: () => this.settings.draw.queue.gap * 1000, retries: () => this.settings.draw.queue.retries,
+            remote: () => this.cloudQueue(), onChange: (queue, { remoteError }) => this.emit('draw', { queue, cloud: remoteError }) });
         this.listeners = new Set();
         this.revision = 0;
         this.closed = false;
@@ -187,7 +189,8 @@ export class TTSBackend {
         if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw Error('绘图设置格式无效');
         const next = this.getState(), draw = next.draw;
         if ('queue' in patch) draw.queue = normalizeDraw({ queue: { ...draw.queue, ...clone(patch.queue) } }).queue;
-        for (const key of ['enabled', 'auto', 'guard', 'fold']) if (key in patch) { if (typeof patch[key] !== 'boolean') throw Error('开关设置无效'); draw[key] = patch[key]; }
+        for (const key of ['enabled', 'auto', 'guard', 'fold', 'strip']) if (key in patch) { if (typeof patch[key] !== 'boolean') throw Error('开关设置无效'); draw[key] = patch[key]; }
+        if ('mode' in patch) { if (!['separate', 'inline'].includes(patch.mode)) throw Error('配图方式无效'); draw.mode = patch.mode; }
         if ('params' in patch) draw.params = normalizeDrawParams({ ...draw.params, ...clone(patch.params) });
         if ('activeStyle' in patch) { if (!draw.styles.some(s => s.id === patch.activeStyle)) throw Error('画风预设不存在'); draw.activeStyle = patch.activeStyle; }
         if ('activePreset' in patch) { if (!draw.presets.some(p => p.id === patch.activePreset)) throw Error('绘图预设不存在'); draw.activePreset = patch.activePreset; }
@@ -226,7 +229,11 @@ export class TTSBackend {
     previewDrawPrompt(preset) {
         const draft = preset ? normalizeDraw({ presets: [clone(preset)] }).presets[0] : null;
         if (draft) validateDrawPreset(draft);
-        return drawPromptPlan(this.settings, draft).map(entry => entry.text).join('\n\n');
+        const draw = this.settings.draw, used = draft || draw.presets.find(p => p.id === draw.activePreset) || draw.presets[0];
+        // 'separate' mode: the request made after a reply, with a stand-in for the reply.
+        if (draw.mode === 'separate') return planRequest(this.settings, { message: '（这里是刚写好的正文，第一段）\n（第二段……每一段前面会标上 [P1]、[P2]）', preset: used })
+            .map(m => `【${m.role}】\n${m.content}`).join('\n\n');
+        return drawPromptPlan(this.settings, used).map(entry => entry.text).join('\n\n');
     }
     async naiSubscription(refresh = false) {
         this.assertOpen();
@@ -331,6 +338,19 @@ export class TTSBackend {
         this.emit('library', { collection: 'photos' });
         this.emit('phone', { preferences: await this.getPhone() });
         return ids.length;
+    }
+    /** The shared cloud queue from the drawing settings, or null when it is off or incomplete. */
+    cloudQueue() {
+        const c = this.settings.draw.queue.cloud;
+        if (!c.enabled || !c.url || !validRoom(c.room)) return null;
+        if (!this.cloud?.matches(c)) this.cloud = new CloudQueue(c);
+        return this.cloud;
+    }
+    /** Checks the cloud queue address and room: {ok, length, holder} or {ok: false, message}. */
+    async testCloudQueue(value) {
+        const c = { ...this.settings.draw.queue.cloud, ...clone(value || {}) };
+        try { const s = await new CloudQueue(c).status(); return { ok: true, length: s.length, holder: s.holder, cooldown: s.cooldown }; }
+        catch (error) { return { ok: false, message: error.message }; }
     }
     async base64(blob) {
         const bytes = new Uint8Array(await blob.arrayBuffer()); let text = '';
@@ -437,6 +457,7 @@ export class TTSBackend {
             naiSubscription: refresh => this.naiSubscription(refresh), drawQuote: params => this.drawQuote(params),
             generateImage: input => this.generateImage(input).then(({ blob, ...result }) => result),
             drawQueue: () => this.drawQueue.list(), cancelDraw: key => this.drawQueue.cancel(key), cancelAllDraws: () => this.drawQueue.cancelAll(),
+            cloudQueueError: () => this.drawQueue.remoteError, testCloudQueue: value => this.testCloudQueue(value), newRoomCode: () => newRoomCode(),
             reference: file => this.reference(file), listReferences: () => this.library.listReferences(), deleteReference: id => this.deleteReference(id),
             engineSchema: (engine, connection) => this.getEngineSchema(engine, connection),
             validateConnection: (engine, connection) => { try { modelCheck(engine, connection.model); return TTSParameters.validate(engine, connection); } catch (error) { return message(error); } },

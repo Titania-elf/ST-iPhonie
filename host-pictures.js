@@ -6,7 +6,7 @@
 // Redrawing adds a version (the old ones stay for comparison); deleting removes the shown version and its file.
 // When the last version is deleted the record becomes {removed: true, versions: []}, so it is not drawn again
 // automatically. Older records ({url, seed, …}) read as a single version.
-import {parsePictures, pictureInputs} from './core/draw.js';
+import {parsePictures, pictureInputs, planRequest, insertPlanned, withoutPictures, sameExact} from './core/draw.js';
 import {openImageViewer} from './image-viewer.js';
 import {TIER_NAMES} from './core/novelai.js';
 
@@ -91,12 +91,74 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
     scheduleRender();
   }
 
-  /** Called after a new reply is rendered: queues all its pictures when automatic drawing is on and free. */
+  const planning = new Set();
+  /** Earlier messages for the planner: names and plain text, oldest first. */
+  function before(id, limit = 2) {
+    const chat = context().chat, out = [];
+    for (let i = id - 1; i >= 0 && out.length < limit; i--) {
+      const m = chat[i];
+      if (!m || m.is_system) continue;
+      const text = withoutPictures(m.mes).replace(/<tts\b[^>]*>[\s\S]*?<\/tts\s*>/gi, '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+      if (text) out.unshift({name: m.name || (m.is_user ? '我' : '角色'), text: text.slice(0, 600)});
+    }
+    return out;
+  }
+  /**
+   * 'separate' mode: after a reply is written, ask the model (its own request) for the picture blocks and put them
+   * into the reply after the paragraphs it chose. force: plan again, replacing the blocks already there.
+   */
+  async function planPictures(id, {force = false} = {}) {
+    const ctx = context(), s = settings(), message = ctx.chat[id];
+    if (!message || message.is_user || message.is_system || planning.has(id)) return false;
+    if (!ctx.generateRaw) throw Error('当前酒馆版本不支持后台生成');
+    if (!force && parsePictures(message.mes).length) return false;
+    planning.add(id);
+    notice('正在给这条回复挑画面……');
+    try {
+      const source = force ? withoutPictures(message.mes) : message.mes;
+      const preset = s.draw.presets.find(p => p.id === s.draw.activePreset) || s.draw.presets[0];
+      const reply = await ctx.generateRaw({prompt: planRequest(s, {message: source, before: before(id)}), trimNames: false, responseLength: Math.min(4000, 500 + preset.count * 400)});
+      if (context().chat[id] !== message) return false;
+      const {text, count} = insertPlanned(source, reply);
+      if (!count) throw Error('这次没有挑出画面，可以在绘图 App 里点“给最新回复配图”再试一次');
+      message.mes = text;
+      if (Array.isArray(message.swipes)) message.swipes[message.swipe_id ?? 0] = text;
+      await ctx.saveChat();
+      ctx.updateMessageBlock?.(id, message);
+      scheduleRender();
+      return true;
+    } finally { planning.delete(id); }
+  }
+  /** Saves 新外貌 lines of a reply to the 角色 App: new named characters, or roles that have no appearance yet. */
+  function registerAppearances(message) {
+    const added = [];
+    for (const tag of parsePictures(message?.mes || '')) for (const r of tag.spec?.register || []) {
+      const route = settings().routes.find(x => sameExact(x.name, r.name));
+      if (route?.appearance?.trim() || added.includes(r.name)) continue;
+      try {
+        backend.saveRoute(route ? {...route, appearance: r.appearance} : {name: r.name, engine: 'fish', voice: '', model: '', language: '', appearance: r.appearance});
+        added.push(r.name);
+      } catch { /* an unusable name is skipped */ }
+    }
+    if (added.length) notice(`已记下新角色的外貌：${added.join('、')}。可以在小手机的角色 App 里修改`);
+    return added;
+  }
+
+  /**
+   * Called after a new reply is rendered. 'separate' mode plans its pictures first; then new characters' looks are
+   * saved and, when automatic drawing is on and free, all its pictures are queued.
+   */
   async function autoPictures(id) {
     const s = settings();
-    if (!s.draw.enabled || !s.draw.auto) return;
-    const message = context().chat[id];
+    if (!s.draw.enabled) return;
+    let message = context().chat[id];
     if (!message || message.is_user || message.is_system) return;
+    if (s.draw.mode === 'separate' && !parsePictures(message.mes).length) {
+      try { if (!await planPictures(id)) return; } catch (error) { notice(error.message); return; }
+      message = context().chat[id];
+    }
+    registerAppearances(message);
+    if (!s.draw.auto) return;
     const tags = parsePictures(message.mes).filter(tag => !stored(message, tag.hash));
     if (!tags.length) return;
     const permission = await allowed(false);
@@ -111,6 +173,11 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
     if (job.state === 'running') return job.attempt ? `NovelAI 正在画……（第 ${job.attempt + 1} 次尝试）` : 'NovelAI 正在画……';
     if (job.state === 'busy') return `NovelAI 账号正忙，稍后自动重试（第 ${job.attempt} 次）`;
     if (job.state === 'spacing') return '排队中，马上开始';
+    if (job.state === 'remote') {
+      const c = job.cloud || {};
+      if (c.position > 0) return `云端排队中，前面还有 ${c.position} 位${c.holder ? `（${c.holder} 正在画）` : ''}`;
+      return c.cooldown > 5000 ? `账号刚才忙，大家一起等 ${Math.ceil(c.cooldown / 1000)} 秒` : '云端排队，马上轮到你';
+    }
     return `排队中，前面还有 ${job.position} 张`;
   }
 
@@ -260,5 +327,18 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
   }
   const subscriptionLabel = sub => sub ? `${TIER_NAMES[sub.tier] || '未知档位'} · Anlas ${sub.anlas}` : '';
 
-  return {decorate, click, autoPictures, recentMessages, insertImage, suggestPrompt, subscriptionLabel, pictureStats, clearPictures};
+  /** The newest reply from a character: plan its pictures again ('separate') and queue them. */
+  async function planLatest() {
+    const chat = context().chat;
+    for (let id = chat.length - 1; id >= 0; id--) {
+      const m = chat[id];
+      if (!m || m.is_user || m.is_system) continue;
+      const done = await planPictures(id, {force: true});
+      if (done) { registerAppearances(context().chat[id]); if (settings().draw.auto) await autoPictures(id); }
+      return done;
+    }
+    throw Error('聊天里还没有角色的回复');
+  }
+
+  return {decorate, click, autoPictures, planPictures, planLatest, registerAppearances, recentMessages, insertImage, suggestPrompt, subscriptionLabel, pictureStats, clearPictures};
 }
