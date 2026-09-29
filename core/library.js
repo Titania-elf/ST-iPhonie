@@ -13,7 +13,7 @@
  * whether an owned row existed. Every write resolves only after transaction commit.
  */
 export const LIBRARY_LIMITS = Object.freeze({total:256*1024*1024,photo:12*1024*1024,reference:20*1024*1024});
-export const PHONE_APPS = Object.freeze(['roles','engines','presets','library','gallery','notes','listen','settings']);
+export const PHONE_APPS = Object.freeze(['roles','engines','presets','library','gallery','notes','listen','settings','draw']);
 export const PHONE_WALLPAPERS = Object.freeze(['sky','silver','midnight','rose','sand']);
 export const PHONE_GLYPHS = Object.freeze(['default',...PHONE_APPS,'wave','book','music','camera','sliders','note','person','microphone','star','headphones']);
 const STORES = ['notes','photos','favorites','phone','references'];

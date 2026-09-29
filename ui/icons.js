@@ -1,14 +1,61 @@
-export function desktopIcon(key){
-const pictures={
-roles:'<rect x="12" y="9" width="36" height="47" rx="6" fill="#ffffff" opacity=".96"/><path d="M48 17h5m-5 10h5m-5 10h5m-5 10h5" stroke="#ffffff" stroke-width="3"/><circle cx="30" cy="26" r="8" fill="#2875e3"/><path d="M18 47v-4c0-11 24-11 24 0v4z" fill="#2875e3"/>',
-engines:'<rect x="23" y="9" width="18" height="31" rx="9" fill="#ffffff"/><path d="M16 30v3a16 16 0 0 0 32 0v-3M32 49v7m-9 0h18" stroke="#ffffff" stroke-width="4" fill="none"/>',
-presets:'<rect x="15" y="11" width="34" height="44" rx="5" fill="#ffffff"/><rect x="15" y="11" width="34" height="10" rx="4" fill="#ffe6a6"/><path d="M22 29h20M22 37h20M22 45h13" stroke="#c1831e" stroke-width="3"/>',
-settings:'<circle cx="32" cy="32" r="19" fill="none" stroke="#f6f6f8" stroke-width="8"/><path d="M32 7v7m0 36v7M7 32h7m36 0h7M14 14l6 6m24 24 6 6M14 50l6-6m24-24 6-6" stroke="#f6f6f8" stroke-width="7"/><circle cx="32" cy="32" r="9" fill="#565760" stroke="#dfe0e6" stroke-width="3"/>',
-listen:'<path d="M17 36V29a15 15 0 0 1 30 0v7" stroke="#ffffff" stroke-width="4" fill="none"/><rect x="11" y="31" width="12" height="21" rx="6" fill="#ffffff"/><rect x="41" y="31" width="12" height="21" rx="6" fill="#ffffff"/>',
-library:'<path d="M11 29v6m7-14v22m7-29v36m7-27v18m7-32v46m7-31v16m7-9v2" stroke="#ffffff" stroke-width="4"/>',
-notes:'<rect x="10" y="8" width="44" height="49" rx="5" fill="#ffffff"/><path d="M10 19h44" stroke="#ffe4a4" stroke-width="10"/><path d="M17 31h30M17 40h30M17 49h20" stroke="#d2c8a8" stroke-width="2"/>',
-gallery:['#ea777f','#e79968','#e6bc62','#a1b778','#6caebb','#7b9cca','#9989c1','#c186ad'].map((c,i)=>'<ellipse cx="32" cy="20" rx="8" ry="13" fill="'+c+'" fill-opacity=".86" transform="rotate('+i*45+' 32 32)"/>').join('')};
-return '<svg class="desktop-glyph" viewBox="0 0 64 64" aria-hidden="true" fill="none" stroke="none">'+(pictures[key]||pictures.settings)+'</svg>';}
-export const names={roles:'角色',engines:'引擎',presets:'预设',library:'音频收藏',gallery:'相册',notes:'备忘录',listen:'听取',settings:'设置'};
-export const wave='<span class="wave" aria-hidden="true">'+[9,18,27,19,11].map(h=>'<i style="height:'+h+'px"></i>').join('')+'</span>';
-export function icon(key){const paths={back:'m15 5-7 7 7 7',home:'m3 11 9-8 9 8M6 9v12h12V9M10 21v-7h4v7',close:'m6 6 12 12M6 18 18 6',add:'M12 5v14M5 12h14',next:'m9 5 7 7-7 7',lock:'M7 10V7a5 5 0 0 1 10 0v3M5 10h14v11H5z',play:'m8 5 11 7-11 7z',pause:'M8 5v14M16 5v14',stop:'M6 6h12v12H6z',star:'m12 3 3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z',music:'M10 17V4l10-2v13M10 7l10-2M4 17a3 3 0 1 0 6 0 3 3 0 1 0-6 0M14 15a3 3 0 1 0 6 0 3 3 0 1 0-6 0',sliders:'M4 7h16M4 17h16M9 4v6M15 14v6'};return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="'+(paths[key]||paths.star)+'"/></svg>';}
+// Icons for the phone UI. Desktop glyphs are drawn on a 64x64 grid: currentColor is the
+// main shape, --t2 the tile's deep colour and --tac its accent colour.
+
+const gear = (() => {
+  let teeth = '';
+  for (let k = 0; k < 8; k++) teeth += `<rect x="28" y="8" width="8" height="11" rx="2" transform="rotate(${k * 45} 32 32)"/>`;
+  return `<circle cx="32" cy="32" r="15"/>${teeth}<circle cx="32" cy="32" r="6" fill="var(--tac)"/>`;
+})();
+
+const GLYPHS = {
+  roles: '<path d="M14 57c1-10 8-15 18-15s17 5 18 15z"/><circle cx="32" cy="28" r="13"/><path d="M31 15c-1-5 2-9 7-9-3 2-4 5-3 9" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M25 29q2.5-3 5 0M34 29q2.5-3 5 0" fill="none" stroke="var(--t2)" stroke-width="2.2" stroke-linecap="round"/><ellipse cx="24" cy="34" rx="3" ry="1.8" fill="var(--tac)"/><ellipse cx="40" cy="34" rx="3" ry="1.8" fill="var(--tac)"/>',
+  engines: '<rect x="23" y="8" width="18" height="30" rx="9"/><path d="M16 30a16 16 0 0 0 32 0M32 46v9M24 55h16" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><path d="M52 15q4 5 0 10M57 11q7 9 0 18" fill="none" stroke="var(--tac)" stroke-width="3" stroke-linecap="round"/>',
+  presets: '<rect x="14" y="9" width="36" height="46" rx="6"/><path d="M21 25h22M21 33h22M21 41h14" stroke="var(--t2)" stroke-width="3" stroke-linecap="round"/><path d="M39 9h8v16l-4-3-4 3z" fill="var(--tac)"/>',
+  library: '<rect x="8" y="15" width="48" height="34" rx="6"/><rect x="15" y="21" width="34" height="14" rx="7" fill="var(--t2)"/><circle cx="23" cy="28" r="4"/><circle cx="41" cy="28" r="4"/><path d="M19 49l4-7h18l4 7z" fill="var(--tac)"/>',
+  gallery: '<g transform="rotate(-8 32 32)"><rect x="12" y="9" width="40" height="47" rx="4"/><rect x="17" y="14" width="30" height="28" rx="2" fill="var(--t2)"/><circle cx="39" cy="21" r="4" fill="var(--tac)"/><path d="M17 42l10-12 8 8 5-5 7 9z"/></g>',
+  notes: '<rect x="13" y="9" width="38" height="47" rx="6"/><path d="M13 15a6 6 0 0 1 6-6h26a6 6 0 0 1 6 6v6H13z" fill="var(--tac)"/><path d="M20 31h24M20 39h24M20 47h14" stroke="var(--t2)" stroke-width="2.5" stroke-linecap="round" opacity=".6"/>',
+  listen: '<path d="M14 38v-6a18 18 0 0 1 36 0v6" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><rect x="9" y="34" width="13" height="21" rx="6.5"/><rect x="42" y="34" width="13" height="21" rx="6.5"/><path d="M51 3c.7 3.4 1.6 4.3 5 5-3.4.7-4.3 1.6-5 5-.7-3.4-1.6-4.3-5-5 3.4-.7 4.3-1.6 5-5z" fill="var(--tac)"/>',
+  settings: gear,
+  draw: '<rect x="8" y="10" width="40" height="44" rx="5"/><path d="M13 44l10-12 7 8 5-6 9 10z" fill="var(--t2)"/><circle cx="38" cy="21" r="4" fill="var(--tac)"/><path d="M40 52 58 18l4 3-17 35-6 2z" fill="currentColor" stroke="var(--t2)" stroke-width="2.5" stroke-linejoin="round"/>',
+  wave: '<path d="M10 28v8M18 20v24M26 12v40M34 22v20M42 16v32M50 26v12" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><path d="M56 6c.6 2.8 1.3 3.5 4 4-2.7.6-3.4 1.3-4 4-.6-2.7-1.3-3.4-4-4 2.7-.5 3.4-1.2 4-4z" fill="var(--tac)"/>',
+  star: '<path d="m32 7 7.4 15 16.6 2.4-12 11.7 2.8 16.5L32 44.8l-14.8 7.8L20 36.1 8 24.4l16.6-2.4z"/><circle cx="26" cy="30" r="2.4" fill="var(--t2)"/><circle cx="38" cy="30" r="2.4" fill="var(--t2)"/><ellipse cx="23" cy="36" rx="3" ry="1.6" fill="var(--tac)"/><ellipse cx="41" cy="36" rx="3" ry="1.6" fill="var(--tac)"/>',
+  music: '<path d="M24 46V14l26-6v32" fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round"/><circle cx="18" cy="46" r="8"/><circle cx="44" cy="40" r="8"/><path d="M24 20l26-6" stroke="var(--tac)" stroke-width="4"/>',
+  sliders: '<path d="M12 18h40M12 32h40M12 46h40" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><circle cx="24" cy="18" r="6" fill="var(--tac)"/><circle cx="42" cy="32" r="6" fill="var(--tac)"/><circle cx="30" cy="46" r="6" fill="var(--tac)"/>'
+};
+
+// Glyph keys the backend accepts for custom icons that are drawn as another app's picture.
+const GLYPH_ALIASES = {book: 'presets', camera: 'gallery', note: 'notes', person: 'roles', microphone: 'engines', headphones: 'listen'};
+
+export const GLYPH_NAMES = {default: '默认', wave: '声波', book: '书本', music: '音符', camera: '相册', sliders: '滑块', note: '便签', person: '人物', microphone: '麦克风', star: '星星', headphones: '耳机'};
+
+export function glyph(key) {
+  const art = GLYPHS[GLYPH_ALIASES[key] || key] || GLYPHS.star;
+  return `<svg class="glyph" viewBox="0 0 64 64" fill="currentColor" aria-hidden="true">${art}</svg>`;
+}
+
+const LINES = {
+  back: 'm15 5-7 7 7 7', home: 'm3 11 9-8 9 8M6 9v12h12V9M10 21v-7h4v7', close: 'm6 6 12 12M6 18 18 6', add: 'M12 5v14M5 12h14',
+  next: 'm9 5 7 7-7 7', down: 'm6 9 6 6 6-6', up: 'm6 15 6-6 6 6', lock: 'M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z',
+  play: 'M7 4.5v15l12.5-7.5z', pause: 'M8 5v14M16 5v14', stop: 'M6.5 6.5h11v11h-11z', prev: 'M6 5v14M19 5 9 12l10 7z', skip: 'M18 5v14M5 5l10 7-10 7z',
+  heart: 'M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10z',
+  star: 'm12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z',
+  alert: 'M12 8v5M12 16.5v.5M10.3 3.9 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
+  wave: 'M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2', trash: 'M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13', refresh: 'M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5',
+  eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6', image: 'M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M15 9.5h.01',
+  import: 'M12 4v11M7 10l5 5 5-5M5 20h14', key: 'M15 7a4 4 0 1 1-3.9 5H4v3H2v-5h9.1A4 4 0 0 1 15 7z', check: 'm5 12 5 5 9-10',
+  nfc: 'M8 8a6 6 0 0 1 0 8M11.5 5.5a10 10 0 0 1 0 13M15 3a14 14 0 0 1 0 18', sun: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M5 19l1.4-1.4M17.6 6.4 19 5',
+  float: 'M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18zM9 12h.01M15 12h.01', volume: 'M4 9v6h4l5 4V5L8 9zM16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11',
+  spin: 'M12 3a9 9 0 1 0 9 9', music: 'M10 17V4l10-2v13M10 7l10-2M4 17a3 3 0 1 0 6 0 3 3 0 1 0-6 0M14 15a3 3 0 1 0 6 0 3 3 0 1 0-6 0',
+  sliders: 'M4 7h16M4 17h16M9 4v6M15 14v6', paint: 'M4 20c3 0 4-2 4-4a3 3 0 0 1 3-3l9-9-3-3-9 9a3 3 0 0 1-3 3c-2 0-4 1-4 4z', dice: 'M5 5h14v14H5zM9 9h.01M15 15h.01M15 9h.01M9 15h.01', wand: 'M4 20 16 8M14 4v3M18 8h3M17 5l2-2M19 11l2 1', insert: 'M4 6h16M4 12h9M4 18h9M17 14v6M14 17h6', layers: 'M12 3 3 8l9 5 9-5zM3 13l9 5 9-5', unlock: 'M7 11V8a5 5 0 0 1 9.6-2M5 11h14v10H5z', edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4', mic: 'M9 4a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0zM5 11a7 7 0 0 0 14 0M12 18v3'
+};
+
+export function icon(key, filled = false) {
+  return `<svg class="icon" viewBox="0 0 24 24" fill="${filled ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${LINES[key] || LINES.star}"/></svg>`;
+}
+
+export const spark = (className = 'spark') => `<svg class="${className}" viewBox="-10 -10 20 20" fill="currentColor" aria-hidden="true"><path d="M0-10C1-2 2-1 10 0 2 1 1 2 0 10-1 2-2 1-10 0-2-1-1-2 0-10z"/></svg>`;
+
+export const halo = () => '<svg class="halo" viewBox="0 0 110 30" fill="none" stroke="currentColor" aria-hidden="true"><ellipse cx="55" cy="15" rx="44" ry="9" stroke-width="4"/><path d="M55 1v5M33 3l2 4M77 3l-2 4" stroke-width="2.5" stroke-linecap="round"/></svg>';
+
+// Five-bar sound wave. Its bars are scaled by the shared animation loop while audio plays.
+export const wave = '<span class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>';

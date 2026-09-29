@@ -7,18 +7,22 @@ import { Providers, buildRequest } from './providers.js';
 import { AudioCache } from './cache.js';
 import { DialoguePlayer } from './player.js';
 import { LocalLibrary, PHONE_APPS, PHONE_WALLPAPERS, PHONE_GLYPHS } from './library.js';
+import { NovelAIClient, NAI_MODELS, NAI_SAMPLERS, NAI_SCHEDULES, buildImageRequest, guardParams, isFree, normalizeDrawParams } from './novelai.js';
+import { PIC_TAG_FORMAT, DEFAULT_DRAW_RULE, drawPromptPlan, validateDrawPreset, normalizeDraw } from './draw.js';
 
 export const BACKEND_API_VERSION = '1.0.0';
 const ENGINES = ['fish', 'mini', 'eleven'];
 const clone = value => structuredClone(value);
 const engineCheck = engine => { if (!ENGINES.includes(engine)) throw Error('引擎无效'); };
+// Keys cover the voice engines plus NovelAI for drawing.
+const keyCheck = engine => { if (engine !== 'nai') engineCheck(engine); };
 const modelCheck = (engine, model) => { engineCheck(engine); if (model && !TTSParameters.catalogs[engine].models.includes(model)) throw Error('请选择列表中的模型'); };
 const message = error => error instanceof TypeError ? '设置格式无效，请检查字段和条目' : error.message;
 
 /** Framework-independent operations. Host callbacks own SillyTavern persistence and rendering. */
 export class TTSBackend {
     constructor({ settings, persist = () => {}, notify = () => {}, change = () => {}, unknown = () => {},
-        providers = new Providers(), cache, library, keyStore, sink, indexedDB = globalThis.indexedDB } = {}) {
+        providers = new Providers(), cache, library, keyStore, sink, novelai, indexedDB = globalThis.indexedDB } = {}) {
         this.settings = normalizeSettings(settings);
         validateSettings(this.settings);
         this.persist = persist;
@@ -27,6 +31,9 @@ export class TTSBackend {
         this.cache = cache || new AudioCache(this.settings.scope, notify, indexedDB);
         this.library = library || new LocalLibrary(this.settings.scope, { indexedDB });
         this.keyStore = keyStore || new LocalKeyStore(this.settings.scope);
+        this.novelai = novelai || new NovelAIClient();
+        this.subscription = null;
+        this.drawQueue = Promise.resolve();
         this.listeners = new Set();
         this.revision = 0;
         this.closed = false;
@@ -39,7 +46,7 @@ export class TTSBackend {
     }
     async initialize() {
         this.assertOpen();
-        try { for (const [engine, key] of this.keyStore.load()) this.providers.setKey(engine, key); }
+        try { for (const [engine, key] of this.keyStore.load()) { if (engine === 'nai') this.novelai.setKey(key); else this.providers.setKey(engine, key); } }
         catch (error) { this.notify(error.message); }
         try {
             const phone = await this.library.getPhone();
@@ -159,10 +166,98 @@ export class TTSBackend {
         return { format: formats[0], lines: [] };
     }
     setKey(engine, key) {
-        engineCheck(engine); if (!String(key).trim()) throw Error('请填写密钥，或使用清除密钥');
-        this.providers.setKey(engine, this.keyStore.save(engine, key)); this.emit('keys', { engine, configured: true });
+        keyCheck(engine); if (!String(key).trim()) throw Error('请填写密钥，或使用清除密钥');
+        const saved = this.keyStore.save(engine, key);
+        if (engine === 'nai') { this.novelai.setKey(saved); this.subscription = null; } else this.providers.setKey(engine, saved);
+        this.emit('keys', { engine, configured: true });
     }
-    clearKey(engine) { engineCheck(engine); this.keyStore.save(engine, ''); this.providers.setKey(engine, ''); this.emit('keys', { engine, configured: false }); }
+    clearKey(engine) {
+        keyCheck(engine); this.keyStore.save(engine, '');
+        if (engine === 'nai') { this.novelai.setKey(''); this.subscription = null; } else this.providers.setKey(engine, '');
+        this.emit('keys', { engine, configured: false });
+    }
+    keyStatus(engine) { keyCheck(engine); return engine === 'nai' ? this.novelai.configured : this.providers.keys.has(engine); }
+
+    // ---------- Drawing ----------
+    saveDraw(patch) {
+        if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw Error('绘图设置格式无效');
+        const next = this.getState(), draw = next.draw;
+        for (const key of ['enabled', 'auto', 'guard']) if (key in patch) { if (typeof patch[key] !== 'boolean') throw Error('开关设置无效'); draw[key] = patch[key]; }
+        if ('params' in patch) draw.params = normalizeDrawParams({ ...draw.params, ...clone(patch.params) });
+        if ('activeStyle' in patch) { if (!draw.styles.some(s => s.id === patch.activeStyle)) throw Error('画风预设不存在'); draw.activeStyle = patch.activeStyle; }
+        if ('activePreset' in patch) { if (!draw.presets.some(p => p.id === patch.activePreset)) throw Error('绘图预设不存在'); draw.activePreset = patch.activePreset; }
+        this.save(next);
+        return clone(this.settings.draw);
+    }
+    saveStyle(value) {
+        if (!value || typeof value !== 'object' || !String(value.name || '').trim()) throw Error('请填写画风名称');
+        const next = this.getState(), style = { id: value.id || crypto.randomUUID(), name: String(value.name).trim(), artist: String(value.artist || ''), positive: String(value.positive || ''), negative: String(value.negative || '') };
+        const index = next.draw.styles.findIndex(s => s.id === style.id);
+        if (index < 0) next.draw.styles.push(style); else next.draw.styles[index] = style;
+        this.save(next);
+        return clone(this.settings.draw.styles.find(s => s.id === style.id));
+    }
+    deleteStyle(id) {
+        const next = this.getState();
+        if (next.draw.styles.length === 1) throw Error('请至少保留一个画风预设');
+        next.draw.styles = next.draw.styles.filter(s => s.id !== id);
+        return this.save(next).draw;
+    }
+    saveDrawPreset(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('绘图预设格式无效');
+        const next = this.getState(), preset = normalizeDraw({ presets: [{ ...clone(value), id: value.id || crypto.randomUUID() }] }).presets[0];
+        validateDrawPreset(preset);
+        const index = next.draw.presets.findIndex(p => p.id === preset.id);
+        if (index < 0) next.draw.presets.push(preset); else next.draw.presets[index] = preset;
+        this.save(next);
+        return clone(preset);
+    }
+    deleteDrawPreset(id) {
+        const next = this.getState();
+        if (next.draw.presets.length === 1) throw Error('请至少保留一个绘图预设');
+        next.draw.presets = next.draw.presets.filter(p => p.id !== id);
+        return this.save(next).draw;
+    }
+    previewDrawPrompt(preset) {
+        const draft = preset ? normalizeDraw({ presets: [clone(preset)] }).presets[0] : null;
+        if (draft) validateDrawPreset(draft);
+        return drawPromptPlan(this.settings, draft).map(entry => entry.text).join('\n\n');
+    }
+    async naiSubscription(refresh = false) {
+        this.assertOpen();
+        if (!this.novelai.configured) return null;
+        if (!refresh && this.subscription && Date.now() - this.subscription.checkedAt < 10 * 60 * 1000) return clone(this.subscription);
+        this.subscription = await this.novelai.subscription();
+        this.emit('draw', { subscription: this.subscription });
+        return clone(this.subscription);
+    }
+    /** Whether params cost Anlas. free: true (covered), false (costs Anlas), null (subscription unknown). */
+    drawQuote(params) {
+        const requested = normalizeDrawParams(params || this.settings.draw.params);
+        const effective = this.settings.draw.guard ? guardParams(requested) : requested;
+        return { params: effective, clamped: JSON.stringify(effective) !== JSON.stringify(requested), free: isFree(effective, this.subscription), guard: this.settings.draw.guard };
+    }
+    /** Generates one image and keeps it in the album. Requests run one at a time, as NovelAI allows. */
+    generateImage({ prompt, negative = '', characters = [], params, allowPaid = false, name = '' } = {}) {
+        this.assertOpen();
+        if (!String(prompt || '').trim()) return Promise.reject(Error('请先写提示词'));
+        const quote = this.drawQuote(params);
+        if (quote.free === false && !allowPaid) return Promise.reject(Error('这张图会扣 Anlas，需要确认后再生成'));
+        const request = buildImageRequest({ prompt, negative, characters, params: quote.params });
+        const job = this.drawQueue.then(async () => {
+            this.assertOpen();
+            this.emit('draw', { phase: 'generating' });
+            const blob = await this.novelai.generate(request.body);
+            this.assertOpen();
+            const photo = await this.library.addPhoto({ name: (name || 'NovelAI') + '-' + request.seed + '.png', blob });
+            this.emit('library', { collection: 'photos' });
+            this.emit('draw', { phase: 'done' });
+            if (quote.free === false) this.subscription = null;
+            return { photoId: photo.id, seed: request.seed, params: request.params, prompt: request.body.input, blob };
+        });
+        this.drawQueue = job.catch(error => { this.emit('draw', { phase: 'error', message: error.message }); });
+        return job;
+    }
     async base64(blob) {
         const bytes = new Uint8Array(await blob.arrayBuffer()); let text = '';
         for (let i = 0; i < bytes.length; i += 8192) text += String.fromCharCode(...bytes.subarray(i, i + 8192));
@@ -262,7 +357,11 @@ export class TTSBackend {
             savePreset: preset => this.savePreset(preset), deletePreset: id => this.deletePreset(id), selectPreset: id => this.selectPreset(id),
             validatePreset: preset => { try { validatePreset(preset); return ''; } catch (error) { return message(error); } },
             previewPrompt: preset => this.previewPrompt(preset), promptPlan: () => clone(promptPlan(this.settings, modelRules(this.settings))), parse: text => this.parse(text),
-            keyStatus: engine => { engineCheck(engine); return this.providers.keys.has(engine); }, setKey: (engine, key) => this.setKey(engine, key), clearKey: engine => this.clearKey(engine),
+            keyStatus: engine => this.keyStatus(engine), setKey: (engine, key) => this.setKey(engine, key), clearKey: engine => this.clearKey(engine),
+            saveDraw: patch => this.saveDraw(patch), saveStyle: style => this.saveStyle(style), deleteStyle: id => this.deleteStyle(id),
+            saveDrawPreset: preset => this.saveDrawPreset(preset), deleteDrawPreset: id => this.deleteDrawPreset(id), previewDrawPrompt: preset => this.previewDrawPrompt(preset),
+            naiSubscription: refresh => this.naiSubscription(refresh), drawQuote: params => this.drawQuote(params),
+            generateImage: input => this.generateImage(input).then(({ blob, ...result }) => result),
             reference: file => this.reference(file), listReferences: () => this.library.listReferences(), deleteReference: id => this.deleteReference(id),
             engineSchema: (engine, connection) => this.getEngineSchema(engine, connection),
             validateConnection: (engine, connection) => { try { modelCheck(engine, connection.model); return TTSParameters.validate(engine, connection); } catch (error) { return message(error); } },
@@ -284,6 +383,8 @@ export class TTSBackend {
             getPhone: () => this.getPhone(), savePhone: patch => this.savePhone(patch), libraryStats: () => this.library.stats(),
         };
         return Object.freeze({ apiVersion: BACKEND_API_VERSION, defaultPrompt: DEFAULT_PROMPT, defaultFormat: DEFAULT_FORMAT,
+            picTagFormat: PIC_TAG_FORMAT, defaultDrawRule: DEFAULT_DRAW_RULE,
+            drawCatalog: Object.freeze({ models: NAI_MODELS, samplers: NAI_SAMPLERS, schedules: NAI_SCHEDULES }),
             phoneCatalog: Object.freeze({ apps: PHONE_APPS, wallpapers: PHONE_WALLPAPERS, glyphs: PHONE_GLYPHS }),
             ...Object.fromEntries(Object.entries(methods).map(([name, fn]) => [name, (...args) => { this.assertOpen(); return fn(...args); }])),
         });

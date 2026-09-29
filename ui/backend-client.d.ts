@@ -1,5 +1,7 @@
-/** Public API returned by the installed ST-TTS panel bridge (backend API 1.0.0). */
+/** Public API returned by the installed ST-iPhonie panel bridge (backend API 1.0.0 plus drawing). */
 export type Engine = 'fish' | 'mini' | 'eleven';
+/** Keys cover the voice engines and NovelAI. */
+export type KeyEngine = Engine | 'nai';
 export type Theme = 'system' | 'light' | 'dark';
 export type InjectionPosition = 'in_chat' | 'in_prompt' | 'before_prompt';
 export type MessageRole = 'system' | 'user' | 'assistant';
@@ -15,6 +17,8 @@ export interface Route {
     /** Empty string follows general.defaultLanguage. */
     language?: string;
     bindings: Partial<Record<Engine, VoiceBinding>>;
+    /** Fixed appearance tags added when this character appears in a picture. */
+    appearance?: string;
 }
 export type RouteInput = Pick<Route, 'name'> & Partial<Omit<Route, 'name'>>;
 export type RequestRoute = Pick<Route, 'voice'> & Partial<Omit<Route, 'voice'>>;
@@ -65,7 +69,33 @@ export interface Settings {
     connections: Record<Engine, Connection>;
     presets: Preset[];
     floating?: { side: 'left' | 'right'; y: number };
+    draw: DrawSettings;
 }
+export interface DrawParams {
+    model: string; width: number; height: number; steps: number; scale: number;
+    sampler: string; schedule: string; /** -1 picks a random seed. */ seed: number; cfgRescale: number; variety: boolean;
+}
+/** 画风预设: artist and fixed tags sent to NovelAI. */
+export interface DrawStyle { id: string; name: string; artist: string; positive: string; negative: string; }
+/** 绘图预设: rules injected into the chat request so the model writes <img> tags. */
+export interface DrawPreset { id: string; name: string; injection: Injection; entries: PresetEntry[]; }
+export interface DrawSettings {
+    /** Inject the drawing preset into chat requests. */
+    enabled: boolean;
+    /** Draw new replies' pictures automatically when free. */
+    auto: boolean;
+    /** Keep requests inside the free tier (<=28 steps, <=1024x1024). */
+    guard: boolean;
+    params: DrawParams;
+    styles: DrawStyle[]; activeStyle: string;
+    presets: DrawPreset[]; activePreset: string;
+}
+export interface DrawSettingsPatch { enabled?: boolean; auto?: boolean; guard?: boolean; params?: Partial<DrawParams>; activeStyle?: string; activePreset?: string; }
+export interface NovelAISubscription { tier: number; active: boolean; unlimited: boolean; anlas: number; checkedAt: number; }
+export interface DrawQuote { params: DrawParams; clamped: boolean; /** null when the subscription is unknown. */ free: boolean | null; guard: boolean; }
+export interface DrawCharacter { prompt: string; negative?: string; /** 0-24 on a 5x5 grid, -1 lets the model decide. */ position: number; }
+export interface DrawInput { prompt: string; negative?: string; characters?: DrawCharacter[]; params?: Partial<DrawParams>; allowPaid?: boolean; name?: string; }
+export interface DrawResult { photoId: string; seed: number; params: DrawParams; prompt: string; }
 export interface SettingsSnapshot { state: Settings; revision: number; }
 export interface PromptPlanEntry {
     key: string;
@@ -219,7 +249,8 @@ export type BackendEvent =
     | { type: 'settings'; revision: number; state: Settings }
     | { type: 'keys'; revision: number; engine: Engine; configured: boolean }
     | { type: 'library'; revision: number; collection: LibraryCollection }
-    | { type: 'phone'; revision: number; preferences: PhonePreferences };
+    | { type: 'phone'; revision: number; preferences: PhonePreferences }
+    | { type: 'draw'; revision: number; phase?: 'generating' | 'done' | 'error'; message?: string; subscription?: NovelAISubscription };
 
 /** Framework-independent facade. Methods may throw validation/lifecycle errors. */
 export interface BackendFacade {
@@ -227,6 +258,9 @@ export interface BackendFacade {
     readonly defaultPrompt: string;
     readonly defaultFormat: string;
     readonly phoneCatalog: PhoneCatalog;
+    readonly picTagFormat: string;
+    readonly defaultDrawRule: string;
+    readonly drawCatalog: { readonly models: readonly string[]; readonly samplers: readonly string[]; readonly schedules: readonly string[] };
     getState(): Settings;
     getSnapshot(): SettingsSnapshot;
     save(next: Settings, expectedRevision?: number): Settings;
@@ -245,9 +279,21 @@ export interface BackendFacade {
     previewPrompt(preset?: Preset): string;
     promptPlan(): PromptPlanEntry[];
     parse(text: string): ParsedDialogue;
-    keyStatus(engine: Engine): boolean;
-    setKey(engine: Engine, key: string): void;
-    clearKey(engine: Engine): void;
+    keyStatus(engine: KeyEngine): boolean;
+    setKey(engine: KeyEngine, key: string): void;
+    clearKey(engine: KeyEngine): void;
+    saveDraw(patch: DrawSettingsPatch): DrawSettings;
+    saveStyle(style: Omit<DrawStyle, 'id'> & { id?: string }): DrawStyle;
+    deleteStyle(id: string): DrawSettings;
+    saveDrawPreset(preset: Omit<DrawPreset, 'id'> & { id?: string }): DrawPreset;
+    deleteDrawPreset(id: string): DrawSettings;
+    /** Text injected for the active drawing preset, or for the given draft. */
+    previewDrawPrompt(preset?: DrawPreset): string;
+    /** Cached for ten minutes unless refresh is true; null without a NovelAI key. */
+    naiSubscription(refresh?: boolean): Promise<NovelAISubscription | null>;
+    drawQuote(params?: Partial<DrawParams>): DrawQuote;
+    /** Generates one image and saves it to the album. Rejects paid requests unless allowPaid. */
+    generateImage(input: DrawInput): Promise<DrawResult>;
     reference(file: Blob & { readonly name?: string }): Promise<string>;
     listReferences(): Promise<ReferenceMetadata[]>;
     deleteReference(id: string): Promise<void>;
@@ -300,6 +346,14 @@ export interface BackendAPI extends BackendFacade {
     latest(): LatestMessage;
     /** Omit lineIndex to play the whole message. Generation requires an explicit user action. */
     play(messageId: number, lineIndex?: number): void;
+    /** Latest chat messages, newest first, for choosing where to insert a picture. */
+    recentMessages(): Array<{ id: number; name: string; user: boolean; preview: string }>;
+    /** Uploads an album photo to the tavern and attaches it to the message. */
+    insertImage(messageId: number, photoId: string): Promise<{ id: number; url: string }>;
+    /** Asks the chat model for picture tags describing the latest scene. */
+    suggestPrompt(): Promise<string>;
+    /** A picture the chat asked to open in the drawing app, if any. */
+    takeDraw(): (DrawInput & { tag?: string; seed?: number }) | null;
 }
 export interface PanelHostBridge { connect(source: Window): BackendAPI; }
 
@@ -310,6 +364,7 @@ declare global {
         stTtsUpdate?: (state: PlaybackSnapshot) => void;
         stTtsOpenRole?: (routeId: string) => void;
         stTtsPanelVisibility?: (visible: boolean) => void;
+        stTtsOpenDraw?: () => void;
     }
 }
 /** Connect only from the installed plugin's settings iframe. Defaults to its window. */
