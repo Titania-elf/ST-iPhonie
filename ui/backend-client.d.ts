@@ -102,7 +102,9 @@ export interface DrawSettingsPatch { enabled?: boolean; auto?: boolean; guard?: 
 /** gap: seconds between two NovelAI requests (0-60). retries: how often an "account busy" (429) is retried (0-10). */
 export interface DrawQueueSettings { gap: number; retries: number; cloud: CloudQueueSettings; }
 /** Shared queue service (cloud-queue/worker.js) that everyone using one NovelAI account joins with the same room code. */
-export interface CloudQueueSettings { enabled: boolean; url: string; room: string; }
+/** kind 'room': our own service (cloud-queue/), joined with a room code. kind 'keyhash': a service that groups people by the
+ *  SHA-256 of their NovelAI key (the 智绘姬 / st-chatu8 queue protocol); no room code, only the hash is sent. */
+export interface CloudQueueSettings { enabled: boolean; kind: 'room' | 'keyhash'; url: string; room: string; }
 /** A NovelAI job: waiting in line, keeping the gap (spacing), waiting after a 429 (busy), or running. */
 export interface DrawJob { key: string; label: string; state: 'waiting' | 'spacing' | 'remote' | 'busy' | 'running'; attempt: number; until: number; position: number;
     /** While waiting in the cloud queue: people ahead, who is drawing, and the shared cooldown in ms. */

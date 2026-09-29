@@ -72,3 +72,77 @@ export class CloudQueue {
     };
   }
 }
+
+// ---------- Queues that group people by their NovelAI key (the 智绘姬 / st-chatu8 queue protocol) ----------
+// Such a service needs no room code: everyone whose key has the same SHA-256 lands in the same line.
+// Sent: that hash, a random id for this browser and a random id per picture. The key itself never leaves.
+
+export async function sha256Hex(text) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(text)));
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function browserId() {
+  try {
+    let id = globalThis.localStorage?.getItem('sttts.queue.uid');
+    if (!id) { id = crypto.randomUUID(); globalThis.localStorage?.setItem('sttts.queue.uid', id); }
+    return id;
+  } catch { return 'sttts-' + crypto.randomUUID(); }
+}
+
+export class KeyHashQueue {
+  /** keyHash(): the SHA-256 of the NovelAI key, or '' when there is no key. */
+  constructor({url}, {keyHash, fetcher = (...args) => globalThis.fetch(...args), poll = 1000, wait = sleep, userId = browserId} = {}) {
+    this.url = String(url || '').replace(/\/+$/, '');
+    Object.assign(this, {keyHash, fetcher, poll, wait, userId});
+  }
+  matches({url, kind}) { return kind === 'keyhash' && this.url === String(url || '').replace(/\/+$/, ''); }
+  async request(path, body, signal) {
+    if (!/^https:\/\//.test(this.url)) throw Error('云端队列地址需要以 https:// 开头');
+    let response;
+    try {
+      response = await this.fetcher(this.url + path, body ? {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body), signal} : {signal});
+    } catch {
+      if (signal?.aborted) throw stop();
+      throw Error('连不上云端队列，请检查地址和网络');
+    }
+    if (!response.ok) throw Error(`云端队列出错（${response.status}）`);
+    return response.json();
+  }
+  async hash() {
+    const hash = await this.keyHash();
+    if (!hash) throw Error('还没有填写 NovelAI 密钥，按密钥排队需要它');
+    return hash;
+  }
+  /** {length, holder, cooldown} for our key's line. */
+  async status(signal) {
+    const hash = await this.hash();
+    await this.request('/ping', null, signal);
+    const line = (await this.request('/stats', null, signal).catch(() => ({})))?.queues?.[hash];
+    return {length: line?.size || 0, holder: line?.current ? '有人' : '', cooldown: 0};
+  }
+  async acquire({signal, onWait = () => {}} = {}) {
+    const ids = {key_hash: await this.hash(), user_id: this.userId(), task_id: crypto.randomUUID()};
+    let state = await this.request('/join-queue', {...ids, greeting: null}, signal);
+    let token = state.position === 0 && state.lock_token ? state.lock_token : null;
+    try {
+      while (!token) {
+        onWait({position: Math.max(1, state.position ?? 1), holder: state.current_greeting || '', cooldown: 0, length: state.queue_size});
+        await this.wait(this.poll, signal);
+        state = await this.request(`/my-turn?key_hash=${encodeURIComponent(ids.key_hash)}&user_id=${encodeURIComponent(ids.user_id)}&task_id=${encodeURIComponent(ids.task_id)}`, null, signal);
+        if (state.is_my_turn && state.lock_token) token = state.lock_token;
+      }
+    } catch (error) {
+      this.request('/leave-queue', {...ids, lock_token: null}).catch(() => {});
+      throw error;
+    }
+    let done = false;
+    return {
+      ticket: ids.task_id,
+      release: () => {
+        if (done) return Promise.resolve();
+        done = true;
+        return this.request('/complete', {...ids, lock_token: token}).catch(() => {});
+      }
+    };
+  }
+}

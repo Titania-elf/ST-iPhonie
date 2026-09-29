@@ -88,7 +88,7 @@ const DEFAULT_PRESET = {id: 'default', name: '默认出图规则', count: 1, inj
 
 export function defaultDraw() {
   return {enabled: false, auto: true, guard: true, fold: false, mode: 'separate', strip: true,
-    queue: {gap: 3, retries: 4, cloud: {enabled: false, url: '', room: ''}}, params: defaultDrawParams(),
+    queue: {gap: 3, retries: 4, cloud: {enabled: false, kind: 'room', url: '', room: ''}}, params: defaultDrawParams(),
     styles: [structuredClone(DEFAULT_STYLE)], activeStyle: 'default', presets: [structuredClone(DEFAULT_PRESET)], activePreset: 'default'};
 }
 
@@ -106,7 +106,7 @@ export function normalizeDraw(value) {
   const n = (v, min, max, fallback) => { const x = Math.round(Number(v)); return Number.isFinite(x) ? Math.min(max, Math.max(min, x)) : fallback; };
   const cloud = d.queue?.cloud || {};
   d.queue = {gap: n(d.queue?.gap, 0, 60, 3), retries: n(d.queue?.retries, 0, 10, 4),
-    cloud: {enabled: !!cloud.enabled, url: text(cloud.url, 300).trim().replace(/\/+$/, ''), room: text(cloud.room, 80).trim()}};
+    cloud: {enabled: !!cloud.enabled, kind: cloud.kind === 'keyhash' ? 'keyhash' : 'room', url: text(cloud.url, 300).trim().replace(/\/+$/, ''), room: text(cloud.room, 80).trim()}};
   d.params = normalizeDrawParams(d.params);
   d.styles = (Array.isArray(d.styles) && d.styles.length ? d.styles : base.styles).map(s => ({id: String(s.id || crypto.randomUUID()), name: text(s.name, 60) || '画风', artist: text(s.artist, 4000), positive: text(s.positive, 4000), negative: text(s.negative, 4000)}));
   d.activeStyle = d.styles.some(s => s.id === d.activeStyle) ? d.activeStyle : d.styles[0].id;

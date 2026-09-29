@@ -5,7 +5,7 @@
 
 const STYLE_ID = 'sttts-viewer-style';
 const CSS = `
-.sttts-viewer{position:fixed;inset:0;z-index:40000;background:rgba(8,10,20,.92);touch-action:none;user-select:none;-webkit-user-select:none;overscroll-behavior:contain;font:14px/1.4 "PingFang SC","Microsoft YaHei",system-ui,sans-serif;color:#fff}
+.sttts-viewer{position:fixed;top:0;left:0;width:100vw;height:100vh;height:100dvh;z-index:40000;background:rgba(8,10,20,.92);touch-action:none;user-select:none;-webkit-user-select:none;overscroll-behavior:contain;font:14px/1.4 "PingFang SC","Microsoft YaHei",system-ui,sans-serif;color:#fff}
 .sttts-viewer img{position:absolute;left:0;top:0;max-width:none;max-height:none;transform-origin:0 0;will-change:transform;cursor:grab;-webkit-user-drag:none}
 .sttts-viewer[data-dragging] img{cursor:grabbing}
 .sttts-viewer-bar{position:absolute;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;align-items:center;gap:2px;padding:4px;border-radius:24px;background:rgba(20,24,40,.78);box-shadow:0 8px 24px rgba(0,0,0,.4);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);max-width:calc(100vw - 24px);flex-wrap:wrap;justify-content:center}
@@ -49,7 +49,9 @@ export function openImageViewer({doc = document, src, alt = '', actions = [], fr
   const start = from?.getBoundingClientRect?.();
   const pointers = new Map();
   let gesture = null, lastTap = null;
-  const size = () => ({w: root.clientWidth, h: root.clientHeight});
+  // The tavern puts a transform on <html>, which makes a fixed box with only `inset` collapse to 0 height:
+  // the box has an explicit viewport size, and the window size is the fallback.
+  const size = () => ({w: root.clientWidth || win.innerWidth, h: root.clientHeight || win.innerHeight});
   const nat = () => ({w: img.naturalWidth || 1, h: img.naturalHeight || 1});
 
   function clamp() {

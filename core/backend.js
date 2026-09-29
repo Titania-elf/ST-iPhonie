@@ -12,7 +12,7 @@ import { PIC_TAG_FORMAT, DEFAULT_DRAW_RULE, DRAW_COUNT_MAX, drawPromptPlan, plan
 import { defaultChat, normalizeChatPreset, normalizeContact, validateChatPreset, validateContact, chatContacts, buildChatRequest, activeChatPreset } from './chat.js';
 import { ChatStore } from './chats.js';
 import { DrawQueue } from './draw-queue.js';
-import { CloudQueue, newRoomCode, validRoom } from './cloud-queue.js';
+import { CloudQueue, KeyHashQueue, newRoomCode, validRoom, sha256Hex } from './cloud-queue.js';
 
 export const BACKEND_API_VERSION = '1.0.0';
 const ENGINES = ['fish', 'mini', 'eleven'];
@@ -342,14 +342,30 @@ export class TTSBackend {
     /** The shared cloud queue from the drawing settings, or null when it is off or incomplete. */
     cloudQueue() {
         const c = this.settings.draw.queue.cloud;
-        if (!c.enabled || !c.url || !validRoom(c.room)) return null;
-        if (!this.cloud?.matches(c)) this.cloud = new CloudQueue(c);
+        if (!c.enabled || !c.url) return null;
+        if (c.kind === 'keyhash') {
+            if (!(this.cloud instanceof KeyHashQueue) || !this.cloud.matches(c)) this.cloud = new KeyHashQueue(c, { keyHash: () => this.naiKeyHash() });
+            return this.cloud;
+        }
+        if (!validRoom(c.room)) return null;
+        if (!(this.cloud instanceof CloudQueue) || !this.cloud.matches(c)) this.cloud = new CloudQueue(c);
         return this.cloud;
+    }
+    /** SHA-256 of the NovelAI key, for queues that group people by key. Cached per key. */
+    async naiKeyHash() {
+        const key = this.novelai.key;
+        if (!key) return '';
+        if (this.keyHashFor !== key) { this.keyHashValue = await sha256Hex(key); this.keyHashFor = key; }
+        return this.keyHashValue;
     }
     /** Checks the cloud queue address and room: {ok, length, holder} or {ok: false, message}. */
     async testCloudQueue(value) {
         const c = { ...this.settings.draw.queue.cloud, ...clone(value || {}) };
-        try { const s = await new CloudQueue(c).status(); return { ok: true, length: s.length, holder: s.holder, cooldown: s.cooldown }; }
+        try {
+            const queue = c.kind === 'keyhash' ? new KeyHashQueue(c, { keyHash: () => this.naiKeyHash() }) : new CloudQueue(c);
+            const s = await queue.status();
+            return { ok: true, length: s.length, holder: s.holder, cooldown: s.cooldown };
+        }
         catch (error) { return { ok: false, message: error.message }; }
     }
     async base64(blob) {
