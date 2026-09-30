@@ -33,7 +33,7 @@
 /* ---------- Base ---------- */
 *{box-sizing:border-box}
 html,body,#root{height:100%;margin:0}
-body{background:var(--page);color:var(--ink);line-height:1.5;overflow:hidden;-webkit-font-smoothing:antialiased}
+body{background:transparent;color:var(--ink);line-height:1.5;overflow:hidden;-webkit-font-smoothing:antialiased}
 button,input,select,textarea{font:inherit;color:inherit}
 button{background:none;border:0;padding:0;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 button:disabled{opacity:.45;cursor:default}
@@ -478,6 +478,7 @@ details>div{padding-bottom:10px}
 .home-close{position:absolute;top:10px;right:12px;z-index:5;width:36px;height:36px;border-radius:50%;place-items:center;background:rgba(255,255,255,.35);color:inherit;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
 .home-close svg{width:18px;height:18px}
 @media (pointer:coarse) and (max-width:540px),(max-width:360px){
+  body{background:var(--page)}
   .stage{padding:0}
   .stage-bar,.power-key,.statusbar{display:none}
   .device{width:100%;flex:1;aspect-ratio:auto;border-radius:0;padding:0;background:none!important;box-shadow:none!important}
@@ -732,3 +733,13 @@ html[data-keyboard=true] *{animation:none!important;transition:none!important}
 .wm-firefly{left:var(--x);top:var(--y);width:calc(4px*var(--s));height:calc(4px*var(--s));border-radius:50%;background:#fff3b0;box-shadow:0 0 8px 2px #f7e27a99;animation:wm-wander var(--d) ease-in-out infinite,wm-blink var(--w) ease-in-out infinite}
 @keyframes wm-wander{0%,100%{transform:translate(0,0)}25%{transform:translate(18px,-14px)}50%{transform:translate(-6px,-28px)}75%{transform:translate(-20px,-8px)}}
 @keyframes wm-blink{0%,100%{opacity:.12}50%{opacity:1}}
+
+/* On a computer the phone floats over the dimmed tavern: the page around it is transparent (a phone screen, where the
+   phone fills everything, keeps the page colour above). The root stays in the light scheme like the iframe element
+   (style.css), or Chrome paints the whole frame opaque when the two differ; dark form controls come from body. */
+html{color-scheme:light!important;background:transparent}
+:root[data-theme=dark] body{color-scheme:dark}
+.stage-bar{color:#fff;text-shadow:0 1px 3px #0009}
+.stage-bar .close{color:#fff;background:#ffffff26}
+.stage-bar .info{color:#fff;border-color:#ffffffcc;background:#ffffff1a}
+@media (hover:hover){.stage-bar .close:hover{background:#ffffff40}.stage-bar .info:hover{background:#ffffff33}}
