@@ -444,6 +444,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     }
     if (event.type === 'audio-ready') views.get('listen')?.onPlayback?.(api.status());
     if (event.type === 'draw') views.get('draw')?.onDraw?.(event);
+    if (event.type === 'balance') run(() => views.get('engines')?.onBalance?.(event));
     if (event.type === 'chat') { run(() => views.get('chat')?.onChat?.(event)); countUnread(); }
     if (event.type === 'settings') run(() => views.get('chat')?.onChat?.({}));
   });

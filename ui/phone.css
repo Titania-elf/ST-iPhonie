@@ -259,6 +259,9 @@ details>div{padding-bottom:10px}
 .control-tile .segmented{margin:4px 0 0}
 .slider{width:100%;accent-color:var(--accent-btn);min-height:32px}
 .meter-label{display:flex;justify-content:space-between;font-size:13px;font-weight:800}
+.meter-track{display:block;height:8px;margin-top:8px;border-radius:999px;background:var(--card2);overflow:hidden;box-shadow:inset 0 0 0 1px var(--line)}
+.meter-track i{display:block;height:100%;border-radius:inherit;background:var(--e-btn,var(--accent-btn))}
+.balance-meter{margin:6px 0 4px}
 .play-round{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;flex-shrink:0;background:var(--e-btn,var(--accent-btn));color:var(--e-on,var(--on-accent));box-shadow:0 3px 0 color-mix(in srgb,var(--e-btn,var(--accent-btn)) 65%,#000)}
 .play-round svg{width:20px;height:20px}
 

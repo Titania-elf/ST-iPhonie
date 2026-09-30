@@ -59,8 +59,8 @@ export async function decodeMini(response,request,fetcher,signal){
 // What a failed request means, from the error code the service sends back (ElevenLabs: detail.code / detail.status).
 const REASONS={
  detected_unusual_activity:'免费账户被判定为异常使用（最常见的原因是开着 VPN 或代理），ElevenLabs 停用了这个账户的免费 API。换一个网络环境再试，或者升级到付费档。',
- missing_permissions:'这把密钥没有开对应的权限：试听要「文字转语音」，读取音色列表要「音色」读取。在 ElevenLabs 的 API Keys 页面编辑这把密钥的权限，或者新建一把不限权限的密钥。',
- insufficient_permissions:'这把密钥没有开对应的权限：试听要「文字转语音」，读取音色列表要「音色」读取。在 ElevenLabs 的 API Keys 页面编辑这把密钥的权限，或者新建一把不限权限的密钥。',
+ missing_permissions:'这把密钥没有开对应的权限：试听要「文字转语音」，读取音色列表要「音色」读取，查额度要「用户」读取。在 ElevenLabs 的 API Keys 页面编辑这把密钥的权限，或者新建一把不限权限的密钥。',
+ insufficient_permissions:'这把密钥没有开对应的权限：试听要「文字转语音」，读取音色列表要「音色」读取，查额度要「用户」读取。在 ElevenLabs 的 API Keys 页面编辑这把密钥的权限，或者新建一把不限权限的密钥。',
  invalid_api_key:'密钥无效。请重新完整复制密钥，注意不要带空格。',
  missing_api_key:'没有带上密钥，请在引擎卡片里重新保存密钥。',
  paid_plan_required:'免费账户不能通过 API 使用音色库（Voice Library）里的音色。换成「我的音色」里自己的或默认的音色，或者升级到付费档。',
@@ -122,9 +122,32 @@ export class Providers{
    response=await this.post(request,body,signal);
    if(!response.ok)throw await httpError(request.engine,response,'',[this.keys.get(request.engine)]);
   }
+  // A new audio was paid for: the balance shown on the engine card is out of date.
+  try{this.onSpend?.(request.engine);}catch{}
   if(request.engine==='mini')return decodeMini(response,request,this.fetcher,signal);if(response.headers.get('Content-Type')?.includes('json'))throw Error(names[request.engine]+' 未返回音频');return audioBlob(await limitedBytes(response),request);}
  post(request,body,signal){return this.fetch(request.url,{method:'POST',headers:{...this.headers(request.engine),'Content-Type':'application/json'},body:JSON.stringify(body)},signal);}
  async voices(engine,c,{search='',page=0,token=''}={}){const headers=this.headers(engine);let url,init={headers};if(engine==='fish'){url=new URL('https://api.fish.audio/model');url.searchParams.set('page_size','50');url.searchParams.set('page_number',String(page+1));if(search)url.searchParams.set('title',search);}else if(engine==='mini'){url=miniBase(c)+'/v1/get_voice';init={method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({voice_type:'all'})};}else{url=new URL('https://api.elevenlabs.io/v2/voices');url.searchParams.set('page_size','100');if(search)url.searchParams.set('search',search);if(token)url.searchParams.set('next_page_token',token);}
  const response=await this.fetch(String(url),init);if(!response.ok)throw await httpError(engine,response,'音色读取失败',[this.keys.get(engine)]);const data=await response.json();if(engine==='mini')checkMini(data);const source=engine==='fish'?data.items:engine==='mini'?[...(data.system_voice||[]),...(data.voice_cloning||[]),...(data.voice_generation||[])]:data.voices;if(!Array.isArray(source))throw Error('音色列表格式不符');return {voices:source.map(v=>({id:v._id||v.voice_id,name:v.title||v.voice_name||v.name||v.voice_id})).filter(v=>typeof v.id==='string'),more:engine==='fish'?source.length===50:!!data.has_more,token:data.next_page_token||'',note:engine==='fish'?'已读取公开音色；此结果不能确认密钥有效':'音色列表已读取'};}
+ /**
+  * What is left on the account. ElevenLabs: {kind:'characters', used, limit, left, resetAt, tier, status} from
+  * /v1/user/subscription (credits of the current period). Fish: {kind:'credit', credit, free} from /wallet/self/api-credit.
+  */
+ async balance(engine){
+  if(!['eleven','fish'].includes(engine))throw Error('这家引擎没有提供余额查询');
+  const headers=this.headers(engine),key=this.keys.get(engine);
+  if(engine==='eleven'){
+   const response=await this.fetch('https://api.elevenlabs.io/v1/user/subscription',{headers});
+   if(!response.ok)throw await httpError(engine,response,'额度读取失败',[key]);
+   const d=await response.json(),used=Number(d.character_count)||0,limit=Number(d.character_limit)||0;
+   return {engine,kind:'characters',used,limit,left:Math.max(0,limit-used),resetAt:Number(d.next_character_count_reset_unix)>0?Number(d.next_character_count_reset_unix)*1000:null,tier:String(d.tier||''),status:String(d.status||'')};
+  }
+  if(engine==='fish'){
+   const response=await this.fetch('https://api.fish.audio/wallet/self/api-credit?check_free_credit=true',{headers});
+   if(!response.ok)throw await httpError(engine,response,'余额读取失败',[key]);
+   const d=await response.json(),credit=Number(d.credit);
+   if(!Number.isFinite(credit))throw Error('Fish Audio 返回的余额格式不符');
+   return {engine,kind:'credit',credit,free:d.has_free_credit===true};
+  }
+ }
  clear(){this.keys.clear();this.references.clear();this.refused.clear();}
 }

@@ -32,6 +32,9 @@ export class TTSBackend {
         this.persist = persist;
         this.notify = notify;
         this.providers = providers;
+        // Voice balances (ElevenLabs, Fish) read for the engine cards; a new audio marks them out of date.
+        this.balances = new Map();
+        providers.onSpend = engine => { const b = this.balances.get(engine); if (b) b.checkedAt = 0; this.emit('balance', { engine, stale: true }); };
         this.cache = cache || new AudioCache(this.settings.scope, notify, indexedDB);
         this.library = library || new LocalLibrary(this.settings.scope, { indexedDB });
         this.keyStore = keyStore || new LocalKeyStore(this.settings.scope);
@@ -174,13 +177,25 @@ export class TTSBackend {
     setKey(engine, key) {
         keyCheck(engine); if (!String(key).trim()) throw Error('请填写密钥，或使用清除密钥');
         const saved = this.keyStore.save(engine, key);
-        if (engine === 'nai') { this.novelai.setKey(saved); this.subscription = null; } else this.providers.setKey(engine, saved);
+        if (engine === 'nai') { this.novelai.setKey(saved); this.subscription = null; } else { this.providers.setKey(engine, saved); this.balances.delete(engine); }
         this.emit('keys', { engine, configured: true });
     }
     clearKey(engine) {
         keyCheck(engine); this.keyStore.save(engine, '');
-        if (engine === 'nai') { this.novelai.setKey(''); this.subscription = null; } else this.providers.setKey(engine, '');
+        if (engine === 'nai') { this.novelai.setKey(''); this.subscription = null; } else { this.providers.setKey(engine, ''); this.balances.delete(engine); }
         this.emit('keys', { engine, configured: false });
+    }
+    /** What is left on a voice account (ElevenLabs credits, Fish API balance); null without a key. Cached for a minute. */
+    async voiceBalance(engine, refresh = false) {
+        keyCheck(engine);
+        if (!['eleven', 'fish'].includes(engine)) throw Error('这家引擎没有提供余额查询');
+        if (!this.keyStatus(engine)) return null;
+        const cached = this.balances.get(engine);
+        if (!refresh && cached && Date.now() - cached.checkedAt < 60 * 1000) return clone(cached.value);
+        const value = await this.providers.balance(engine);
+        this.balances.set(engine, { value, checkedAt: Date.now() });
+        this.emit('balance', { engine, balance: clone(value) });
+        return clone(value);
     }
     keyStatus(engine) { keyCheck(engine); return engine === 'nai' ? this.novelai.configured : this.providers.keys.has(engine); }
 
@@ -473,7 +488,7 @@ export class TTSBackend {
             savePreset: preset => this.savePreset(preset), deletePreset: id => this.deletePreset(id), selectPreset: id => this.selectPreset(id),
             validatePreset: preset => { try { validatePreset(preset); return ''; } catch (error) { return message(error); } },
             previewPrompt: preset => this.previewPrompt(preset), promptPlan: () => clone(promptPlan(this.settings, modelRules(this.settings))), parse: text => this.parse(text),
-            keyStatus: engine => this.keyStatus(engine), setKey: (engine, key) => this.setKey(engine, key), clearKey: engine => this.clearKey(engine),
+            voiceBalance: (engine, refresh) => this.voiceBalance(engine, refresh), keyStatus: engine => this.keyStatus(engine), setKey: (engine, key) => this.setKey(engine, key), clearKey: engine => this.clearKey(engine),
             saveDraw: patch => this.saveDraw(patch), saveStyle: style => this.saveStyle(style), deleteStyle: id => this.deleteStyle(id),
             saveDrawPreset: preset => this.saveDrawPreset(preset), deleteDrawPreset: id => this.deleteDrawPreset(id), previewDrawPrompt: preset => this.previewDrawPrompt(preset),
             naiSubscription: refresh => this.naiSubscription(refresh), drawQuote: params => this.drawQuote(params),

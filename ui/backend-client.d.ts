@@ -223,6 +223,10 @@ export interface EngineSchema {
     /** Fish S1 tone and sound tags (empty for other models). */
     sounds: string[];
 }
+/** What is left on a voice account. ElevenLabs: credits of the current period. Fish: API balance in US dollars. */
+export type VoiceBalance =
+    | { engine: 'eleven'; kind: 'characters'; used: number; limit: number; left: number; resetAt: number | null; tier: string; status: string }
+    | { engine: 'fish'; kind: 'credit'; credit: number; free: boolean };
 export interface VoiceQuery { search?: string; page?: number; token?: string; }
 export interface VoiceList {
     voices: Array<{ id: string; name: string }>;
@@ -335,6 +339,8 @@ export interface BackendFacade {
     previewPrompt(preset?: Preset): string;
     promptPlan(): PromptPlanEntry[];
     parse(text: string): ParsedDialogue;
+    /** ElevenLabs or Fish balance; null without a key. Cached for a minute unless `refresh`. */
+    voiceBalance(engine: 'eleven' | 'fish', refresh?: boolean): Promise<VoiceBalance | null>;
     keyStatus(engine: KeyEngine): boolean;
     setKey(engine: KeyEngine, key: string): void;
     clearKey(engine: KeyEngine): void;

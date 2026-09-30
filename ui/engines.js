@@ -6,6 +6,22 @@ import {icon, spark} from './icons.js';
 export function enginesApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'engines'), drafts = new Map();
   let engine = null, dirty = false, subscription = null, subscriptionError = '';
+  // Voice balances shown on the ElevenLabs and Fish cards: engine -> {value, error, loading}.
+  const balances = new Map(), PRICED = ['eleven', 'fish'];
+  const number = n => Number(n).toLocaleString('zh-CN');
+  const balanceText = id => {
+    const b = balances.get(id)?.value;
+    if (!b) return '—';
+    return b.kind === 'characters' ? number(b.left) : '$' + b.credit.toFixed(2);
+  };
+  async function loadBalance(id, refresh = false) {
+    if (!PRICED.includes(id) || !api.keyStatus(id)) return;
+    const entry = balances.get(id) || {};
+    balances.set(id, {...entry, loading: true});
+    try { balances.set(id, {value: await api.voiceBalance(id, refresh), error: '', loading: false}); }
+    catch (error) { balances.set(id, {value: entry.value || null, error: error.message, loading: false}); }
+    if (!v.disposed && (engine === null || engine === id)) render();
+  }
   const draft = () => drafts.get(engine);
   const changed = () => { dirty = true; const e = v.root.querySelector('[data-save-state]'); if (e) e.textContent = '未保存'; };
 
@@ -14,7 +30,9 @@ export function enginesApp(ctx) {
     const name = nai ? 'NovelAI' : engines[id];
     const fields = nai
       ? [['TIER', subscription ? TIERS[subscription.tier] || '未知' : '—'], ['ANLAS', subscription ? String(subscription.anlas) : '—']]
-      : [['MODEL', api.getState().connections[id].model], ['ROLES', api.getState().routes.filter(r => r.engine === id && r.voice).length + ' 个角色']];
+      : PRICED.includes(id) && saved
+        ? [['MODEL', api.getState().connections[id].model], [id === 'eleven' ? 'CREDITS' : 'BALANCE', balanceText(id)]]
+        : [['MODEL', api.getState().connections[id].model], ['ROLES', api.getState().routes.filter(r => r.engine === id && r.voice).length + ' 个角色']];
     const attrs = tag === 'button' ? `data-action="engine" data-engine="${id}" aria-label="${name}"` : `data-engine="${id}"`;
     return `<${tag} class="bank-card${tag === 'div' ? ' detail-card' : ''}" ${attrs}>${spark()}
       <span class="card-top"><span class="card-name">${name}</span><span class="card-kind">${nai ? 'IMAGE' : 'VOICE'}${icon('nfc')}</span></span>
@@ -72,7 +90,30 @@ export function enginesApp(ctx) {
   function renderList() {
     delete v.root.dataset.engine;
     v.draw(heading('引擎', help('每个服务一张卡：三家语音引擎，加上绘图用的 NovelAI。点卡片查看连接和全部参数。\n卡片只显示密钥是否保存，不显示内容；“已保存”不代表鉴权成功。'), 'Wallet · 04')
-      + `<div class="wallet">${[...Object.keys(engines), 'nai'].map(id => card(id)).join('')}</div><p class="hint">点一张卡片，查看连接、模型和参数。</p>`);
+      + `<div class="wallet">${[...Object.keys(engines), 'nai'].map(id => card(id)).join('')}</div><p class="hint">点一张卡片，查看连接、模型和参数。ElevenLabs 和 Fish 的卡片上显示剩余额度。</p>`);
+    for (const id of PRICED) if (!balances.has(id)) loadBalance(id);
+  }
+  /** The 额度 group of the ElevenLabs and Fish cards. */
+  function balanceGroup() {
+    if (!PRICED.includes(engine)) return '';
+    const saved = api.keyStatus(engine), entry = balances.get(engine) || {}, b = entry.value;
+    const state = !saved ? '填写密钥后可以查看' : entry.loading && !b ? '读取中' : entry.error && !b ? '读取失败' : '';
+    let rows;
+    if (b?.kind === 'characters') {
+      const ratio = b.limit ? Math.min(1, b.used / b.limit) : 0;
+      const status = {active: '生效中', trialing: '试用中', past_due: '待付款', incomplete: '未完成付款', free_disabled: '免费额度已停用'}[b.status] || '';
+      const tier = b.tier ? b.tier.charAt(0).toUpperCase() + b.tier.slice(1).replace(/_/g, ' ') : '未知';
+      rows = `<div class="setting-row"><span>档位</span><small>${esc(tier)}${status ? ' · ' + status : ''}</small></div>
+        <div class="field balance-meter"><div class="meter-label"><span>本期已用</span><output>${number(b.used)} / ${number(b.limit)}</output></div><span class="meter-track" role="img" aria-label="已用 ${Math.round(ratio * 100)}%"><i style="width:${(ratio * 100).toFixed(1)}%"></i></span></div>
+        <div class="setting-row"><span>剩余额度</span><strong>${number(b.left)}</strong></div>
+        <div class="setting-row"><span>下次重置</span><small>${b.resetAt ? new Date(b.resetAt).toLocaleString('zh-CN', {hour12: false}) : '—'}</small></div>`;
+    } else if (b?.kind === 'credit') {
+      rows = `<div class="setting-row"><span>API 余额</span><strong>$${b.credit.toFixed(2)}</strong></div>
+        <div class="setting-row"><span>免费额度</span><small>${b.free ? '还有' : '没有或已用完'}</small></div>`;
+    } else rows = `<div class="setting-row"><span>额度</span><small>${state || '—'}</small></div>`;
+    return groupTitle('额度', btn('refresh-balance', icon('refresh') + '刷新', 'chip-button', saved ? '' : 'disabled'))
+      + `<div class="group${b?.kind === 'characters' ? ' pad' : ''}">${rows}</div>${entry.error ? `<p class="error-copy hint">${esc(entry.error)}</p>` : ''}`
+      + `<p class="hint">${engine === 'eleven' ? '每生成一句新语音后自动重新读取。ElevenLabs 按字符扣积分，v3/v4 等模型的倍率以官网为准。' : '每生成一句新语音后自动重新读取。金额是 Fish Audio 后台的 API 余额。'}</p>`;
   }
 
   function renderDetail() {
@@ -92,6 +133,7 @@ export function enginesApp(ctx) {
           ${engine === 'mini' ? field('服务区域', select('region', c.region, [['cn', '国内'], ['global', '国际'], ['uw', '国际 · 低延迟入口']])) : ''}
           <div class="actions">${btn('read-voices', icon('refresh') + '读取音色列表', 'secondary')}</div><p class="hint" data-connection-status></p>
         </div>`
+      + balanceGroup()
       + groupTitle('参数')
       + schema.groups.map((g, i) => `<details data-group="${engine}:${g.id}" ${i === 0 ? 'open' : ''}><summary>${esc(g.title)}</summary><div>${g.fields.map(f => control(f, c)).join('')}</div></details>`).join('')
       + `<details data-group="tags"><summary>情绪与语气标签</summary><div>${schema.tagNote ? `<p class="hint">${esc(schema.tagNote)}</p>` : ''}<div class="tags">${schema.tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>${engine === 'mini' && c.model.startsWith('speech-2.8') ? '<div class="tags">' + ['laughs', 'chuckle', 'coughs', 'clear-throat', 'groans', 'breath', 'pant', 'inhale', 'exhale', 'gasps', 'sniffs', 'sighs', 'snorts', 'burps', 'lip-smacking', 'humming', 'hissing', 'emm', 'sneezes'].map(x => `<span class="tag">(${x})</span>`).join('') + '</div>' : ''}${schema.sounds?.length ? '<div class="tags">' + schema.sounds.map(x => `<span class="tag">(${esc(x)})</span>`).join('') + '</div>' : ''}<a href="${esc(schema.source)}" target="_blank" rel="noopener noreferrer">查看官方文档</a></div></details>`
@@ -146,10 +188,11 @@ export function enginesApp(ctx) {
     switch (el.dataset.action) {
       case 'engine': edit(el.dataset.engine); break;
       case 'save-connection': api.saveConnection(engine, draft()); dirty = false; render(); ctx.notify('引擎配置已保存'); break;
-      case 'save-key': api.setKey(engine, v.root.querySelector('[data-field=key]').value); render(); ctx.notify('密钥已保存'); if (engine === 'nai') loadSubscription(true); break;
+      case 'save-key': api.setKey(engine, v.root.querySelector('[data-field=key]').value); balances.delete(engine); render(); ctx.notify('密钥已保存'); if (engine === 'nai') loadSubscription(true); else loadBalance(engine, true); break;
       case 'refresh-subscription': await v.busy(el, () => loadSubscription(true)); break;
+      case 'refresh-balance': await v.busy(el, () => loadBalance(engine, true)); break;
       case 'open-draw': ctx.open('draw'); break;
-      case 'clear-key': if (await ctx.confirm('清除密钥？', '之后使用这个引擎需要重新填写。')) { api.clearKey(engine); if (engine === 'nai') subscription = null; render(); } break;
+      case 'clear-key': if (await ctx.confirm('清除密钥？', '之后使用这个引擎需要重新填写。')) { api.clearKey(engine); if (engine === 'nai') subscription = null; balances.delete(engine); render(); } break;
       case 'reveal-key': {
         const field = v.root.querySelector('[data-field=key]');
         field.type = field.type === 'password' ? 'text' : 'password';
@@ -206,5 +249,10 @@ export function enginesApp(ctx) {
   }
 
   render();
+  v.onBalance = event => {
+    if (!event.stale || !PRICED.includes(event.engine)) return;
+    if (engine === event.engine || (engine === null && balances.has(event.engine))) loadBalance(event.engine, true);
+    else balances.delete(event.engine);
+  };
   return v;
 }
