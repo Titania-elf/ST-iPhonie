@@ -65,6 +65,11 @@
   --danger:#bb5a52;--danger-soft:#f7e4e0;
   --serif:"Noto Serif SC","Source Han Serif SC","Songti SC","STSong",serif;
   --leaf:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 140 120'%3E%3Cg stroke='%239db8a2' stroke-width='1.3' fill='%23d9e7d4'%3E%3Cpath d='M138 4C110 22 88 52 64 116' fill='none'/%3E%3Cellipse cx='121' cy='24' rx='12' ry='5' transform='rotate(-20 121 24)'/%3E%3Cellipse cx='113' cy='12' rx='10' ry='4.5' transform='rotate(-70 113 12)'/%3E%3Cellipse cx='102' cy='47' rx='13' ry='5' transform='rotate(-35 102 47)'/%3E%3Cellipse cx='89' cy='38' rx='11' ry='4.5' transform='rotate(-80 89 38)'/%3E%3Cellipse cx='86' cy='74' rx='13' ry='5' transform='rotate(-45 86 74)'/%3E%3Cellipse cx='72' cy='64' rx='11' ry='4.5' transform='rotate(-95 72 64)'/%3E%3C/g%3E%3Cg fill='%23f0d0c8'%3E%3Ccircle cx='40' cy='30' r='4'/%3E%3Ccircle cx='46' cy='34' r='4'/%3E%3Ccircle cx='44' cy='41' r='4'/%3E%3Ccircle cx='36' cy='41' r='4'/%3E%3Ccircle cx='34' cy='34' r='4'/%3E%3C/g%3E%3Ccircle cx='40' cy='36' r='2.6' fill='%23f1d98f'/%3E%3C/svg%3E");
+  /* Engine colours, muted to sit on paper: grey-blue, ochre, dusty rose, greyish lilac. */
+  --fish:#7f9fb3;--fish-ink:#3f5d70;--fish-soft:#e3ebef;--fish-btn:#6b8ca0;--fish-on:#fff;
+  --mini:#c9a26a;--mini-ink:#7a5a2c;--mini-soft:#f3eadb;--mini-btn:#b58c52;--mini-on:#fff;
+  --eleven:#c98f8c;--eleven-ink:#8a4f4d;--eleven-soft:#f4e4e1;--eleven-btn:#b67a77;--eleven-on:#fff;
+  --nai:#9b91b5;--nai-ink:#5b5277;--nai-soft:#ebe7f1;--nai-btn:#867ba3;--nai-on:#fff;
   font-family:"PingFang SC","HarmonyOS Sans SC","MiSans","Microsoft YaHei",system-ui,sans-serif;
 }
 :root[data-skin=fresh][data-theme=dark]{
@@ -74,6 +79,10 @@
   --pink:#dfb1a6;--dot:#2e3731;--shadow:0 10px 22px -14px rgba(0,0,0,.8);
   --danger:#eba096;--danger-soft:#3e2724;
   --leaf:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 140 120'%3E%3Cg stroke='%236f8c76' stroke-width='1.3' fill='%232f3e33'%3E%3Cpath d='M138 4C110 22 88 52 64 116' fill='none'/%3E%3Cellipse cx='121' cy='24' rx='12' ry='5' transform='rotate(-20 121 24)'/%3E%3Cellipse cx='113' cy='12' rx='10' ry='4.5' transform='rotate(-70 113 12)'/%3E%3Cellipse cx='102' cy='47' rx='13' ry='5' transform='rotate(-35 102 47)'/%3E%3Cellipse cx='89' cy='38' rx='11' ry='4.5' transform='rotate(-80 89 38)'/%3E%3Cellipse cx='86' cy='74' rx='13' ry='5' transform='rotate(-45 86 74)'/%3E%3Cellipse cx='72' cy='64' rx='11' ry='4.5' transform='rotate(-95 72 64)'/%3E%3C/g%3E%3Cg fill='%23806660'%3E%3Ccircle cx='40' cy='30' r='4'/%3E%3Ccircle cx='46' cy='34' r='4'/%3E%3Ccircle cx='44' cy='41' r='4'/%3E%3Ccircle cx='36' cy='41' r='4'/%3E%3Ccircle cx='34' cy='34' r='4'/%3E%3C/g%3E%3Ccircle cx='40' cy='36' r='2.6' fill='%23c9b56e'/%3E%3C/svg%3E");
+  --fish:#9bb7c7;--fish-ink:#c6dbe6;--fish-soft:#2a3639;--fish-btn:#8fb0c2;--fish-on:#16201a;
+  --mini:#d4b483;--mini-ink:#ead3aa;--mini-soft:#3a3327;--mini-btn:#cda873;--mini-on:#1e1a12;
+  --eleven:#d4a3a0;--eleven-ink:#ecc7c4;--eleven-soft:#3b2a2a;--eleven-btn:#cc9793;--eleven-on:#221615;
+  --nai:#b3aacb;--nai-ink:#d3cce5;--nai-soft:#302d3b;--nai-btn:#a79dc4;--nai-on:#1a1826;
 }
 :root[data-skin=fresh] .device{background:linear-gradient(135deg,#fbf9f2,#e3ddcc 34%,#f6f2e7 56%,#d7d0bd 80%,#f1ece0);box-shadow:0 0 0 1px #c9c1ab,0 24px 50px -22px rgba(70,70,50,.45)}
 :root[data-skin=fresh][data-theme=dark] .device{background:linear-gradient(135deg,#3a342d,#1c1915 36%,#2d2822 60%,#141210);box-shadow:0 0 0 1px #3d372f,0 24px 50px -20px #000}
@@ -123,6 +132,20 @@
 :root[data-skin=fresh] .apps-grid .app-icon:nth-child(3n+1) .icon-tile{rotate:-2deg}
 :root[data-skin=fresh] .apps-grid .app-icon:nth-child(3n+2) .icon-tile{rotate:1.5deg}
 :root[data-skin=fresh] .phone-dock .app-icon:nth-child(2n) .icon-tile{rotate:-1.5deg}
+/* Engine cards as tinted letter paper with a postmark ring, instead of glossy bank cards. */
+:root[data-skin=fresh] .bank-card{color:var(--e-ink);border-radius:18px;
+  background:radial-gradient(circle at 84% 74%,transparent 0 27px,color-mix(in srgb,var(--e-ink) 22%,transparent) 27px 28.5px,transparent 29px 33px,color-mix(in srgb,var(--e-ink) 14%,transparent) 33px 34px,transparent 34.5px),
+    repeating-linear-gradient(0deg,transparent 0 23px,color-mix(in srgb,var(--e-ink) 7%,transparent) 23px 24px),
+    linear-gradient(150deg,color-mix(in srgb,var(--e) 34%,#fbf7ee),color-mix(in srgb,var(--e) 58%,#efe7d6));
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--e-ink) 16%,transparent),0 -6px 16px -10px rgba(60,60,40,.35),0 12px 22px -14px rgba(60,60,40,.55)}
+:root[data-skin=fresh][data-theme=dark] .bank-card{
+  background:radial-gradient(circle at 84% 74%,transparent 0 27px,color-mix(in srgb,var(--e-ink) 20%,transparent) 27px 28.5px,transparent 29px 33px,color-mix(in srgb,var(--e-ink) 12%,transparent) 33px 34px,transparent 34.5px),
+    repeating-linear-gradient(0deg,transparent 0 23px,color-mix(in srgb,var(--e-ink) 6%,transparent) 23px 24px),
+    linear-gradient(150deg,color-mix(in srgb,var(--e) 30%,#262d29),color-mix(in srgb,var(--e) 16%,#1d2320));
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--e-ink) 18%,transparent),0 -6px 16px -10px rgba(0,0,0,.6),0 12px 22px -14px rgba(0,0,0,.8)}
+:root[data-skin=fresh] .bank-card .spark{display:none}
+:root[data-skin=fresh] .card-name{font-family:var(--serif);font-weight:700;letter-spacing:.04em}
+:root[data-skin=fresh] .card-chip{filter:saturate(.6)}
 :root[data-skin=fresh] .app-label{font-family:var(--serif);font-weight:700;letter-spacing:.06em}
 :root[data-skin=fresh] .phone-dock{background:rgba(255,253,246,.5);box-shadow:inset 0 0 0 1px rgba(255,255,255,.75),0 10px 24px -14px rgba(60,70,50,.5)}
 :root[data-skin=fresh][data-theme=dark] .phone-dock{background:rgba(30,36,32,.5);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
