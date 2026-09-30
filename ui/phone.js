@@ -379,7 +379,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   // Pictures for avatars: the user's choice (an album photo, or text), else the tavern's own avatar for that name
   // (character card, current persona). Loaded once and again when the choices or the tavern's avatars change.
   const avatarURLs = new Map();
-  let avatarKey = '', avatarRun = 0;
+  let avatarKey = '', avatarRun = 0, lastSyncAt = 0;
   async function refreshAvatars() {
     const run = ++avatarRun, chosen = api.getState().chat?.avatars || {};
     let tavern = {me: '', characters: {}};
@@ -623,6 +623,13 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     if (event.type === 'chat') { run(() => views.get('chat')?.onChat?.(event)); countUnread(); }
     if (event.type === 'moments') { views.get('chat')?.onMoments?.(event); countMoments(); }
     if (event.type === 'call') calls.update(event.call);
+    if (event.type === 'sync') {
+      views.get('settings')?.onSync?.();
+      // Content from another device: say so once, when that sync is over.
+      const r = event.lastResult;
+      if (!event.busy && event.lastAt !== lastSyncAt && (r?.pulled?.length || r?.merged?.length)) notify(r.merged?.length ? '两台设备都有改动，已经合并好了' : '已读取别的设备的新内容');
+      if (!event.busy) lastSyncAt = event.lastAt;
+    }
     if (event.type === 'settings') run(() => views.get('chat')?.onChat?.({}));
   });
 

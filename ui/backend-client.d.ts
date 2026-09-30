@@ -79,6 +79,7 @@ export interface Settings {
     moments: MomentsSettings;
     calls: CallsSettings;
     text: TextSettings;
+    sync: SyncSettings;
 }
 export interface DrawParams {
     model: string; width: number; height: number; steps: number; scale: number;
@@ -144,6 +145,9 @@ export interface VoiceTextOptions { mode: 'translation' | 'original' | 'both'; a
 /** 朋友圈 options; its rules are the chat preset's rules used in 朋友圈. */
 /** 来电: characters call by themselves every `every` story replies, at most `dailyMax` a day; `ring` seconds before a missed call. */
 /** 文字模型: who writes the phone's text. 'tavern' = the tavern's connected model; 'custom' = an OpenAI-compatible API (key kept as KeyEngine 'llm'). */
+export interface SyncSettings { enabled: boolean; }
+export interface SyncStatus { enabled: boolean; available: boolean; parts: Record<string, string>; busy: boolean; pending: boolean; error: string; lastAt: number; memoryAt: number;
+    remote: { savedAt: number; deviceName: string; device: string } | null; lastResult?: { pulled: string[]; pushed: string[]; merged: string[] }; }
 export interface TextSettings { source: 'tavern' | 'custom'; url: string; model: string; temperature: number; maxTokens: number; }
 export interface SpokenLine { role: string; text: string; emotion?: string; translation?: string; }
 /** A call as the phone draws it. `since`/`answeredAt` are ms timestamps; `ended` is set once it is over. */
@@ -460,6 +464,11 @@ export interface BackendFacade {
     /** 朋友圈 options. */
     saveCalls(patch: Partial<CallsSettings>): CallsSettings;
     saveText(patch: Partial<TextSettings>): TextSettings;
+    /** 保存到酒馆: whether it is on, whether the tavern's files can be reached here, and how the last sync went. */
+    syncStatus(): SyncStatus;
+    saveSync(patch: Partial<SyncSettings>): SyncSettings;
+    /** Syncs now: takes what changed in the tavern, writes what changed here. */
+    syncNow(): Promise<SyncStatus>;
     /** Model ids the custom text API lists (a free connection check); `draft` are options not saved yet. */
     textModels(draft?: Partial<TextSettings>): Promise<string[]>;
     saveMoments(patch: Partial<Pick<MomentsSettings, 'auto' | 'every' | 'dailyMax' | 'images' | 'replyToMe'>>): MomentsSettings;

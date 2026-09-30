@@ -53,6 +53,23 @@ export function settingsApp(ctx) {
   const partRow = (key, label, detail, on) => `<div class="setting-row"><span class="row-text"><strong>${esc(label)}</strong><small>${esc(detail)}</small></span><input class="switch" type="checkbox" data-part="${key}" aria-label="${esc(label)}" ${on ? 'checked' : ''}></div>`;
   const restored = done => [done.settings && '设置和预设', done.chats && `${done.chats} 段聊天`, done.moments && `${done.moments} 条朋友圈`, done.notes && `${done.notes} 条备忘录`, done.photos && `${done.photos} 张照片`, done.favorites && `${done.favorites} 段收藏`].filter(Boolean).join('、');
 
+  /** 保存到酒馆: the switch, and when it is on, when it last synced and what the tavern holds. */
+  function syncGroup() {
+    const st = api.syncStatus?.();
+    if (!st) return '';
+    const time = at => new Date(at).toLocaleString('zh-CN', {hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'});
+    const state = !st.available ? '在酒馆里打开小手机时才能同步'
+      : st.busy ? '正在同步……'
+      : st.error ? '同步失败：' + st.error
+      : st.lastAt ? '上次同步 ' + time(st.lastAt) : st.pending ? '有改动，马上同步' : '还没同步过';
+    const remote = st.remote?.savedAt ? `酒馆里的是${st.remote.deviceName ? ' ' + st.remote.deviceName + ' ' : ''}在 ${time(st.remote.savedAt)} 存的` : '';
+    return groupTitle('保存到酒馆')
+      + `<div class="group">${toggle('syncEnabled', '保存到酒馆', st.enabled, '聊天记录、朋友圈、备忘录和相册存进酒馆里你账号的文件夹（data/你的用户名/user/files）。换一台设备、换个浏览器打开酒馆，小手机里的东西都还在；清了浏览器数据也不会丢。有改动几秒后自动保存，打开小手机时自动读取别的设备的新内容。密钥不会存进去；语音缓存和收藏的语音也不存，需要时重新生成。')}
+        ${st.enabled ? `<div class="setting-row"><span class="row-text"><strong data-sync-state>${esc(state)}</strong>${remote ? `<small>${esc(remote)}</small>` : ''}</span>${btn('sync-now', icon('refresh') + '立即同步', 'chip-button', st.busy || !st.available ? 'disabled' : '')}</div>` : ''}</div>`
+      + (st.enabled ? '<p class="hint">两台设备都改了同一段聊天或同一条朋友圈时，会合并成一份（消息和评论都保留）；只有一边改过就直接用那一边的。</p>' : '');
+  }
+  v.onSync = () => { if (!appearance && !check && !backup && !restore) render().catch(() => {}); };
+
   async function runCheck() {
     check = {loading: true};
     await render();
@@ -113,6 +130,7 @@ export function settingsApp(ctx) {
           ${chatPictures ? `<div class="setting-row"><span>当前聊天的正文图片</span><small>${chatPictures.count} 张 · 存在酒馆</small></div>` : ''}</div>
         <div class="actions">${btn('clear-cache', icon('trash') + '清理语音缓存', 'danger')}</div>
         <div class="actions">${btn('clear-drawn', icon('trash') + '清除相册里的绘图', 'danger', drawn?.count ? '' : 'disabled')}${chatPictures ? btn('clear-chat-pictures', icon('trash') + '清除正文图片', 'danger', chatPictures.count ? '' : 'disabled') : ''}</div>
+        ${syncGroup()}
         ${groupTitle('备份与恢复')}<div class="group"><button class="list-row" data-action="backup"><span><strong>备份到文件</strong><small>设置、角色音色、聊天记录、相册和收藏存成一个文件，换设备或误删时能找回</small></span>${icon('next')}</button><label class="list-row file-button"><span><strong>从文件恢复</strong><small>选一个 ST-iPhonie 备份文件</small></span>${icon('next')}<input type="file" data-backup-file accept=".json,application/json" aria-label="选择备份文件"></label></div>
         ${groupTitle('帮助')}<div class="group"><button class="list-row" data-action="self-check"><span><strong>自检</strong><small>出问题时看看是哪里不对，可以把报告发给帮你的人</small></span>${icon('next')}</button></div>
         <div class="actions">${btn('about', '关于 ST-iPhonie', 'text-button')}</div>`);
@@ -128,6 +146,7 @@ export function settingsApp(ctx) {
       if (key === 'glyph') appearance.icons[el.dataset.iconApp] = el.value === 'default' ? null : {kind: 'glyph', key: el.value};
       return;
     }
+    if (key === 'syncEnabled') { api.saveSync({enabled: el.checked}); await render(); return; }
     if (['voiceEnabled', 'floatingEnabled', 'waveformEnabled', 'cacheEnabled', 'wallpaperMotion'].includes(key)) api.updateGeneral({[key]: el.checked});
     else if (key === 'drawEnabled') api.saveDraw({enabled: el.checked});
     else if (key === 'drawAuto') api.saveDraw({auto: el.checked});
@@ -193,6 +212,7 @@ export function settingsApp(ctx) {
       case 'lock': ctx.lock(); break;
       case 'self-check': case 'run-check': await runCheck(); break;
       case 'backup': backup = {parts: new Set(Object.keys(api.backupParts()))}; await render(); break;
+      case 'sync-now': { const st = await api.syncNow(); const r = st.lastResult || {}; ctx.notify(r.pulled?.length || r.merged?.length ? '已读取别的设备的新内容' + (r.pushed?.length ? '，也保存了这里的改动' : '') : r.pushed?.length ? '已保存到酒馆' : '已经是最新的了'); await render(); break; }
       case 'make-backup':
         await v.busy(el, async () => {
           const {blob, name} = await api.exportBackup([...backup.parts]);

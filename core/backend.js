@@ -2,6 +2,7 @@ import { MomentStore } from './moments-store.js';
 import { normalizeMoments, buildMomentsRequest } from './moments.js';
 import { normalizeCalls, buildCallRequest } from './call.js';
 import { normalizeText, customRequest, listModels } from './llm.js';
+import { normalizeSync, runSync, SYNC_PARTS } from './sync.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup } from './backup.js';
 import { normalizeSettings, validateSettings, modelRules, freshState } from './state.js';
 import { normalizeRoute, switchRouteEngine, removeRoute } from './routes.js';
@@ -34,7 +35,7 @@ const audioName = (role, said) => [String(role || '').trim(), String(said || '')
 
 export class TTSBackend {
     constructor({ settings, persist = () => {}, notify = () => {}, change = () => {}, unknown = () => {},
-        providers = new Providers(), cache, library, keyStore, sink, novelai, chats, indexedDB = globalThis.indexedDB } = {}) {
+        providers = new Providers(), cache, library, keyStore, sink, novelai, chats, indexedDB = globalThis.indexedDB, syncStorage = () => globalThis.localStorage } = {}) {
         this.settings = normalizeSettings(settings);
         validateSettings(this.settings);
         this.persist = persist;
@@ -50,6 +51,12 @@ export class TTSBackend {
         this.chats = chats || new ChatStore(this.settings.scope, { indexedDB });
         this.moments = new MomentStore(this.settings.scope, { indexedDB });
         this.subscription = null;
+        // 保存到酒馆: the tavern's file access (set by the tavern side), what this device last saw there, and the state shown in the phone.
+        this.syncFiles = null;
+        this.syncStorage = syncStorage;
+        this.syncState = { busy: false, error: '', lastAt: 0, remote: null, pending: false };
+        this.syncTimer = 0;
+        this.syncApplying = false;
         this.drawQueue = new DrawQueue({ gap: () => this.settings.draw.queue.gap * 1000, retries: () => this.settings.draw.queue.retries,
             remote: () => this.cloudQueue(), onChange: (queue, { remoteError }) => this.emit('draw', { queue, cloud: remoteError }) });
         this.listeners = new Set();
@@ -130,6 +137,7 @@ export class TTSBackend {
     emit(type, data = {}) {
         if (this.closed) return;
         const event = { type, revision: this.revision, ...clone(data) };
+        if (!this.syncApplying && (type === 'chat' || type === 'moments' || (type === 'library' && ['notes', 'photos'].includes(data.collection)))) this.scheduleSync();
         for (const listener of this.listeners) { try { listener(clone(event)); } catch { /* One view cannot stop the other subscribers. */ } }
     }
     subscribe(listener) {
@@ -257,6 +265,86 @@ export class TTSBackend {
         return clone(value);
     }
     keyStatus(engine) { keyCheck(engine); return engine === 'nai' ? this.novelai.configured : engine === 'llm' ? !!this.textKey : this.providers.keys.has(engine); }
+
+    // ---------- 保存到酒馆 ----------
+    /** The tavern's user files: {read(name, {blob}), write(name, data), remove(name)}. Without it, syncing is off. */
+    setSyncFiles(files) { this.syncFiles = files; }
+    #syncMemory(value) {
+        const key = 'st-iphonie-sync:' + this.settings.scope;
+        try {
+            const storage = this.syncStorage();
+            if (value === undefined) return JSON.parse(storage?.getItem(key) || 'null') || {};
+            storage?.setItem(key, JSON.stringify(value));
+        } catch { /* private window: this device starts from the tavern's copy again next time */ }
+        return {};
+    }
+    #device() {
+        try {
+            const storage = this.syncStorage();
+            let id = storage?.getItem('st-iphonie-device');
+            if (!id) { id = crypto.randomUUID(); storage?.setItem('st-iphonie-device', id); }
+            return id;
+        } catch { return 'unknown'; }
+    }
+    syncStatus() {
+        const { running, ...state } = this.syncState;
+        return clone({ enabled: this.settings.sync.enabled, available: !!this.syncFiles, parts: SYNC_PARTS, ...state, memoryAt: this.#syncMemory().savedAt || 0 });
+    }
+    saveSync(patch) {
+        const next = this.getState();
+        next.sync = normalizeSync({ ...next.sync, ...(patch || {}) });
+        const saved = this.save(next).sync;
+        if (saved.enabled) this.scheduleSync(200);
+        return saved;
+    }
+    /** Syncs soon (changes come in bursts: a chat reply is several writes). */
+    scheduleSync(delay = 4000) {
+        if (!this.settings.sync.enabled || !this.syncFiles || this.closed) return;
+        clearTimeout(this.syncTimer);
+        this.syncState.pending = true;
+        this.syncTimer = setTimeout(() => { this.syncNow().catch(() => {}); }, delay);
+    }
+    /** One sync with the tavern: takes what changed there, writes what changed here. */
+    async syncNow({ deviceName = '' } = {}) {
+        this.assertOpen();
+        if (!this.syncFiles) throw Error('在酒馆里打开小手机时才能保存到酒馆');
+        if (this.syncState.busy) return this.syncState.running;
+        clearTimeout(this.syncTimer);
+        const stores = {
+            read: async part => part === 'chats' ? this.chats.exportThreads() : part === 'moments' ? this.moments.exportPosts() : (await this.library.exportRows([part]))[part],
+            write: async (part, items, options) => {
+                if (part === 'chats') await this.chats.importThreads(items, options);
+                else if (part === 'moments') await this.moments.importPosts(items, options);
+                else await this.library.importRows({ [part]: items }, options);
+            },
+            photoBlob: row => row.blob,
+        };
+        this.syncState = { ...this.syncState, busy: true, pending: false, error: '' };
+        this.emit('sync', this.syncStatus());
+        this.syncState.running = (async () => {
+            try {
+                this.syncApplying = true;
+                const result = await runSync({ stores, files: this.syncFiles, memory: this.#syncMemory(), device: this.#device(), deviceName: deviceName || this.syncDeviceName || '' });
+                this.#syncMemory(result.memory);
+                this.syncState = { ...this.syncState, busy: false, error: '', lastAt: Date.now(), remote: result.remote, lastResult: { pulled: result.pulled, pushed: result.pushed, merged: result.merged } };
+                for (const part of [...result.pulled, ...result.merged]) {
+                    if (part === 'chats') this.emit('chat', { threadId: '' });
+                    else if (part === 'moments') this.emit('moments', {});
+                    else this.emit('library', { collection: part });
+                }
+                if ([...result.pulled, ...result.merged].includes('photos')) this.emit('phone', { preferences: await this.getPhone() });
+                return clone(result);
+            } catch (error) {
+                this.syncState = { ...this.syncState, busy: false, error: error.message || '同步失败' };
+                throw error;
+            } finally {
+                this.syncApplying = false;
+                delete this.syncState.running;
+                this.emit('sync', this.syncStatus());
+            }
+        })();
+        return this.syncState.running;
+    }
 
     // ---------- 文字模型 ----------
     /** Text model options: {source:'tavern'|'custom', url, model, temperature, maxTokens}. */
@@ -643,6 +731,7 @@ export class TTSBackend {
             generatedPhotos: () => this.generatedPhotos().then(({ count, bytes }) => ({ count, bytes })), deleteGeneratedPhotos: () => this.deleteGeneratedPhotos(),
             saveMoments: patch => this.saveMoments(clone(patch)), saveCalls: patch => this.saveCalls(clone(patch)),
             saveText: patch => this.saveText(clone(patch)), textModels: draft => this.textModels(clone(draft || {})),
+            syncStatus: () => this.syncStatus(), saveSync: patch => this.saveSync(clone(patch)), syncNow: () => this.syncNow().then(() => this.syncStatus()),
             listMoments: () => this.moments.list(), getMoment: id => this.moments.get(id),
             postMoment: ({ text, photoId } = {}) => this.momentsMutate(async () => (await this.moments.add([{ author: 'me', source: 'me', text, photoId }]))[0]),
             likeMoment: (id, on = true) => this.momentsMutate(() => this.moments.like(id, 'me', on)),
@@ -675,6 +764,7 @@ export class TTSBackend {
         if (this.closing) return this.closing;
         this.closed = true; this.prepared = null; this.listeners.clear(); this.providers.clear();
         this.chats.close();
+        clearTimeout(this.syncTimer);
         this.moments.close();
         this.drawQueue.cancelAll();
         this.closing = Promise.all([this.player.close(), this.cache.close(), this.library.close()]);
