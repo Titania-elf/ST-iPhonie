@@ -57,13 +57,53 @@ export async function decodeMini(response,request,fetcher,signal){
  else{let json;try{json=JSON.parse(raw);}catch{throw Error('MiniMax 返回了无效响应');}checkMini(json);if(request.body.output_format==='url'){let url;try{url=new URL(json.data?.audio);}catch{throw Error('MiniMax 未返回音频地址');}if(url.protocol!=='https:')throw Error('音频下载地址必须使用 HTTPS');const downloaded=await fetchWithPolicy(fetcher,url.href,{},signal);if(!downloaded.ok)throw Error('音频下载失败：HTTP '+downloaded.status);return audioBlob(await limitedBytes(downloaded),request);}chunks=[hexBytes(json.data?.audio)];}
  const bytes=new Uint8Array(chunks.reduce((n,c)=>n+c.length,0));let at=0;for(const c of chunks){bytes.set(c,at);at+=c.length;}return audioBlob(bytes,request);
 }
+// What a failed request means, from the error code the service sends back (ElevenLabs: detail.code / detail.status).
+const REASONS={
+ detected_unusual_activity:'免费账户被判定为异常使用（最常见的原因是开着 VPN 或代理），ElevenLabs 停用了这个账户的免费 API。换一个网络环境再试，或者升级到付费档。',
+ missing_permissions:'这把密钥没有开对应的权限：试听要「文字转语音」，读取音色列表要「音色」读取。在 ElevenLabs 的 API Keys 页面编辑这把密钥的权限，或者新建一把不限权限的密钥。',
+ insufficient_permissions:'这把密钥没有开对应的权限：试听要「文字转语音」，读取音色列表要「音色」读取。在 ElevenLabs 的 API Keys 页面编辑这把密钥的权限，或者新建一把不限权限的密钥。',
+ invalid_api_key:'密钥无效。请重新完整复制密钥，注意不要带空格。',
+ missing_api_key:'没有带上密钥，请在引擎卡片里重新保存密钥。',
+ paid_plan_required:'免费账户不能通过 API 使用音色库（Voice Library）里的音色。换成「我的音色」里自己的或默认的音色，或者升级到付费档。',
+ payment_required:'这个功能或音色需要付费档。免费账户不能通过 API 使用音色库里的音色，换成自己的或默认的音色试试。',
+ subscription_required:'这个功能需要付费档。',
+ feature_not_available:'当前档位不能用这个功能。',
+ voice_access_denied:'这个账户没有这个音色的使用权限，换一个音色试试。',
+ model_access_denied:'这个账户不能用这个模型，换一个模型试试。',
+ unsupported_model:'这个模型不能用于文字转语音，换一个模型试试。',
+ quota_exceeded:'额度用完了。',
+ insufficient_credits:'额度用完了。',
+ voice_not_found:'找不到这个音色 ID，可能已经删除或者填错了。',
+ invalid_voice_id:'音色 ID 格式不对，请重新选择音色。',
+ invalid_voice_settings:'音色设置里有这个模型不接受的数值。eleven_v3 的稳定性只能是 0、0.5 或 1。',
+ text_too_long:'这句台词太长了。',
+ max_character_limit_exceeded:'这句台词太长了。',
+ rate_limit_exceeded:'请求太频繁，稍等一会儿再试。',
+ concurrent_limit_exceeded:'同时生成的太多了，等前面的生成完再试。',
+ too_many_concurrent_requests:'同时生成的太多了，等前面的生成完再试。',
+ system_busy:'服务正忙，稍后再试。'
+};
+const FALLBACK={400:'请求里有服务不接受的内容',401:'密钥没有通过验证',402:'需要付费档或额度不足',403:'这个账户没有权限',404:'找不到这个音色或模型',422:'请求里有服务不接受的内容',429:'请求太频繁或额度不足，稍后再试'};
+/**
+ * An Error that says what the service reported: our explanation of its code, then its own code and message.
+ * The service's text never shows a key: `secrets` and anything shaped like a key are replaced with ***.
+ */
+export async function httpError(engine,response,what='',secrets=[]){
+ let detail={};
+ try{const text=(await response.text()).slice(0,4000);try{const json=JSON.parse(text);const d=json.detail??json.error??json;detail=typeof d==='string'?{message:d}:Array.isArray(d)?{message:d.map(x=>x.msg||x.message).filter(Boolean).join('；')}:d||{};if(!detail.message&&json.message)detail.message=json.message;}catch{detail={message:text.trim()};}}catch{}
+ const code=[detail.code,detail.status].find(x=>typeof x==='string'&&REASONS[x])||(typeof detail.code==='string'?detail.code:typeof detail.status==='string'?detail.status:'');
+ const reason=REASONS[code]||FALLBACK[response.status]||'请求失败';
+ const hide=text=>secrets.filter(k=>typeof k==='string'&&k.length>=4).reduce((t,k)=>t.split(k).join('***'),String(text)).replace(/(?:sk_|pst-)?[A-Za-z0-9_-]{32,}/g,'***');
+ const said=hide([code,typeof detail.message==='string'?detail.message.slice(0,200):'',detail.param?'参数 '+detail.param:''].filter(Boolean).join('：'));
+ return Object.assign(Error(names[engine]+(what?' '+what:'')+'：HTTP '+response.status+' · '+reason+(said?'（'+said+'）':'')),{status:response.status,code});
+}
 export class Providers{
  constructor(fetcher=globalThis.fetch.bind(globalThis)){this.fetcher=fetcher;this.keys=new Map();this.references=new Map();}
  setKey(engine,key){key=validateKey(engine,key);if(key)this.keys.set(engine,key);else this.keys.delete(engine);}
  headers(engine){const key=this.keys.get(engine);if(!key)throw Error('请先填写 '+names[engine]+' 的 API Key');return engine==='eleven'?{'xi-api-key':key}:{Authorization:'Bearer '+key};}
  async fetch(url,init,signal){return fetchWithPolicy(this.fetcher,url,init,signal);}
- async synthesize(request,signal){const response=await this.fetch(request.url,{method:'POST',headers:{...this.headers(request.engine),'Content-Type':'application/json'},body:JSON.stringify(request.body)},signal);if(!response.ok)throw Error(names[request.engine]+'：HTTP '+response.status+(response.status===401?'，请检查密钥':response.status===429?'，请检查额度或稍后重试':''));if(request.engine==='mini')return decodeMini(response,request,this.fetcher,signal);if(response.headers.get('Content-Type')?.includes('json'))throw Error(names[request.engine]+' 未返回音频');return audioBlob(await limitedBytes(response),request);}
+ async synthesize(request,signal){const response=await this.fetch(request.url,{method:'POST',headers:{...this.headers(request.engine),'Content-Type':'application/json'},body:JSON.stringify(request.body)},signal);if(!response.ok)throw await httpError(request.engine,response,'',[this.keys.get(request.engine)]);if(request.engine==='mini')return decodeMini(response,request,this.fetcher,signal);if(response.headers.get('Content-Type')?.includes('json'))throw Error(names[request.engine]+' 未返回音频');return audioBlob(await limitedBytes(response),request);}
  async voices(engine,c,{search='',page=0,token=''}={}){const headers=this.headers(engine);let url,init={headers};if(engine==='fish'){url=new URL('https://api.fish.audio/model');url.searchParams.set('page_size','50');url.searchParams.set('page_number',String(page+1));if(search)url.searchParams.set('title',search);}else if(engine==='mini'){url=miniBase(c)+'/v1/get_voice';init={method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({voice_type:'all'})};}else{url=new URL('https://api.elevenlabs.io/v2/voices');url.searchParams.set('page_size','100');if(search)url.searchParams.set('search',search);if(token)url.searchParams.set('next_page_token',token);}
- const response=await this.fetch(String(url),init);if(!response.ok)throw Error(names[engine]+' 音色读取失败：HTTP '+response.status);const data=await response.json();if(engine==='mini')checkMini(data);const source=engine==='fish'?data.items:engine==='mini'?[...(data.system_voice||[]),...(data.voice_cloning||[]),...(data.voice_generation||[])]:data.voices;if(!Array.isArray(source))throw Error('音色列表格式不符');return {voices:source.map(v=>({id:v._id||v.voice_id,name:v.title||v.voice_name||v.name||v.voice_id})).filter(v=>typeof v.id==='string'),more:engine==='fish'?source.length===50:!!data.has_more,token:data.next_page_token||'',note:engine==='fish'?'已读取公开音色；此结果不能确认密钥有效':'音色列表已读取'};}
+ const response=await this.fetch(String(url),init);if(!response.ok)throw await httpError(engine,response,'音色读取失败',[this.keys.get(engine)]);const data=await response.json();if(engine==='mini')checkMini(data);const source=engine==='fish'?data.items:engine==='mini'?[...(data.system_voice||[]),...(data.voice_cloning||[]),...(data.voice_generation||[])]:data.voices;if(!Array.isArray(source))throw Error('音色列表格式不符');return {voices:source.map(v=>({id:v._id||v.voice_id,name:v.title||v.voice_name||v.name||v.voice_id})).filter(v=>typeof v.id==='string'),more:engine==='fish'?source.length===50:!!data.has_more,token:data.next_page_token||'',note:engine==='fish'?'已读取公开音色；此结果不能确认密钥有效':'音色列表已读取'};}
  clear(){this.keys.clear();this.references.clear();}
 }

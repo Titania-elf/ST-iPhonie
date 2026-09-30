@@ -23,7 +23,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   const views = new Map(), assets = new Map();
   const media = win.matchMedia('(prefers-color-scheme: dark)'), motion = win.matchMedia('(prefers-reduced-motion: reduce)');
   let panelVisible = true, active = null, locked = false, sheet = null, disposed = false;
-  let preferences = null, appearanceKey = '', appearanceEpoch = 0, toastTimer, animation, openTimer, unread = 0, unreadTimer;
+  let lastPhase = '', preferences = null, appearanceKey = '', appearanceEpoch = 0, toastTimer, animation, openTimer, unread = 0, unreadTimer;
   let playback = api.status();
 
   mount.innerHTML = `
@@ -51,21 +51,30 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   const $ = s => mount.querySelector(s);
   const screen = $('.screen'), home = $('.home'), frame = $('.app-frame'), content = $('.app-content'), lockscreen = $('.lockscreen');
 
-  function notify(text) {
+  /** A short note at the bottom. Errors stay longer (20 s), can be closed with ×, and can be selected to copy. */
+  function notify(text, {error = false} = {}) {
     if (disposed) return;
     const el = $('.toast');
-    el.textContent = text || '操作未完成';
+    el.innerHTML = `<span class="toast-text">${esc(text || '操作未完成')}</span>${error ? `<button type="button" class="toast-close" data-toast-close aria-label="关闭提示">${icon('close')}</button>` : ''}`;
+    el.classList.toggle('error', error);
+    el.setAttribute('role', error ? 'alert' : 'status');
     el.hidden = false;
     win.clearTimeout(toastTimer);
-    toastTimer = win.setTimeout(() => el.hidden = true, 4500);
+    toastTimer = win.setTimeout(() => el.hidden = true, error ? 20000 : 4500);
   }
+  const fail = error => notify(error?.message, {error: true});
   function run(fn) {
     try {
       const result = fn();
-      result?.catch?.(error => notify(error.message));
+      result?.catch?.(fail);
       return result;
-    } catch (error) { notify(error.message); }
+    } catch (error) { fail(error); }
   }
+  mount.addEventListener('click', e => {
+    if (!e.target.closest('[data-toast-close]')) return;
+    win.clearTimeout(toastTimer);
+    $('.toast').hidden = true;
+  });
   function syncInert() {
     home.inert = !!active || locked || !!sheet;
     frame.inert = !active || locked || !!sheet;
@@ -421,7 +430,12 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
 
   const unsubscribe = api.subscribe(event => {
     if (disposed) return;
-    if (event.type === 'playback') paintPlayback(event);
+    if (event.type === 'playback') {
+      // A failed play (试听, a line, a voice message) says why right where the user is, not only on the lock screen.
+      if (event.phase === 'error' && lastPhase !== 'error') notify(event.message || '播放失败', {error: true});
+      lastPhase = event.phase;
+      paintPlayback(event);
+    }
     if (event.type === 'settings') { theme(); renderWidgets(); animate(); }
     if (event.type === 'phone') run(() => appearance(event.preferences));
     if (event.type === 'library') {
@@ -502,7 +516,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     else if (p.lockOnOpen) lock();
   }).catch(error => {
     if (disposed) return;
-    notify(error.message);
+    notify(error.message, {error: true});
     return appearance(fallback);
   });
   return {ready, open, home: showHome, back, lock, unlock, dispose, views, get active() { return active; }, get locked() { return locked; }};

@@ -51,8 +51,8 @@ export function createView(ctx, name) {
         if (type === 'click') event.preventDefault();
         try {
           const result = fn(el, event);
-          if (result?.catch) result.catch(error => ctx.notify(error.message));
-        } catch (error) { ctx.notify(error.message); }
+          if (result?.catch) result.catch(error => ctx.notify(error.message, {error: true}));
+        } catch (error) { ctx.notify(error.message, {error: true}); }
       }, {signal: controller.signal});
     },
     async busy(el, task) {

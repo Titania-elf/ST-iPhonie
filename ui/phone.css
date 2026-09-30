@@ -237,7 +237,11 @@ details>div{padding-bottom:10px}
 .overlay.top .sheet{max-height:100%}
 .help-copy{white-space:pre-wrap;font-size:14px;color:var(--ink2);overflow-wrap:anywhere}
 .sheet-body .actions{margin-bottom:0}
-.toast{position:absolute;bottom:40px;left:50%;transform:translateX(-50%);z-index:80;width:max-content;max-width:calc(100% - 40px);padding:11px 18px;border-radius:22px;background:var(--ink);color:var(--bg);font-size:13px;font-weight:700;line-height:1.5;text-align:center;white-space:pre-wrap;pointer-events:none;animation:toast-in .25s cubic-bezier(.3,1.4,.5,1)}
+.toast{display:flex;align-items:flex-start;gap:6px;position:absolute;bottom:40px;left:50%;transform:translateX(-50%);z-index:80;width:max-content;max-width:calc(100% - 40px);padding:11px 18px;border-radius:22px;background:var(--ink);color:var(--bg);font-size:13px;font-weight:700;line-height:1.5;text-align:center;white-space:pre-wrap;pointer-events:none;animation:toast-in .25s cubic-bezier(.3,1.4,.5,1)}
+.toast.error{pointer-events:auto;text-align:left;max-height:40%;overflow:auto;padding:11px 8px 11px 16px;border-radius:18px;background:var(--danger-soft);color:var(--danger);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--danger) 40%,transparent),0 10px 24px -10px rgba(0,0,0,.4);user-select:text;-webkit-user-select:text}
+.toast .toast-text{flex:1;min-width:0;overflow-wrap:anywhere}
+.toast-close{flex-shrink:0;width:28px;height:28px;margin:-3px 0;border-radius:50%;display:grid;place-items:center;color:inherit}
+.toast-close svg{width:16px;height:16px}
 @keyframes toast-in{from{opacity:0;transform:translate(-50%,14px)}}
 .lockscreen{position:absolute;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;text-align:center;padding:64px 20px 36px;color:var(--wall-ink);background:var(--wall);background-size:var(--wall-size,cover);background-position:var(--wall-pos,center)}
 .lockscreen>.icon{width:22px;height:22px;margin-bottom:6px}
