@@ -70,7 +70,7 @@ const REASONS={
  feature_not_available:'当前档位不能用这个功能。',
  voice_access_denied:'这个账户没有这个音色的使用权限，换一个音色试试。',
  model_access_denied:'这个账户不能用这个模型，换一个模型试试。',
- unsupported_model:'这个模型不能用于文字转语音，换一个模型试试。',
+ unsupported_model:'这个模型不支持请求里的某个模型或设置，看括号里的说明。',
  quota_exceeded:'额度用完了。',
  insufficient_credits:'额度用完了。',
  voice_not_found:'找不到这个音色 ID，可能已经删除或者填错了。',
@@ -92,18 +92,40 @@ export async function httpError(engine,response,what='',secrets=[]){
  let detail={};
  try{const text=(await response.text()).slice(0,4000);try{const json=JSON.parse(text);const d=json.detail??json.error??json;detail=typeof d==='string'?{message:d}:Array.isArray(d)?{message:d.map(x=>x.msg||x.message).filter(Boolean).join('；')}:d||{};if(!detail.message&&json.message)detail.message=json.message;}catch{detail={message:text.trim()};}}catch{}
  const code=[detail.code,detail.status].find(x=>typeof x==='string'&&REASONS[x])||(typeof detail.code==='string'?detail.code:typeof detail.status==='string'?detail.status:'');
- const reason=REASONS[code]||FALLBACK[response.status]||'请求失败';
- const hide=text=>secrets.filter(k=>typeof k==='string'&&k.length>=4).reduce((t,k)=>t.split(k).join('***'),String(text)).replace(/(?:sk_|pst-)?[A-Za-z0-9_-]{32,}/g,'***');
+ // 「Providing X is not supported with the 'M' model」names the field: say that plainly.
+ const refused=typeof detail.message==='string'&&detail.message.match(/Providing (\S+) is not supported with the '([^']+)' model/);
+ const reason=refused?`${refused[2]} 不接受 ${refused[1]} 这一项设置`:REASONS[code]||FALLBACK[response.status]||'请求失败';
+ const hide=text=>secrets.filter(k=>typeof k==='string'&&k.length>=4).reduce((t,k)=>t.split(k).join('***'),String(text)).replace(/[A-Za-z0-9_-]{24,}/g,t=>/\d/.test(t)&&/[A-Za-z]/.test(t)?'***':t);
  const said=hide([code,typeof detail.message==='string'?detail.message.slice(0,200):'',detail.param?'参数 '+detail.param:''].filter(Boolean).join('：'));
- return Object.assign(Error(names[engine]+(what?' '+what:'')+'：HTTP '+response.status+' · '+reason+(said?'（'+said+'）':'')),{status:response.status,code});
+ return Object.assign(Error(names[engine]+(what?' '+what:'')+'：HTTP '+response.status+' · '+reason+(said?'（'+said+'）':'')),{status:response.status,code,refusedField:refused?.[1]||''});
 }
 export class Providers{
- constructor(fetcher=globalThis.fetch.bind(globalThis)){this.fetcher=fetcher;this.keys=new Map();this.references=new Map();}
+ // refused: fields a model said it does not take (model -> Set), left out of later requests while the page is open.
+ constructor(fetcher=globalThis.fetch.bind(globalThis)){this.fetcher=fetcher;this.keys=new Map();this.references=new Map();this.refused=new Map();}
  setKey(engine,key){key=validateKey(engine,key);if(key)this.keys.set(engine,key);else this.keys.delete(engine);}
  headers(engine){const key=this.keys.get(engine);if(!key)throw Error('请先填写 '+names[engine]+' 的 API Key');return engine==='eleven'?{'xi-api-key':key}:{Authorization:'Bearer '+key};}
  async fetch(url,init,signal){return fetchWithPolicy(this.fetcher,url,init,signal);}
- async synthesize(request,signal){const response=await this.fetch(request.url,{method:'POST',headers:{...this.headers(request.engine),'Content-Type':'application/json'},body:JSON.stringify(request.body)},signal);if(!response.ok)throw await httpError(request.engine,response,'',[this.keys.get(request.engine)]);if(request.engine==='mini')return decodeMini(response,request,this.fetcher,signal);if(response.headers.get('Content-Type')?.includes('json'))throw Error(names[request.engine]+' 未返回音频');return audioBlob(await limitedBytes(response),request);}
+ /**
+  * One synthesis request. When ElevenLabs answers 400 「Providing X is not supported with the 'M' model」 for a field
+  * we sent, that field is dropped and the request is sent once more; the model is remembered so later lines skip it.
+  */
+ async synthesize(request,signal){
+  const model=request.body?.model_id,body={...request.body};
+  for(const field of this.refused.get(model)||[])delete body[field];
+  let response=await this.post(request,body,signal);
+  if(!response.ok){
+   const error=await httpError(request.engine,response,'',[this.keys.get(request.engine)]);
+   const field=error.refusedField;
+   if(request.engine!=='eleven'||response.status!==400||!field||!Object.hasOwn(body,field)||field==='text'||field==='model_id')throw error;
+   if(!this.refused.has(model))this.refused.set(model,new Set());
+   this.refused.get(model).add(field);
+   delete body[field];
+   response=await this.post(request,body,signal);
+   if(!response.ok)throw await httpError(request.engine,response,'',[this.keys.get(request.engine)]);
+  }
+  if(request.engine==='mini')return decodeMini(response,request,this.fetcher,signal);if(response.headers.get('Content-Type')?.includes('json'))throw Error(names[request.engine]+' 未返回音频');return audioBlob(await limitedBytes(response),request);}
+ post(request,body,signal){return this.fetch(request.url,{method:'POST',headers:{...this.headers(request.engine),'Content-Type':'application/json'},body:JSON.stringify(body)},signal);}
  async voices(engine,c,{search='',page=0,token=''}={}){const headers=this.headers(engine);let url,init={headers};if(engine==='fish'){url=new URL('https://api.fish.audio/model');url.searchParams.set('page_size','50');url.searchParams.set('page_number',String(page+1));if(search)url.searchParams.set('title',search);}else if(engine==='mini'){url=miniBase(c)+'/v1/get_voice';init={method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({voice_type:'all'})};}else{url=new URL('https://api.elevenlabs.io/v2/voices');url.searchParams.set('page_size','100');if(search)url.searchParams.set('search',search);if(token)url.searchParams.set('next_page_token',token);}
  const response=await this.fetch(String(url),init);if(!response.ok)throw await httpError(engine,response,'音色读取失败',[this.keys.get(engine)]);const data=await response.json();if(engine==='mini')checkMini(data);const source=engine==='fish'?data.items:engine==='mini'?[...(data.system_voice||[]),...(data.voice_cloning||[]),...(data.voice_generation||[])]:data.voices;if(!Array.isArray(source))throw Error('音色列表格式不符');return {voices:source.map(v=>({id:v._id||v.voice_id,name:v.title||v.voice_name||v.name||v.voice_id})).filter(v=>typeof v.id==='string'),more:engine==='fish'?source.length===50:!!data.has_more,token:data.next_page_token||'',note:engine==='fish'?'已读取公开音色；此结果不能确认密钥有效':'音色列表已读取'};}
- clear(){this.keys.clear();this.references.clear();}
+ clear(){this.keys.clear();this.references.clear();this.refused.clear();}
 }
