@@ -67,7 +67,17 @@ a{color:var(--accent-ink)}
 .status-icons{display:flex;align-items:center;gap:5px;min-height:30px;padding:0 4px}
 .status-icons svg{width:18px;height:13px}
 .battery{width:24px;height:12px;border:1.6px solid currentColor;border-radius:4px;padding:1.5px;position:relative}
-.battery:before{content:"";display:block;height:100%;width:78%;background:currentColor;border-radius:1.5px}
+.battery:before{content:"";display:block;height:100%;width:var(--level,100%);background:currentColor;border-radius:1.5px}
+.battery[data-low]:before{background:#ff3b30}
+.battery[data-charging]:before{background:#34c759}
+.battery[data-unknown]{opacity:.55}
+.status-icons .net{display:inline-flex}
+.status-icons .battery .bolt,.cc-battery .bolt{position:absolute;inset:0;margin:auto;width:7px;height:9px;color:#fff;filter:drop-shadow(0 0 1px #0009)}
+/* On a real phone the status bar is the phone's own: a small tab (and the top strip of the screen) pulls the control center down. */
+.pull-tab{display:none;position:absolute;z-index:46;top:0;right:56px;width:64px;height:calc(env(safe-area-inset-top,0px) + 16px);padding:0;touch-action:none;color:var(--wall-ink,var(--ink))}
+.pull-tab:after{content:"";position:absolute;left:16px;right:16px;bottom:5px;height:4px;border-radius:2px;background:currentColor;opacity:.4}
+.screen[data-view=app] .pull-tab{color:var(--ink)}
+.safe-probe{position:absolute;top:0;left:0;width:0;height:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none}
 .battery:after{content:"";position:absolute;right:-4px;top:3px;width:2px;height:4px;border-radius:1px;background:currentColor}
 
 .island{position:absolute;z-index:40;top:10px;left:50%;transform:translateX(-50%);height:33px;min-width:118px;max-width:58%;border-radius:20px;background:#000;color:#fff;display:flex;align-items:center;gap:8px;padding:0 10px 0 5px;font-size:12px;font-weight:700;transition:min-width .35s cubic-bezier(.3,1.4,.5,1)}
@@ -257,6 +267,19 @@ details>div{padding-bottom:10px}
 .control-tile.wide>div{flex:1;min-width:0}
 .control-tile.wide strong,.control-tile.wide small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .control-tile .segmented{margin:4px 0 0}
+.cc-device{min-height:auto;padding:10px 14px;gap:8px;font-size:13px}
+.cc-device .net{display:inline-flex}
+.cc-device .net svg{width:18px;height:13px}
+.cc-battery{margin-left:auto;display:inline-flex;align-items:center;gap:7px}
+.cc-toggles{justify-content:space-between;gap:4px;padding:12px 6px}
+.cc-toggle{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--ink);white-space:nowrap}
+.cc-toggle .bubble{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:var(--accent-btn);color:var(--on-accent);transition:background .2s,color .2s}
+.cc-toggle[aria-pressed=false] .bubble{background:var(--line);color:var(--ink2)}
+.control-grid>.control-tile:not(.wide){min-height:84px}
+/* The control center follows the finger while it is pulled down or pushed back up */
+.overlay.top.pulling{animation:none;background:rgba(20,40,80,calc(.3 * var(--pull)));-webkit-backdrop-filter:blur(calc(16px * var(--pull)));backdrop-filter:blur(calc(16px * var(--pull)));-webkit-user-select:none;user-select:none}
+.overlay.top.pulling .sheet{animation:none;transform:translateY(calc((var(--pull) - 1) * (100% + 60px)));opacity:calc(.35 + .65 * var(--pull))}
+.overlay.top.settling,.overlay.top.settling .sheet{transition:transform .3s cubic-bezier(.2,.9,.3,1),opacity .3s,background .3s,-webkit-backdrop-filter .3s,backdrop-filter .3s}
 .slider{width:100%;accent-color:var(--accent-btn);min-height:32px}
 .meter-label{display:flex;justify-content:space-between;font-size:13px;font-weight:800}
 .meter-track{display:block;height:8px;margin-top:8px;border-radius:999px;background:var(--card2);overflow:hidden;box-shadow:inset 0 0 0 1px var(--line)}
@@ -481,6 +504,7 @@ details>div{padding-bottom:10px}
   body{background:var(--page)}
   .stage{padding:0}
   .stage-bar,.power-key,.statusbar{display:none}
+  .pull-tab{display:block}
   .device{width:100%;flex:1;aspect-ratio:auto;border-radius:0;padding:0;background:none!important;box-shadow:none!important}
   .screen{border-radius:0}
   .home-close{display:grid;top:calc(env(safe-area-inset-top,0px) + 8px)}

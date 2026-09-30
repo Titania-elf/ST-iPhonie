@@ -16,7 +16,23 @@ import {momentsNew, momentsSeen} from './moments.js';
 const FACTORIES = {roles: rolesApp, engines: enginesApp, presets: presetsApp, library: libraryApp, gallery: galleryApp, notes: notesApp, listen: listenApp, settings: settingsApp, draw: drawApp, chat: chatApp};
 const ACTIVE_PHASES = ['playing', 'paused', 'generating', 'waiting'];
 
-const SIGNAL = '<svg viewBox="0 0 18 12" fill="currentColor" aria-hidden="true"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>';
+// Network and battery in the status bar come from the user's own device (where the browser tells them).
+const BARS = n => `<svg viewBox="0 0 18 12" fill="currentColor" aria-hidden="true">${[[0, 8, 4], [5, 5.5, 6.5], [10, 3, 9], [15, 0, 12]].map(([x, y, h], i) => `<rect x="${x}" y="${y}" width="3" height="${h}" rx="1"${i < n ? '' : ' opacity=".3"'}/>`).join('')}</svg>`;
+const WIFI = (n, off = false) => `<svg viewBox="0 0 18 13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">${['M1.6 4.9a10.5 10.5 0 0 1 14.8 0', 'M4.4 7.7a6.6 6.6 0 0 1 9.2 0', 'M7.2 10.5a2.6 2.6 0 0 1 3.6 0'].map((d, i) => `<path d="${d}"${3 - i <= n ? '' : ' opacity=".3"'}/>`).join('')}${off ? '<path d="M2.5 1.2 15.5 12"/>' : ''}</svg>`;
+const BOLT = '<svg class="bolt" viewBox="0 0 8 12" fill="currentColor" aria-hidden="true"><path d="M4.8 0 0 7h3.2L2.6 12 8 4.6H4.6z"/></svg>';
+/** What the browser knows about the connection: offline, mobile data (with a guess at its strength) or Wi-Fi/wired. */
+export function networkState(nav) {
+  const c = nav?.connection, strength = ({'slow-2g': 1, '2g': 2, '3g': 3, '4g': 4})[c?.effectiveType] || 4;
+  if (nav && nav.onLine === false) return {kind: 'offline', level: 0, label: '没有网络'};
+  if (c?.type === 'cellular') return {kind: 'cell', level: strength, label: '移动网络' + (c.effectiveType ? ' · ' + c.effectiveType.toUpperCase().replace('SLOW-', '慢速 ') : '')};
+  return {kind: 'wifi', level: Math.max(1, strength - 1), label: c?.type === 'ethernet' ? '有线网络' : c?.type === 'wifi' ? 'Wi-Fi' : '已联网'};
+}
+/** Battery from navigator.getBattery(); null when the browser does not tell (Firefox, Safari). */
+export function batteryState(b) {
+  if (!b || !Number.isFinite(b.level)) return null;
+  const level = Math.round(b.level * 100);
+  return {level, charging: !!b.charging, low: level <= 20 && !b.charging};
+}
 
 export function createPhoneApp({window: win, api, mount = win.document.getElementById('root')}) {
   const doc = win.document;
@@ -34,7 +50,8 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
         <button class="power-key" data-system="power" aria-label="锁屏或唤醒"></button>
         <div class="screen" data-view="home">
           <div class="wallpaper"></div>
-          <div class="statusbar"><time data-clock="small"></time><button class="status-icons" data-system="control" aria-label="打开控制中心，或向下拖动">${SIGNAL}<span class="battery" aria-hidden="true"></span></button></div>
+          <div class="statusbar"><time data-clock="small"></time><button class="status-icons" data-system="control" aria-label="打开控制中心，或向下拖动"><span class="net" data-net></span><span class="battery" data-battery aria-hidden="true"></span></button></div>
+          <button class="pull-tab" data-system="control" aria-label="打开控制中心，也可以从屏幕顶端往下拉"></button><span class="safe-probe" aria-hidden="true"></span>
           <button class="island" data-system="island" aria-label="打开听取"><span class="island-avatar"></span><span class="island-title"></span><span class="island-wave" hidden>${wave}</span><span class="camera"></span></button>
           <main class="home">
             <button class="home-close" data-system="close" aria-label="返回酒馆">${icon('close')}</button>
@@ -80,7 +97,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   function syncInert() {
     home.inert = !!active || locked || !!sheet;
     frame.inert = !active || locked || !!sheet;
-    for (const s of ['.statusbar', '.island', '.home-indicator']) $(s).inert = locked || !!sheet;
+    for (const s of ['.statusbar', '.pull-tab', '.island', '.home-indicator']) $(s).inert = locked || !!sheet;
     lockscreen.inert = !locked || !!sheet;
   }
 
@@ -94,6 +111,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     let live = true;
     const callbacks = [];
     const result = {
+      overlay,
       body: overlay.querySelector('.sheet-body'),
       get live() { return live; },
       onClose(fn) { callbacks.push(fn); },
@@ -339,19 +357,52 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     animate();
   }
 
+  // ---------- Device (network and battery) ----------
+  const nav = win.navigator;
+  let battery = null;
+  function paintDevice() {
+    if (disposed) return;
+    const n = networkState(nav), b = batteryState(battery);
+    const netIcon = n.kind === 'cell' ? BARS(n.level) : WIFI(n.level, n.kind === 'offline');
+    const batteryText = b ? `电量 ${b.level}%${b.charging ? '，正在充电' : ''}` : '这个浏览器不提供电量';
+    for (const el of mount.querySelectorAll('[data-net]')) { el.innerHTML = netIcon; el.dataset.kind = n.kind; }
+    for (const el of mount.querySelectorAll('[data-battery]')) {
+      el.style.setProperty('--level', b ? Math.max(b.level, 4) + '%' : '100%');
+      el.toggleAttribute('data-unknown', !b);
+      el.toggleAttribute('data-charging', !!b?.charging);
+      el.toggleAttribute('data-low', !!b?.low);
+      el.innerHTML = b?.charging ? BOLT : '';
+    }
+    for (const el of mount.querySelectorAll('[data-net-label]')) el.textContent = n.label;
+    for (const el of mount.querySelectorAll('[data-battery-label]')) el.textContent = b ? `${b.level}%${b.charging ? ' · 充电中' : b.low ? ' · 电量低' : ''}` : '电量未知';
+    $('.status-icons').setAttribute('aria-label', `打开控制中心，或向下拖动（${n.label}，${batteryText}）`);
+  }
+  win.addEventListener('online', paintDevice, {signal});
+  win.addEventListener('offline', paintDevice, {signal});
+  nav.connection?.addEventListener?.('change', paintDevice, {signal});
+  Promise.resolve(nav.getBattery?.()).then(b => {
+    if (!b || disposed) return;
+    battery = b;
+    for (const type of ['levelchange', 'chargingchange']) b.addEventListener(type, paintDevice, {signal});
+    paintDevice();
+  }).catch(() => {});
+
   // ---------- Control center ----------
-  function control() {
+  function control({pulling = false} = {}) {
     const s = api.getState(), p = preferences || {volume: api.getVolume(), theme: s.theme};
     const on = ACTIVE_PHASES.includes(playback.phase) && playback.speaker;
+    const toggles = [['floating', 'float', '悬浮入口', s.general.floatingEnabled], ['waves', 'wave', '声波动画', s.general.waveformEnabled], ['motion', 'image', '动态壁纸', s.general.wallpaperMotion !== false]];
     const d = dialog('控制中心', `<div class="control-grid">
+      <div class="control-tile wide cc-device"><span class="net" data-net></span><span data-net-label></span><span class="cc-battery"><span class="battery" data-battery aria-hidden="true"></span><span data-battery-label></span></span></div>
       <div class="control-tile wide live-wave" data-engine="${on ? engineOf(playback.speaker) : 'none'}">${on ? avatar(playback.speaker, engineOf(playback.speaker), 42) : wave}<div><strong data-playing-speaker></strong><small data-playing-message></small></div><button class="play-round" data-system="toggle" aria-label="暂停或继续">${icon('play', true)}</button></div>
       <div class="control-tile wide" style="flex-direction:column;align-items:stretch"><div class="meter-label"><span>播放音量</span><output>${Math.round(p.volume * 100)}%</output></div><input class="slider" data-control="volume" type="range" min="0" max="100" value="${Math.round(p.volume * 100)}" aria-label="播放音量"></div>
-      <button class="control-tile" data-control="floating" aria-pressed="${s.general.floatingEnabled}"><span class="bubble">${icon('float')}</span>悬浮入口<small>${s.general.floatingEnabled ? '开' : '关'}</small></button>
-      <button class="control-tile" data-system="power" aria-pressed="true"><span class="bubble">${icon('lock')}</span>锁屏<small>看一眼</small></button>
+      <div class="control-tile wide cc-toggles">${toggles.map(([key, glyphKey, label, value]) => `<button class="cc-toggle" data-control="${key}" aria-pressed="${value}"><span class="bubble">${icon(glyphKey)}</span>${label}</button>`).join('')}<button class="cc-toggle" data-system="power" aria-pressed="true"><span class="bubble">${icon('lock')}</span>锁屏</button></div>
       <div class="control-tile wide" style="flex-direction:column;align-items:stretch"><span>主题</span><div class="segmented">${[['system', '跟随系统'], ['light', '日间'], ['dark', '夜间']].map(([key, label]) => `<button data-theme="${key}" aria-pressed="${p.theme === key}">${label}</button>`).join('')}</div></div>
       <button class="control-tile" data-control="stop" aria-pressed="true"><span class="bubble">${icon('stop', true)}</span>停止播放<small>清空当前队列</small></button>
       <button class="control-tile" data-app="listen" aria-pressed="true"><span class="bubble">${icon('wave')}</span>打开听取<small>整条播放与记录</small></button>
     </div>`, {top: true});
+    d.control = true;
+    if (pulling) pullTo(d, 0);
     d.body.addEventListener('input', e => { if (e.target.dataset.control === 'volume') d.body.querySelector('output').textContent = e.target.value + '%'; });
     d.body.addEventListener('change', e => { if (e.target.dataset.control === 'volume') run(() => api.setVolume(Number(e.target.value) / 100)); });
     d.body.addEventListener('click', e => {
@@ -362,16 +413,89 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
           await api.savePhone({theme: el.dataset.theme});
           if (d.live) for (const b of d.body.querySelectorAll('[data-theme]')) b.setAttribute('aria-pressed', String(b === el));
         }
-        if (el.dataset.control === 'floating') {
-          const enabled = !api.getState().general.floatingEnabled;
-          api.updateGeneral({floatingEnabled: enabled});
+        const flip = {floating: 'floatingEnabled', waves: 'waveformEnabled', motion: 'wallpaperMotion'}[el.dataset.control];
+        if (flip) {
+          const enabled = el.getAttribute('aria-pressed') !== 'true';
+          api.updateGeneral({[flip]: enabled});
           el.setAttribute('aria-pressed', String(enabled));
-          el.querySelector('small').textContent = enabled ? '开' : '关';
         }
         if (el.dataset.control === 'stop') api.stop();
       });
     });
     paintPlayback(playback);
+    paintDevice();
+    return d;
+  }
+  // Pulled down from the top of the screen it follows the finger (or mouse) and stays open once pulled far enough;
+  // pushed back up the same way it closes.
+  function pullTo(d, amount) {
+    d.overlay.classList.add('pulling');
+    d.overlay.classList.remove('settling');
+    d.overlay.style.setProperty('--pull', String(Math.min(1, Math.max(0, amount))));
+  }
+  function settle(d, open) {
+    if (!d.live) return;
+    let finished = false;
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      d.overlay.classList.remove('pulling', 'settling');
+      d.overlay.style.removeProperty('--pull');
+      if (!open) d.close(null);
+    };
+    d.overlay.classList.add('settling');
+    d.overlay.style.setProperty('--pull', open ? '1' : '0');
+    if (motion.matches) done();
+    else { d.overlay.querySelector('.sheet').addEventListener('transitionend', done, {once: true}); win.setTimeout(done, 360); }
+  }
+  let gesture = null, pulledAt = 0;
+  /** Where a drag may start: the top strip of the screen (the status bar; on a real phone, where it would be), the
+   *  status icons, an open control center (to push it back up), or the lock screen (to swipe it away). */
+  function gestureStart(target, x, y) {
+    gesture = null;
+    if (disposed || !panelVisible) return;
+    if (locked && !sheet) { if (target.closest('.lockscreen')) gesture = {kind: 'unlock', x, y}; return; }
+    if (sheet?.control && target.closest('.overlay.top') && !target.closest('input,select,textarea')) {
+      const body = target.closest('.sheet-body');
+      if (!body || body.scrollHeight <= body.clientHeight + 1) gesture = {kind: 'close', x, y, d: sheet};
+      return;
+    }
+    if (sheet || locked) return;
+    const top = y - screen.getBoundingClientRect().top;
+    if (target.closest('.status-icons,.pull-tab') || top < Math.max(34, $('.safe-probe').offsetHeight + 26)) gesture = {kind: 'open', x, y};
+  }
+  /** Returns true while the drag is ours, so the page does not scroll under it. */
+  function gestureMove(x, y) {
+    const g = gesture;
+    if (!g) return false;
+    const dx = x - g.x, dy = y - g.y;
+    if (!g.decided) {
+      if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return false;
+      if (Math.abs(dx) > Math.abs(dy)) { gesture = null; return false; }
+      g.decided = true;
+    }
+    if (g.kind === 'unlock') return true;
+    if (!g.pulling) {
+      if (g.kind === 'open' && dy > 8) g.d = control({pulling: true});
+      else if (g.kind === 'close' && dy < -8) pullTo(g.d, 1);
+      else return true;
+      g.pulling = true;
+    }
+    if (!g.d.live) { gesture = null; return false; }
+    const h = g.d.overlay.querySelector('.sheet').offsetHeight || 400;
+    g.amount = g.kind === 'open' ? (dy + 30) / h : 1 + dy / h;
+    pullTo(g.d, g.amount);
+    return true;
+  }
+  function gestureEnd(x, y, cancelled = false) {
+    const g = gesture;
+    gesture = null;
+    if (!g) return;
+    const dx = x - g.x, dy = y - g.y;
+    if (g.kind === 'unlock') { if (!cancelled && Math.abs(dx) <= 70 && dy < -45) unlock(); return; }
+    if (!g.pulling) return;
+    pulledAt = Date.now();
+    settle(g.d, g.kind === 'open' ? !cancelled && (g.amount > .3 || dy > 90) : cancelled || !(g.amount < .75 || dy < -80));
   }
 
   // ---------- Events ----------
@@ -394,9 +518,9 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
           if (pending) openPendingRole(pending); else open('listen');
           break;
         }
-        case 'control': control(); break;
+        case 'control': if (Date.now() - pulledAt > 400) control(); break;
         case 'toggle': api.toggle(); break;
-        case 'help': help('桌面左右滑动翻页，图标打开对应应用；底部横条或左上角返回键回到桌面。\n右上角的信号图标可以点开，也可以向下拉出控制中心。侧键可以看锁屏，锁屏随时可以跳过。\n\n信号与电量是装饰。语音只在点击台词、播放或试听时生成。'); break;
+        case 'help': help('桌面左右滑动翻页，图标打开对应应用；底部横条或左上角返回键回到桌面。\n从屏幕顶端往下拉（或点右上角的信号和电量）打开控制中心，往上推收起。侧键可以看锁屏，锁屏随时可以跳过。\n\n信号和电量是你设备上的真实状态（有的浏览器不提供电量，比如 Safari、Firefox）。语音只在点击台词、播放或试听时生成。'); break;
       }
     });
   }, {signal});
@@ -404,21 +528,15 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     const i = Math.round(e.target.scrollLeft / (e.target.clientWidth || 1));
     mount.querySelectorAll('.dots i').forEach((dot, k) => dot.toggleAttribute('data-on', k === i));
   }, {signal, passive: true});
-  let drag = null;
-  mount.addEventListener('pointerdown', e => {
-    const zone = e.target.closest('.status-icons,.lockscreen');
-    if (!zone || drag || e.button !== 0) return;
-    drag = {id: e.pointerId, y: e.clientY, x: e.clientX, lock: zone === lockscreen};
-  }, {signal});
-  mount.addEventListener('pointerup', e => {
-    if (!drag || drag.id !== e.pointerId) return;
-    const d = drag, dy = e.clientY - d.y;
-    drag = null;
-    if (Math.abs(e.clientX - d.x) > 70) return;
-    if (d.lock && dy < -45) unlock();
-    else if (!d.lock && dy > 45) control();
-  }, {signal});
-  mount.addEventListener('pointercancel', () => drag = null, {signal});
+  // Mouse and pen through pointer events; fingers through touch events, whose moves can be held back from scrolling.
+  mount.addEventListener('pointerdown', e => { if (e.pointerType !== 'touch' && e.button === 0) gestureStart(e.target, e.clientX, e.clientY); }, {signal});
+  mount.addEventListener('pointermove', e => { if (e.pointerType !== 'touch' && gesture && gestureMove(e.clientX, e.clientY)) e.preventDefault(); }, {signal});
+  mount.addEventListener('pointerup', e => { if (e.pointerType !== 'touch') gestureEnd(e.clientX, e.clientY); }, {signal});
+  mount.addEventListener('pointercancel', e => { if (e.pointerType !== 'touch') gestureEnd(e.clientX, e.clientY, true); }, {signal});
+  mount.addEventListener('touchstart', e => { const t = e.touches[0]; if (e.touches.length === 1) gestureStart(e.target, t.clientX, t.clientY); else gestureEnd(0, 0, true); }, {signal, passive: true});
+  mount.addEventListener('touchmove', e => { const t = e.touches[0]; if (t && gesture && gestureMove(t.clientX, t.clientY) && e.cancelable) e.preventDefault(); }, {signal, passive: false});
+  mount.addEventListener('touchend', e => { const t = e.changedTouches[0]; if (t) gestureEnd(t.clientX, t.clientY); }, {signal});
+  mount.addEventListener('touchcancel', () => gestureEnd(0, 0, true), {signal});
   doc.addEventListener('keydown', e => {
     doc.documentElement.dataset.keyboard = 'true';
     if (e.key === 'Escape') {
@@ -520,6 +638,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   applyThemeMode();
   renderHome();
   const clockTimer = win.setInterval(clock, 15000);
+  paintDevice();
   countUnread();
   countMoments();
   paintPlayback(playback);

@@ -46,7 +46,18 @@ const healed=new Map(),streaming=()=>{const p=context()?.streamingProcessor;retu
 function scheduleRender(){if(renderTimer)return;renderTimer=setTimeout(()=>{renderTimer=0;decorate();},40);}
 /** Only changes that bring in (or take away) messages or our own marks are worth a redraw. */
 const ours=node=>node.nodeType===1&&(node.matches?.('.mes,[data-sttts-token]')||!!node.querySelector?.('[data-sttts-token],.mes'));
-function chatChanged(records){if(records.some(r=>[...r.addedNodes,...r.removedNodes].some(ours)||legacy&&redrawn(r.target)))scheduleRender();}
+// While a reply streams in, the tavern draws the whole message again for every new chunk, so the waves and pictures in
+// it are brand new each time: blank until decorate() fills them 40 ms later, which made them flash on every chunk. The
+// observer runs before the browser paints, so there the new ones take over what the old ones showed (a finished picture
+// is moved over as it is, and its image never reloads).
+const drawnIn=r=>r.target.closest?.('.mes[mesid]')?.getAttribute('mesid');
+const ownedIn=n=>n.nodeType!==1?[]:[n,...n.querySelectorAll('[data-sttts-pic],[data-sttts-line]')].filter(el=>el.dataset?.stttsToken===marker);
+const waveKey=(id,el)=>id+':'+el.dataset.stttsLine+':'+el.textContent;
+function carryOver(records){const pics=new Map(),waves=new Map();
+ for(const r of records){const id=drawnIn(r);if(id==null)continue;for(const n of r.removedNodes)for(const el of ownedIn(n)){if(el.hasAttribute('data-sttts-pic')){if(el.dataset.stttsRendered)pics.set(id+':'+el.dataset.stttsHash,el);}else{const b=el.querySelector('[data-sttts-action="line"]');if(b)waves.set(waveKey(id,el),b);}}}
+ if(!pics.size&&!waves.size)return;
+ for(const r of records){const id=drawnIn(r);if(id==null)continue;for(const n of r.addedNodes){if(!n.isConnected)continue;for(const el of ownedIn(n)){if(el.hasAttribute('data-sttts-pic')){const key=id+':'+el.dataset.stttsHash,old=pics.get(key);if(old&&!el.dataset.stttsRendered){pics.delete(key);el.replaceWith(old);}}else{const old=waves.get(waveKey(id,el)),b=el.querySelector('[data-sttts-action="line"]');if(old&&b)for(const k of ['data-sttts-state','title','aria-label','aria-busy'])old.hasAttribute(k)?b.setAttribute(k,old.getAttribute(k)):b.removeAttribute(k);}}}}}
+function chatChanged(records){try{carryOver(records);}catch{}if(records.some(r=>[...r.addedNodes,...r.removedNodes].some(ours)||legacy&&redrawn(r.target)))scheduleRender();}
 // SillyTavern before 1.19 has no message formatter hook. There a reply is drawn again after the tavern draws it: the
 // transformed text goes through the tavern's own formatting (the steps the hook runs in), and the first node drawn is
 // remembered, so a later redraw by the tavern (edit, swipe, other extensions) is noticed and drawn again.
