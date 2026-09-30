@@ -1,5 +1,6 @@
 import { MomentStore } from './moments-store.js';
 import { normalizeMoments, buildMomentsRequest } from './moments.js';
+import { normalizeCalls, buildCallRequest } from './call.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup } from './backup.js';
 import { normalizeSettings, validateSettings, modelRules, freshState } from './state.js';
 import { normalizeRoute, switchRouteEngine, removeRoute } from './routes.js';
@@ -398,7 +399,14 @@ export class TTSBackend {
         const group = { type: 'group', name: '群聊', members: [contact.name, other.name], messages: thread.messages };
         return ['━━ 私聊 ━━', text(buildChatRequest({ preset: p, thread, members: [member], story, user: '{{user}}', voiceFormat: this.voiceFormat() })),
             '━━ 群聊 ━━', text(buildChatRequest({ preset: p, thread: group, members: [member, other], story, user: '{{user}}', voiceFormat: this.voiceFormat() })),
-            '━━ 朋友圈（刷新时） ━━', text(buildMomentsRequest({ preset: p, people: [member, other], story, user: '{{user}}', images: this.settings.moments.images }))].join('\n\n');
+            '━━ 朋友圈（刷新时） ━━', text(buildMomentsRequest({ preset: p, people: [member, other], story, user: '{{user}}', images: this.settings.moments.images })),
+            '━━ 电话（接通后第一句） ━━', text(buildCallRequest({ preset: p, mode: 'incoming', contact: { ...member, voice: true }, history: thread.messages, story, user: '{{user}}', voiceFormat: this.voiceFormat(), voiceRules: '（这里是这个角色的语音引擎朗读规则）' }))].join('\n\n');
+    }
+    /** 来电 options: {auto, every, dailyMax, ring}. */
+    saveCalls(patch) {
+        const next = this.getState(), allowed = ['auto', 'every', 'dailyMax', 'ring'];
+        next.calls = normalizeCalls({ ...next.calls, ...Object.fromEntries(Object.entries(patch || {}).filter(([key]) => allowed.includes(key))) });
+        return this.save(next).calls;
     }
     // ---------- 朋友圈 ----------
     /** Moments options: {auto, every, dailyMax, images, replyToMe}. */
@@ -422,8 +430,9 @@ export class TTSBackend {
     }
     /** Plays one voice message through the normal player (cache, favourites and the island all work). */
     speak(line) {
-        if (!line?.role || !line.text) throw Error('这条语音没有内容');
-        return this.player.start([{ role: line.role, emotion: line.emotion || 'calm', text: line.text, translation: line.translation || '' }], () => !this.closed);
+        const lines = (Array.isArray(line) ? line : [line]).filter(l => l?.role && l.text);
+        if (!lines.length) throw Error('这条语音没有内容');
+        return this.player.start(lines.map(l => ({ role: l.role, emotion: l.emotion || 'calm', text: l.text, translation: l.translation || '' })), () => !this.closed);
     }
     /** Album photos made by the drawing app or in-text pictures (named NovelAI-<seed>.png / chat-<seed>.png). */
     async generatedPhotos() {
@@ -609,7 +618,7 @@ export class TTSBackend {
             listNotes: () => this.library.listNotes(), saveNote: value => this.mutateLibrary('notes', 'saveNote', value), deleteNote: id => this.mutateLibrary('notes', 'deleteNote', id),
             getPhone: () => this.getPhone(), savePhone: patch => this.savePhone(patch), libraryStats: () => this.library.stats(),
             generatedPhotos: () => this.generatedPhotos().then(({ count, bytes }) => ({ count, bytes })), deleteGeneratedPhotos: () => this.deleteGeneratedPhotos(),
-            saveMoments: patch => this.saveMoments(clone(patch)),
+            saveMoments: patch => this.saveMoments(clone(patch)), saveCalls: patch => this.saveCalls(clone(patch)),
             listMoments: () => this.moments.list(), getMoment: id => this.moments.get(id),
             postMoment: ({ text, photoId } = {}) => this.momentsMutate(async () => (await this.moments.add([{ author: 'me', source: 'me', text, photoId }]))[0]),
             likeMoment: (id, on = true) => this.momentsMutate(() => this.moments.like(id, 'me', on)),

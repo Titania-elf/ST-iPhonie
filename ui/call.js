@@ -1,0 +1,148 @@
+// 来电: the full-screen call layer over the phone. It only draws what the tavern side reports (host-call.js) and sends
+// the user's taps and words back: answer, decline, hang up, say something, ask again. While it rings, a ringtone is
+// made with WebAudio (no sound files) and the phone vibrates where the browser allows it.
+import {esc, avatar} from './common.js';
+import {icon} from './icons.js';
+
+const clock = seconds => { const s = Math.max(0, Math.floor(seconds)), pad = n => String(n).padStart(2, '0'); return s >= 3600 ? `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}` : `${pad(Math.floor(s / 60))}:${pad(s % 60)}`; };
+const ENDED = {answered: '通话结束', missed: '未接听', declined: '已拒绝', cancelled: '已取消'};
+
+/** A ring made of short tones: incoming rings brightly, an outgoing call hears a slow ring-back. */
+function ringtone(win, volume) {
+  const Ctx = win.AudioContext || win.webkitAudioContext;
+  if (!Ctx) return {start() {}, stop() {}};
+  let audio = null, timer = 0, kind = '';
+  const beep = (at, freq, length, level) => {
+    const osc = audio.createOscillator(), gain = audio.createGain();
+    osc.type = 'sine'; osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, at); gain.gain.linearRampToValueAtTime(level, at + .02); gain.gain.setValueAtTime(level, at + length - .05); gain.gain.linearRampToValueAtTime(0, at + length);
+    osc.connect(gain).connect(audio.destination); osc.start(at); osc.stop(at + length + .02);
+  };
+  // Browsers only vibrate after the user has touched the page; before that, asking only logs a warning.
+  const buzz = () => { try { if (win.navigator.userActivation?.hasBeenActive !== false) win.navigator.vibrate?.([400, 200, 400]); } catch { /* not allowed here */ } };
+  const play = () => {
+    if (!audio) return;
+    const t = audio.currentTime + .05, level = Math.max(.02, Math.min(.25, volume() * .18));
+    if (kind === 'in') [[0, 988], [.18, 1319], [.36, 988], [.54, 1319], [1.1, 988], [1.28, 1319], [1.46, 988], [1.64, 1319]].forEach(([d, f]) => beep(t + d, f, .16, level));
+    else beep(t, 450, 1, level * .7);
+  };
+  return {
+    start(which) {
+      if (kind === which) return;
+      this.stop();
+      kind = which;
+      try { audio = new Ctx(); audio.resume?.().catch(() => {}); } catch { audio = null; }
+      play();
+      timer = win.setInterval(() => { play(); if (kind === 'in') buzz(); }, which === 'in' ? 3000 : 3500);
+      if (which === 'in') buzz();
+    },
+    stop() {
+      if (kind === 'in' && win.navigator.userActivation?.hasBeenActive !== false) try { win.navigator.vibrate?.(0); } catch { /* ignore */ }
+      kind = '';
+      win.clearInterval(timer);
+      audio?.close?.().catch?.(() => {});
+      audio = null;
+    }
+  };
+}
+
+export function callScreen(ctx, host) {
+  const {api, doc, win} = ctx;
+  const layer = doc.createElement('section');
+  layer.className = 'call-screen';
+  layer.hidden = true;
+  layer.setAttribute('role', 'dialog');
+  layer.setAttribute('aria-modal', 'true');
+  layer.setAttribute('aria-label', '语音通话');
+  host.append(layer);
+  const tone = ringtone(win, () => api.getVolume?.() ?? 1);
+  let call = null, tick = 0, hideTimer = 0, drawnKey = '', typed = '';
+
+  const engine = name => ctx.engineOf?.(name) || 'none';
+  function status(c) {
+    if (c.state === 'ringing') return c.dir === 'in' ? '邀请你语音通话…' : '正在呼叫…';
+    if (c.state === 'ended') return (ENDED[c.ended?.state] || '通话结束') + (c.ended?.duration ? ' ' + clock(c.ended.duration) : '');
+    return clock((Date.now() - c.answeredAt) / 1000);
+  }
+  function note(c) {
+    if (c.state !== 'talking') return '';
+    if (c.error) return '';
+    if (c.thinking) return `${c.name} 在想……`;
+    if (c.speaking) return `${c.name} 正在说`;
+    return c.voiced ? '轮到你了，打字说话' : `${c.name} 还没有配音，只显示字幕`;
+  }
+  function linesHTML(c) {
+    return c.lines.slice(-8).map(l => l.from === 'me'
+      ? `<p class="cl me">${esc(l.text)}</p>`
+      : `<p class="cl"><span>${esc(l.translation || l.text)}</span>${l.text && l.translation && l.text !== l.translation ? `<small>${esc(l.text)}</small>` : ''}</p>`).join('');
+  }
+  function draw() {
+    const c = call;
+    if (!c) return;
+    const talking = c.state === 'talking';
+    // Typing survives redraws: only the parts that change are drawn again once the layout is there.
+    const key = [c.id, c.state].join('|');
+    if (key !== drawnKey) {
+      drawnKey = key;
+      layer.dataset.state = c.state;
+      layer.dataset.engine = engine(c.name);
+      layer.innerHTML = `<div class="call-bg" aria-hidden="true"></div>
+        <div class="call-top"><div class="call-av${c.state === 'ringing' ? ' ringing' : ''}">${avatar(c.name, engine(c.name), talking ? 64 : 104)}</div><h2>${esc(c.name)}</h2><p class="call-status" data-call-status></p><p class="call-note" data-call-note></p></div>
+        <div class="call-lines" data-call-lines aria-live="polite"></div>
+        <div class="call-error" data-call-error hidden></div>
+        ${talking ? `<form class="call-say" data-call-form><input data-call-input maxlength="1000" autocomplete="off" placeholder="说点什么……" aria-label="对 ${esc(c.name)} 说"><button class="call-send" type="submit" aria-label="说">${icon('send')}</button></form>` : ''}
+        <div class="call-actions">${c.state === 'ringing' && c.dir === 'in'
+          ? `<button class="call-btn decline" data-call="decline" aria-label="拒绝">${icon('phone', true)}<span>拒绝</span></button><button class="call-btn answer" data-call="answer" aria-label="接听">${icon('phone', true)}<span>接听</span></button>`
+          : c.state === 'ended' ? '' : `<button class="call-btn decline" data-call="hangup" aria-label="${c.state === 'ringing' ? '取消' : '挂断'}">${icon('phone', true)}<span>${c.state === 'ringing' ? '取消' : '挂断'}</span></button>`}</div>`;
+      const input = layer.querySelector('[data-call-input]');
+      if (input) { input.value = typed; input.addEventListener('input', () => { typed = input.value; }); }
+    }
+    layer.querySelector('[data-call-status]').textContent = status(c);
+    layer.querySelector('[data-call-note]').textContent = note(c);
+    const lines = layer.querySelector('[data-call-lines]'), html = linesHTML(c);
+    if (lines.innerHTML !== html) { lines.innerHTML = html; lines.scrollTop = lines.scrollHeight; }
+    const error = layer.querySelector('[data-call-error]');
+    error.hidden = !c.error;
+    if (c.error) error.innerHTML = `<span>${esc(c.error)}</span><button data-call="retry">再说一次</button>`;
+    const send = layer.querySelector('.call-send');
+    if (send) send.disabled = !!c.thinking;
+  }
+
+  function update(next) {
+    win.clearTimeout(hideTimer);
+    call = next || null;
+    if (!call) { tone.stop(); layer.hidden = true; drawnKey = ''; win.clearInterval(tick); tick = 0; return; }
+    layer.hidden = false;
+    if (call.state === 'ringing') tone.start(call.dir); else tone.stop();
+    if (call.state === 'talking' && !tick) tick = win.setInterval(() => { if (call?.state === 'talking') layer.querySelector('[data-call-status]').textContent = status(call); }, 1000);
+    if (call.state !== 'talking') { win.clearInterval(tick); tick = 0; }
+    if (call.state === 'ended') { typed = ''; hideTimer = win.setTimeout(() => update(null), 1800); }
+    draw();
+    if (call.state === 'talking' && !call.thinking) layer.querySelector('[data-call-input]')?.focus({preventScroll: true});
+  }
+
+  const run = task => { try { const r = task(); r?.catch?.(e => ctx.notify(e.message, {error: true})); } catch (e) { ctx.notify(e.message, {error: true}); } };
+  layer.addEventListener('click', e => {
+    const b = e.target.closest('[data-call]');
+    if (!b) return;
+    const what = b.dataset.call;
+    if (what === 'answer') run(() => api.callAnswer());
+    if (what === 'decline' || what === 'hangup') run(() => call?.state === 'ringing' && call.dir === 'in' ? api.callDecline() : api.callHangup());
+    if (what === 'retry') run(() => api.callRetry());
+  });
+  layer.addEventListener('submit', e => {
+    e.preventDefault();
+    const input = layer.querySelector('[data-call-input]'), words = input?.value.trim();
+    if (!words || call?.thinking) return;
+    input.value = ''; typed = '';
+    run(() => api.callSay(words));
+  });
+  // Keys stay in the call: Escape does not close the phone under it.
+  layer.addEventListener('keydown', e => { if (e.key === 'Escape') e.stopPropagation(); });
+
+  return {
+    update,
+    get active() { return !!call && call.state !== 'ended'; },
+    dispose() { tone.stop(); win.clearInterval(tick); win.clearTimeout(hideTimer); layer.remove(); }
+  };
+}

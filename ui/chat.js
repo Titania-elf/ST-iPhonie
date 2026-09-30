@@ -4,6 +4,7 @@ import {openImageViewer} from '../image-viewer.js';
 import {saveFile, downloadAction} from '../download.js';
 import {momentsPanel, momentsNew, momentsSeen} from './moments.js';
 import {PROFILE_STATUS, BUBBLES, FRAMES, BACKGROUNDS} from '../core/chat.js';
+import {callSummary} from '../core/call.js';
 
 // Chat app, QQ style: 消息 (conversations, with search, 置顶 and 免打扰), 联系人 (特别关心, friends, groups, profile cards)
 // and 动态 (朋友圈, ui/moments.js). Tapping your own avatar opens 我: name, status, signature and 个性装扮 (chat bubble,
@@ -39,6 +40,7 @@ function preview(m) {
     case 'transfer': return '[转账] ¥' + m.amount;
     case 'location': return '[位置] ' + m.text;
     case 'dice': return '[骰子]';
+    case 'call': return `[${callSummary(m)}]`;
     case 'pat': return patText(m);
     case 'notice': return noticeText(m);
     case 'recall': return you(m.from) + ' 撤回了一条消息';
@@ -151,7 +153,7 @@ export function chatApp(ctx) {
     const star = starred().includes(c.name), manual = c.source === 'manual' && api.getState().chat.contacts.find(x => x.name === c.name);
     v.draw(`<div class="qq-card" data-engine="${c.engine}"><span class="qq-card-cover" aria-hidden="true"></span>${avatar(c.name, c.engine, 84)}<h2>${esc(c.name)}</h2><p>${esc(signatureOf(c))}</p>
         <div class="qq-card-tags"><span class="chip">${c.source === 'role' ? '角色' : '手动联系人'}</span>${c.voice ? '<span class="chip">能发语音</span>' : ''}${star ? '<span class="chip">★ 特别关心</span>' : ''}</div></div>
-      <div class="actions">${btn('profile-chat', icon('chat') + '发消息', 'primary')}${btn('profile-moments', icon('moments') + 'TA 的动态', 'secondary')}</div>
+      <div class="actions">${btn('profile-chat', icon('chat') + '发消息', 'primary')}${api.callDial ? btn('profile-call', icon('phone') + '打电话', 'secondary') : ''}${btn('profile-moments', icon('moments') + 'TA 的动态', 'secondary')}</div>
       <div class="group">${btn('star', `<span>${star ? '★ 取消特别关心' : '☆ 设为特别关心'}</span>`, 'list-row')}${manual ? `<button class="list-row" data-action="contact-edit" data-id="${esc(manual.id)}">${icon('edit')}<span><strong>编辑资料和人设</strong></span></button>` : ''}</div>`);
   }
   /** 我: name, status, signature, and 个性装扮. */
@@ -167,7 +169,7 @@ export function chatApp(ctx) {
       + `<div class="group pad"><div class="field"><span>聊天气泡</span>${chips('bubble', BUBBLES, p.bubble)}</div><div class="field"><span>头像挂件</span>${chips('frame', FRAMES, p.frame)}</div><div class="field"><span>聊天背景</span>${chips('background', BACKGROUNDS, p.background)}</div>
         <div class="actions" style="margin-top:0">${btn('me-bg-photo', icon('image') + (p.backgroundPhoto ? '换一张照片当背景' : '用相册里的照片当背景'), 'secondary')}${p.backgroundPhoto ? btn('me-bg-clear', '不用照片', 'text-button') : ''}</div></div>`
       + groupTitle('聊天设置')
-      + `<div class="group"><button class="list-row" data-action="me-voice">${icon('book')}<span><strong>语音消息</strong><small>转文字显示什么、要不要自动转</small></span>${icon('next')}</button><button class="list-row" data-action="me-presets">${icon('edit')}<span><strong>聊天预设</strong><small>怎么回消息、朋友圈怎么发</small></span>${icon('next')}</button></div>`);
+      + `<div class="group"><button class="list-row" data-action="me-voice">${icon('book')}<span><strong>语音消息</strong><small>转文字显示什么、要不要自动转</small></span>${icon('next')}</button><button class="list-row" data-action="me-calls">${icon('phone')}<span><strong>来电</strong><small>角色会不会自己打来、响铃多久</small></span>${icon('next')}</button><button class="list-row" data-action="me-presets">${icon('edit')}<span><strong>聊天预设</strong><small>怎么回消息、朋友圈怎么发、电话里怎么说</small></span>${icon('next')}</button></div>`);
   }
 
   // ---------- Thread ----------
@@ -191,6 +193,7 @@ export function chatApp(ctx) {
         const fresh = Date.now() - m.at < 1500;
         return `<button class="dice-msg${fresh ? ' rolling' : ''}" data-action="message" ${mid} data-face="${esc(m.text)}" aria-label="骰子 ${esc(m.text)} 点">${Array.from({length: 9}, (_, i) => `<i${PIPS[m.text]?.includes(i) ? ' class="on"' : ''}></i>`).join('')}</button>`;
       }
+      case 'call': return `<button class="call-msg${m.state === 'answered' ? '' : ' missed'}" data-action="call-log" ${mid}>${icon('phone', true)}<span>${esc(callSummary(m))}</span></button>`;
       default: return `<button class="chat-bubble" data-action="message" ${mid}>${esc(m.text)}</button>`;
     }
   }
@@ -241,7 +244,7 @@ export function chatApp(ctx) {
     const look = profile();
     v.draw(`<div class="chat-thread${selecting ? ' selecting' : ''}" data-bubble="${esc(look.bubble)}" data-bg="${esc(look.backgroundPhoto ? 'photo' : look.background)}">
       <div class="th-head" data-engine="${group ? 'none' : engine(thread.members[0])}">${threadAvatar(thread, 38)}<div class="th-title"><strong>${esc(thread.name)}</strong><small>${esc(sub)}</small></div>
-        ${btn('bring', selecting ? '取消' : icon('book') + '带进剧情', 'chip-button')}${btn('thread-menu', icon('more'), 'round-button', 'aria-label="更多"')}</div>
+        ${btn('bring', selecting ? '取消' : icon('book') + '<span class="bring-label">带进剧情</span>', 'chip-button', selecting ? '' : 'aria-label="带进剧情" title="带进剧情"')}${!group && api.callDial ? btn('call', icon('phone'), 'round-button call-go', 'aria-label="语音通话"') : ''}${btn('thread-menu', icon('more'), 'round-button', 'aria-label="更多"')}</div>
       <div class="msgs" role="log" aria-live="polite">${list.length ? list.map((m, i) => messageHTML(m, i, list)).join('') : `<p class="chat-empty">${live ? '发几条消息都行，发完点右下角的气泡按钮让对方回复；输入框空着时发送键就会变成它。也可以直接点它，让对方先开口。' : '在酒馆里打开小手机时，联系人才会回复。'}</p>`}
         ${bring?.threadId === threadId ? `<div class="sys">${icon('book')}${bring.count} 条消息会带进下一次正文 ${btn('cancel-bring', '取消', 'text-button')}</div>` : ''}
         ${typing() ? `<div class="msg" data-engine="${group ? 'none' : engine(thread.members[0])}">${avatar(group ? '…' : thread.members[0], group ? 'none' : engine(thread.members[0]), 34)}<div class="m-body"><div class="chat-bubble typing" aria-label="对方正在输入"><i></i><i></i><i></i></div></div></div>` : ''}</div>
@@ -575,6 +578,32 @@ export function chatApp(ctx) {
       try { api.saveChatOptions({voiceText: {auto: e.target.checked}}); render(); } catch (error) { ctx.notify(error.message); }
     });
   }
+  /** 来电 options: characters calling by themselves (off by default), and how long a call rings. */
+  function callsSheet() {
+    const o = () => api.getState().calls;
+    const draw = () => `<p class="help-copy">角色可以给你打语音电话：接通后用 TA 的音色说话，你打字回。聊天里角色偶尔也会直接打过来（聊天预设的「打电话」规则）。每句话都要调用一次模型并生成语音。</p>
+      <div class="setting-row"><span>角色自己打来</span><input class="switch" type="checkbox" data-field="call-auto" aria-label="角色自己打来" ${o().auto ? 'checked' : ''}></div>
+      <div class="field"><span>每几条正文回复可能打来一次</span><input data-field="call-every" type="number" min="1" max="100" value="${o().every}"></div>
+      <div class="field"><span>每天最多</span><input data-field="call-dailyMax" type="number" min="1" max="10" value="${o().dailyMax}"></div>
+      <div class="field"><span>响铃多久算未接（秒）</span><input data-field="call-ring" type="number" min="15" max="60" value="${o().ring}"></div>`;
+    const d = sheet('来电', `<div class="calls-body">${draw()}</div>`, {});
+    d.body.addEventListener('change', e => {
+      const key = e.target.dataset.field?.replace(/^call-/, '');
+      if (!key) return;
+      try { api.saveCalls({[key]: key === 'auto' ? e.target.checked : Number(e.target.value)}); d.body.querySelector('.calls-body').innerHTML = draw(); } catch (error) { ctx.notify(error.message); }
+    });
+  }
+  /** A finished call: what was said, the voice message of a missed call, and calling back. */
+  function callLog(m) {
+    const name = m.from === 'me' ? thread.members[0] : m.from, who = l => l.from === 'me' ? '你' : l.from;
+    const said = m.lines?.length ? `<div class="call-log">${m.lines.map(l => `<p><b>${esc(who(l))}：</b>${esc(l.translation || l.text)}</p>`).join('')}</div>` : '';
+    const mail = m.voicemail?.length ? `<p class="help-copy"><b>语音留言：</b>${esc(m.voicemail.map(l => l.translation || l.text).join(' '))}</p>` : '';
+    const d = sheet(callSummary(m), `${said || mail ? '' : '<p class="help-copy">这通电话没有说话内容。</p>'}${mail}${said}
+      <div class="actions">${m.voicemail?.length && ctx.routeFor(name)?.voice ? btn('call-mail', icon('play', true) + '听留言', 'secondary') : ''}${api.callDial ? btn('call-back', icon('phone') + '回拨', 'primary') : ''}</div>`, {
+      'call-mail': () => api.speak(m.voicemail.map(l => ({role: name, text: l.text, translation: l.translation, emotion: l.emotion}))),
+      'call-back': async () => { d.close(); await api.callDial(name); }
+    });
+  }
   /** 置顶 / 免打扰 / 标为已读 / 删除, from a long press (or right click) on a conversation. */
   async function convMenu(id) {
     const t = (await api.listThreads()).find(x => x.id === id);
@@ -726,6 +755,10 @@ export function chatApp(ctx) {
       case 'me-bg-photo': await pickBackground(); break;
       case 'me-bg-clear': api.saveChatOptions({profile: {backgroundPhoto: ''}}); render(); break;
       case 'me-voice': voiceTextSheet(); break;
+      case 'me-calls': callsSheet(); break;
+      case 'call': await api.callDial(thread.members[0]); break;
+      case 'profile-call': await api.callDial(profileOf); break;
+      case 'call-log': { const m = find(); if (m) callLog(m); break; }
       case 'me-presets': ctx.open('presets'); ctx.showPresetKind?.('chat'); break;
       case 'dm-open': await openDm(el.dataset.name); break;
       case 'profile': profileOf = el.dataset.name; mode = 'profile'; render(); break;

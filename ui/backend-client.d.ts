@@ -76,6 +76,7 @@ export interface Settings {
     draw: DrawSettings;
     chat: ChatSettings;
     moments: MomentsSettings;
+    calls: CallsSettings;
 }
 export interface DrawParams {
     model: string; width: number; height: number; steps: number; scale: number;
@@ -139,6 +140,12 @@ export interface Contact { id: string; name: string; persona: string; }
 export interface VoiceTextOptions { mode: 'translation' | 'original' | 'both'; auto: boolean; }
 /** 朋友圈 preset: rules for posts and reactions, how much story the model reads, and posts per refresh. */
 /** 朋友圈 options; its rules are the chat preset's rules used in 朋友圈. */
+/** 来电: characters call by themselves every `every` story replies, at most `dailyMax` a day; `ring` seconds before a missed call. */
+export interface SpokenLine { role: string; text: string; emotion?: string; translation?: string; }
+/** A call as the phone draws it. `since`/`answeredAt` are ms timestamps; `ended` is set once it is over. */
+export interface CallState { id: number; name: string; dir: 'in' | 'out'; state: 'ringing' | 'talking' | 'ended'; since: number; answeredAt: number; lines: CallLine[]; thinking: boolean; speaking: boolean; voiced: boolean; error: string; auto: boolean;
+    ended: { state: 'answered' | 'missed' | 'declined' | 'cancelled'; by: string; duration: number } | null; }
+export interface CallsSettings { auto: boolean; every: number; dailyMax: number; ring: number; }
 export interface MomentsSettings { auto: boolean; every: number; dailyMax: number; images: boolean; replyToMe: boolean; }
 /** The user in the chat app. name '' shows the tavern's persona name. */
 export interface ChatProfile { name: string; status: 'online' | 'qme' | 'busy' | 'away' | 'hidden'; statusText: string; signature: string; bubble: 'default' | 'candy' | 'mint' | 'night' | 'ink'; frame: 'none' | 'star' | 'cat' | 'flower' | 'halo'; background: 'none' | 'clouds' | 'stars' | 'grid' | 'sakura'; backgroundPhoto: string; }
@@ -147,9 +154,12 @@ export interface MomentComment { id: string; from: string; to?: string; text: st
 export interface MomentPost { id: string; author: string; text: string; at: number; source: 'manual' | 'auto' | 'me'; photoId?: string; imageTags?: string; imageState?: 'waiting' | 'done' | 'failed'; imageNote?: string; likes: string[]; comments: MomentComment[]; }
 export interface ChatSettings { presets: ChatPreset[]; activePreset: string; contacts: Contact[]; voiceText: VoiceTextOptions; profile: ChatProfile; /** 特别关心 */ starred: string[]; }
 export interface ChatContact { name: string; source: 'role' | 'manual'; id?: string; voice: boolean; engine: Engine | 'none'; language: string; persona: string; }
-export type ChatKind = 'text' | 'voice' | 'photo' | 'system' | 'redpacket' | 'transfer' | 'location' | 'pat' | 'dice' | 'notice' | 'recall';
+export type ChatKind = 'text' | 'voice' | 'photo' | 'system' | 'redpacket' | 'transfer' | 'location' | 'pat' | 'dice' | 'notice' | 'recall' | 'call';
+export interface CallLine { from: 'me' | string; text: string; translation: string; emotion: string; }
 /** notice: `text` says what `from` did, with {对方} standing for `target`. recall: a withdrawn message (no content). */
-export interface ChatMessage { id: string; from: 'me' | string; kind: ChatKind; text: string; translation?: string; emotion?: string; photoId?: string; amount?: string; state?: 'sent' | 'opened' | 'accepted' | 'returned'; openedBy?: string; detail?: string; target?: string; quote?: { from: string; text: string }; at: number; }
+export interface ChatMessage { id: string; from: 'me' | string; kind: ChatKind; text: string; translation?: string; emotion?: string; photoId?: string; amount?: string; state?: 'sent' | 'opened' | 'accepted' | 'returned' | 'answered' | 'missed' | 'declined' | 'cancelled'; openedBy?: string; detail?: string; target?: string; quote?: { from: string; text: string }; at: number;
+    /** call: who called (from), how it ended, how long it lasted, what was said and a missed call's voice message. */
+    dir?: 'in' | 'out'; duration?: number; lines?: CallLine[]; voicemail?: Omit<CallLine, 'from'>[]; }
 /** pinned: 置顶. muted: 免打扰 (its unread messages do not count toward the badge). */
 export interface ChatThread { id: string; type: 'dm' | 'group'; name: string; members: string[]; unread: number; pinned: boolean; muted: boolean; createdAt: number; updatedAt: number; messages: ChatMessage[]; }
 /** streak: 聊天火花, days in a row both sides wrote. */
@@ -441,6 +451,7 @@ export interface BackendFacade {
     deleteGeneratedPhotos(): Promise<number>;
     saveChatPreset(preset: Partial<ChatPreset> & { name: string }): ChatPreset;
     /** 朋友圈 options. */
+    saveCalls(patch: Partial<CallsSettings>): CallsSettings;
     saveMoments(patch: Partial<Pick<MomentsSettings, 'auto' | 'every' | 'dailyMax' | 'images' | 'replyToMe'>>): MomentsSettings;
     /** Newest first. */
     listMoments(): Promise<MomentPost[]>;
@@ -476,7 +487,8 @@ export interface BackendFacade {
     updateChatMessage(id: string, messageId: string, patch: { state?: string; openedBy?: string; recall?: boolean }): Promise<ChatThread>;
     markThreadRead(id: string): Promise<ChatThread>;
     /** Plays a voice message through the normal player. */
-    speak(line: { role: string; text: string; emotion?: string; translation?: string }): Promise<void> | void;
+    /** Plays one voice line, or several in a row (a voicemail). */
+    speak(line: SpokenLine | SpokenLine[]): Promise<void> | void;
     /** The voice tag format voice messages use (the active voice preset's format). */
     voiceFormat(): string;
 }
@@ -522,6 +534,20 @@ export interface BackendAPI extends BackendFacade {
     momentsDrawImage(id: string, allowPaid?: boolean): Promise<string | null>;
     /** True while a 朋友圈 request is running. */
     momentsBusy(): boolean;
+    /** The call going on (or just ended), null when there is none. */
+    callStatus(): CallState | null;
+    /** Calls a contact; they pick up after a few rings. */
+    callDial(name: string): CallState;
+    /** Answers the ringing incoming call. */
+    callAnswer(): CallState;
+    /** Declines a ringing call (or cancels the user's own). */
+    callDecline(): Promise<CallState | null>;
+    /** Hangs up (or cancels while it rings); the call is kept in the private chat. */
+    callHangup(): Promise<CallState | null>;
+    /** Says something in the call; the contact answers aloud. */
+    callSay(text: string): Promise<void>;
+    /** Asks the contact again after a turn failed. */
+    callRetry(): Promise<void>;
     /** The tavern's persona name ('' outside the tavern). */
     userName(): string;
     /** Facts for the self-check report (core/diagnostics.js buildReport). Asks whether keys work; never returns them. */

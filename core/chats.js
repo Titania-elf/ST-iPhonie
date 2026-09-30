@@ -5,12 +5,16 @@
 //   redpacket: amount, state:'sent'|'opened', openedBy? · transfer: amount, state:'sent'|'accepted'|'returned'
 //   location: text = place, detail = address · pat: target (who was patted) · dice: text = 1..6
 //   notice: text = what `from` did, with {对方} standing for `target` · recall: a withdrawn message · system: app notes
+//   call: dir:'in'|'out' (from is who called), state:'answered'|'missed'|'declined'|'cancelled', duration (seconds),
+//         lines:[{from, text, translation, emotion}] what was said, voicemail:[{text, translation, emotion}] a missed call's message
 // list() returns threads without their messages, plus the last message for previews, pinned threads first.
 // A thread can be pinned (置顶) or muted (免打扰: its unread messages do not count toward the app's badge).
 // streak (聊天火花): days in a row, up to today or yesterday, on which both the user and the other side wrote.
 
 export const CHAT_STORE_LIMITS = Object.freeze({messages: 1000, text: 4000, members: 20});
-const KINDS = ['text', 'voice', 'photo', 'system', 'redpacket', 'transfer', 'location', 'pat', 'dice', 'notice', 'recall'];
+const KINDS = ['text', 'voice', 'photo', 'system', 'redpacket', 'transfer', 'location', 'pat', 'dice', 'notice', 'recall', 'call'];
+const CALL_STATES = ['answered', 'missed', 'declined', 'cancelled'];
+const spoken = (list, max, withFrom) => (Array.isArray(list) ? list : []).slice(-max).filter(l => l && String(l.text || l.translation || '').trim()).map(l => ({...(withFrom ? {from: clip(l.from, 40).trim() || 'me'} : {}), text: clip(l.text || l.translation, 1000), translation: clip(l.translation || l.text, 1000), emotion: clip(l.emotion || 'calm', 100)}));
 const STATES = {redpacket: ['sent', 'opened'], transfer: ['sent', 'accepted', 'returned']};
 /** Money as a string with two decimals, 0.01 to 200000; null when the value is not an amount. */
 export function money(value) {
@@ -38,8 +42,15 @@ function cleanMessage(m, id, at) {
   if (kind === 'pat' || kind === 'notice') out.target = clip(m.target, 40).trim() || 'me';
   if (kind === 'dice') out.text = String(Math.min(6, Math.max(1, Math.round(Number(m.text)) || 1)));
   if (kind === 'recall') out.text = '';
+  if (kind === 'call') {
+    out.dir = m.dir === 'out' ? 'out' : 'in';
+    out.state = CALL_STATES.includes(m.state) ? m.state : 'missed';
+    out.duration = Math.max(0, Math.min(86400, Math.round(Number(m.duration) || 0)));
+    out.lines = spoken(m.lines, 80, true);
+    out.voicemail = spoken(m.voicemail, 4, false);
+  }
   if (m.quote?.text && ['text', 'voice'].includes(kind)) out.quote = {from: clip(m.quote.from, 40), text: clip(m.quote.text, 200)};
-  const textless = ['photo', 'system', 'redpacket', 'transfer', 'pat', 'dice', 'recall'];
+  const textless = ['photo', 'system', 'redpacket', 'transfer', 'pat', 'dice', 'recall', 'call'];
   if (!textless.includes(kind) && !out.text.trim()) throw fail('消息内容为空');
   return out;
 }

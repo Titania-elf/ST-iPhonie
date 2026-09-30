@@ -917,3 +917,56 @@ button.moment-note{color:var(--accent-ink);text-decoration:underline;text-underl
 .combo-chip[aria-pressed=true]{background:var(--accent-btn);color:var(--on-accent);box-shadow:none}
 .combo-chip[aria-pressed=true] small{color:inherit;opacity:.8}
 .combo-chip[hidden]{display:none}
+
+/* ---------- 来电 ---------- */
+.call-screen{position:absolute;inset:0;z-index:70;display:flex;flex-direction:column;align-items:center;padding:74px 18px calc(env(safe-area-inset-bottom,0px) + 34px);color:#fff;overflow:hidden;animation:fade .25s}
+.call-screen[hidden]{display:none}
+.call-bg{position:absolute;inset:-40px;z-index:-1;background:radial-gradient(120% 70% at 50% 18%,color-mix(in srgb,var(--e-btn,var(--accent)) 70%,#fff0) 0,#0000 70%),linear-gradient(170deg,#1d2440,#10131f 70%);filter:saturate(1.1)}
+.call-top{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center}
+.call-top h2{margin:10px 0 0;font-size:26px;font-weight:900;color:#fff}
+.call-status{margin:0;font-size:15px;font-weight:700;opacity:.85;font-variant-numeric:tabular-nums}
+.call-note{margin:0;min-height:18px;font-size:12px;opacity:.7}
+.call-av{position:relative;border-radius:50%}
+.call-av .avatar{box-shadow:0 0 0 4px #ffffff30}
+.call-av.ringing:before,.call-av.ringing:after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid #ffffff70;animation:call-ring 2s ease-out infinite}
+.call-av.ringing:after{animation-delay:1s}
+@keyframes call-ring{from{transform:scale(1);opacity:.9}to{transform:scale(1.7);opacity:0}}
+.call-screen[data-state=talking]{padding-top:56px}
+.call-lines{flex:1;width:100%;min-height:0;margin:14px 0 8px;overflow:auto;scrollbar-width:none;display:flex;flex-direction:column;gap:8px;mask-image:linear-gradient(transparent,#000 22%)}
+.call-lines::-webkit-scrollbar{display:none}
+.call-lines>:first-child{margin-top:auto}
+.cl{align-self:flex-start;max-width:88%;margin:0;padding:9px 13px;border-radius:18px 18px 18px 6px;background:#ffffff1f;font-size:15px;line-height:1.5;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.cl small{display:block;margin-top:3px;font-size:12px;opacity:.65}
+.cl.me{align-self:flex-end;border-radius:18px 18px 6px 18px;background:#ffffff38}
+.call-error{display:flex;align-items:center;gap:8px;width:100%;margin-bottom:8px;padding:8px 12px;border-radius:14px;background:#ff5b5b33;font-size:13px}
+.call-error[hidden]{display:none}
+.call-error span{flex:1}
+.call-error button{padding:6px 12px;border-radius:999px;background:#fff;color:#c62f2f;font-weight:800;font-size:12px}
+.call-say{display:flex;gap:8px;width:100%;margin-bottom:18px}
+.call-say input{flex:1;min-width:0;height:44px;padding:0 16px;border:0;border-radius:999px;background:#ffffff26;color:#fff;font:inherit;font-size:16px;outline:none}
+.call-say input::placeholder{color:#ffffffa0}
+.call-send{flex:none;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:#fff;color:#1d2440}
+.call-send:disabled{opacity:.4}
+.call-send .icon{width:20px;height:20px}
+.call-actions{display:flex;justify-content:space-evenly;width:100%;margin-top:auto}
+.call-screen[data-state=talking] .call-actions{margin-top:0}
+.call-btn{display:flex;flex-direction:column;align-items:center;gap:8px;font-size:13px;font-weight:700;color:#fff}
+.call-btn .icon{box-sizing:content-box;width:30px;height:30px;padding:19px;border-radius:50%;background:#34c759;box-shadow:0 8px 24px -6px #0008}
+.call-btn.decline .icon{background:#ff3b30;transform:rotate(135deg)}
+.call-btn.answer .icon{animation:call-shake 1.2s ease-in-out infinite}
+@keyframes call-shake{0%,60%,100%{transform:rotate(0)}70%{transform:rotate(-14deg)}80%{transform:rotate(12deg)}90%{transform:rotate(-8deg)}}
+.call-screen[data-state=ended] .call-top{opacity:.8}
+/* Call records in a chat */
+.call-msg{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:18px;background:var(--card);color:var(--ink);font-size:14px;font-weight:700;box-shadow:var(--shadow)}
+.msg.me .call-msg{background:var(--accent-btn);color:var(--on-accent)}
+.call-msg .icon{width:18px;height:18px}
+.call-msg.missed{color:var(--danger)}
+.call-msg.missed .icon{transform:rotate(135deg)}
+.call-log{display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow:auto}
+.call-log p{margin:0;font-size:14px}
+.call-log p b{margin-right:4px}
+.th-head .call-go{flex:none}
+/* A narrow header keeps room for the name: 带进剧情 shrinks to its icon. */
+.th-head{container-type:inline-size}
+.th-head .th-title{min-width:4.5em}
+@container (max-width:340px){.th-head .bring-label{display:none}.th-head [data-action=bring]{padding-inline:10px}}

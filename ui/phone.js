@@ -11,6 +11,7 @@ import {settingsApp} from './settings.js';
 import {drawApp} from './draw.js';
 import {chatApp} from './chat.js';
 import {momentsNew, momentsSeen} from './moments.js';
+import {callScreen} from './call.js';
 
 // App factories, keyed by the ids in apps.js.
 const FACTORIES = {roles: rolesApp, engines: enginesApp, presets: presetsApp, library: libraryApp, gallery: galleryApp, notes: notesApp, listen: listenApp, settings: settingsApp, draw: drawApp, chat: chatApp};
@@ -156,6 +157,9 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   const engineOf = name => { const r = routeFor(name); return r?.voice ? r.engine : 'none'; };
   const ctx = {api, doc, win, notify, dialog, confirm, help, lock, open, routeFor, engineOf, openPendingRole: name => openPendingRole(name), visible: name => active === name && !locked,
     editEngine: id => views.get('engines')?.edit?.(id), showPresetKind: kind => views.get('presets')?.showKind?.(kind), momentsSeen: () => { if (fresh) { fresh = 0; renderHome(); } }};
+  // 来电: one layer over everything, drawn from what the tavern side reports.
+  const calls = callScreen(ctx, screen);
+  const callState = () => { try { calls.update(api.callStatus?.() || null); } catch { /* not in the tavern */ } };
 
   // ---------- Navigation ----------
   function open(name, roleId) {
@@ -573,6 +577,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     if (event.type === 'balance') run(() => views.get('engines')?.onBalance?.(event));
     if (event.type === 'chat') { run(() => views.get('chat')?.onChat?.(event)); countUnread(); }
     if (event.type === 'moments') { views.get('chat')?.onMoments?.(event); countMoments(); }
+    if (event.type === 'call') calls.update(event.call);
     if (event.type === 'settings') run(() => views.get('chat')?.onChat?.({}));
   });
 
@@ -610,6 +615,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   win.stTtsOpenDraw = () => run(takeDraw);
   win.stTtsPanelVisibility = visible => {
     panelVisible = visible;
+    if (visible) callState();
     if (!visible) sheet?.close(null);
     else if (takeDraw()) { /* opened from a chat picture */ }
     else if (preferences?.lockOnOpen && !api.pendingRole()) lock();
@@ -623,6 +629,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     controller.abort();
     sheet?.close(null);
     for (const v of views.values()) v.dispose();
+    calls.dispose();
     for (const url of assets.values()) win.URL.revokeObjectURL(url);
     assets.clear();
     win.clearInterval(clockTimer);
@@ -641,6 +648,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   paintDevice();
   countUnread();
   countMoments();
+  callState();
   paintPlayback(playback);
 
   const fallback = {wallpaper: {kind: 'builtin', key: 'sky'}, icons: {}, iconStyle: 'color', lockOnOpen: false, volume: api.getVolume(), theme: api.getState().theme};

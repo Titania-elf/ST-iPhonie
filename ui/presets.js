@@ -7,7 +7,7 @@ const roles = [['system', '系统'], ['user', '用户'], ['assistant', '助手']
 // Preset kinds: voice (dialogue tags), chat (phone chat replies, 朋友圈, and bringing chats into the story), drawing
 // (<img> tags in the chat text). A chat rule says where it is used: 私聊, 群聊, 朋友圈.
 const KINDS = [['tts', '配音', 'listen'], ['chat', '聊天', 'chat'], ['draw', '绘图', 'draw']];
-const USES = [['dm', '私聊'], ['group', '群聊'], ['moments', '朋友圈']];
+const USES = [['dm', '私聊'], ['group', '群聊'], ['moments', '朋友圈'], ['call', '电话']];
 
 export function presetsApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'presets'), drafts = new Map();
