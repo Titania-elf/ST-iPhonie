@@ -5,7 +5,10 @@ import {icon, spark} from './icons.js';
 
 export function enginesApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'engines'), drafts = new Map();
-  let engine = null, dirty = false, subscription = null, subscriptionError = '';
+  let engine = null, dirty = false, subscription = null, subscriptionError = '', textDraft = null, models = [];
+  // The wallet is a stack: the last card is the one in front. A tap on another card draws it to the front; a tap on
+  // the front card opens it.
+  let order = ['llm', ...Object.keys(engines), 'nai'];
   // Voice balances shown on the ElevenLabs and Fish cards: engine -> {value, error, loading}.
   const balances = new Map(), PRICED = ['eleven', 'fish'];
   const number = n => Number(n).toLocaleString('zh-CN');
@@ -25,19 +28,24 @@ export function enginesApp(ctx) {
   const draft = () => drafts.get(engine);
   const changed = () => { dirty = true; const e = v.root.querySelector('[data-save-state]'); if (e) e.textContent = '未保存'; };
 
+  const nameOf = id => id === 'nai' ? 'NovelAI' : id === 'llm' ? '文字模型' : engines[id];
   function card(id, tag = 'button') {
-    const saved = api.keyStatus(id), nai = id === 'nai';
-    const name = nai ? 'NovelAI' : engines[id];
-    const fields = nai
+    const saved = api.keyStatus(id), nai = id === 'nai', llm = id === 'llm';
+    const name = nameOf(id), t = llm ? (engine === 'llm' && textDraft ? textDraft : api.getState().text) : null, custom = t?.source === 'custom';
+    const fields = llm
+      ? [['SOURCE', custom ? 'CUSTOM API' : 'TAVERN'], ['MODEL', custom ? t.model || '未填写' : '跟随酒馆']]
+      : nai
       ? [['TIER', subscription ? TIERS[subscription.tier] || '未知' : '—'], ['ANLAS', subscription ? String(subscription.anlas) : '—']]
       : PRICED.includes(id) && saved
         ? [['MODEL', api.getState().connections[id].model], [id === 'eleven' ? 'CREDITS' : 'BALANCE', balanceText(id)]]
         : [['MODEL', api.getState().connections[id].model], ['ROLES', api.getState().routes.filter(r => r.engine === id && r.voice).length + ' 个角色']];
-    const attrs = tag === 'button' ? `data-action="engine" data-engine="${id}" aria-label="${name}"` : `data-engine="${id}"`;
+    const front = order.at(-1) === id;
+    const attrs = tag === 'button' ? `data-action="engine" data-engine="${id}" aria-label="${name}，${front ? '点一下打开' : '点一下抽到最前面'}"` : `data-engine="${id}"`;
+    const number = llm ? (custom ? (saved ? '•••• •••• •••• ••••' : '未绑定密钥 · 点卡片去填写') : '用酒馆当前连接的模型') : saved ? '•••• •••• •••• ••••' : '未绑定密钥 · 点卡片去填写';
     return `<${tag} class="bank-card${tag === 'div' ? ' detail-card' : ''}" ${attrs}>${spark()}
-      <span class="card-top"><span class="card-name">${name}</span><span class="card-kind">${nai ? 'IMAGE' : 'VOICE'}${icon('nfc')}</span></span>
+      <span class="card-top"><span class="card-name">${name}</span><span class="card-kind">${nai ? 'IMAGE' : llm ? 'TEXT' : 'VOICE'}${icon('nfc')}</span></span>
       <span class="card-chip"></span>
-      <span class="card-number${saved ? '' : ' none'}">${saved ? '•••• •••• •••• ••••' : '未绑定密钥 · 点卡片去填写'}</span>
+      <span class="card-number${number.startsWith('•') ? '' : ' none'}">${number}</span>
       <span class="card-bottom">${fields.map(([k, value]) => `<span><span class="k">${k}</span><span class="v">${esc(value)}</span></span>`).join('')}<span class="card-brand">ST-iPhonie</span></span></${tag}>`;
   }
 
@@ -87,10 +95,30 @@ export function enginesApp(ctx) {
     return field(f.label, html, note);
   }
 
+  /** Draws a card to the front of the stack: the cards move from where they were to where they end up (FLIP). */
+  function bringFront(id) {
+    const wallet = v.root.querySelector('.wallet');
+    order = [...order.filter(x => x !== id), id];
+    if (!wallet) return render();
+    const before = new Map([...wallet.children].map(el => [el.dataset.engine, el.getBoundingClientRect().top]));
+    for (const key of order) { const el = wallet.querySelector(`[data-engine="${key}"]`); if (el) wallet.append(el); }
+    const reduce = ctx.win.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    for (const el of wallet.children) {
+      const key = el.dataset.engine, dy = (before.get(key) ?? 0) - el.getBoundingClientRect().top;
+      el.setAttribute('aria-label', `${nameOf(key)}，${key === id ? '点一下打开' : '点一下抽到最前面'}`);
+      if (!dy || reduce) continue;
+      el.style.transition = 'none';
+      el.style.transform = `translateY(${dy}px)`;
+    }
+    void wallet.offsetHeight;
+    for (const el of wallet.children) { el.style.transition = ''; el.style.transform = ''; }
+    wallet.querySelector(`[data-engine="${id}"]`)?.focus({preventScroll: true});
+  }
+
   function renderList() {
     delete v.root.dataset.engine;
-    v.draw(heading('引擎', help('每个服务一张卡：三家语音引擎，加上绘图用的 NovelAI。点卡片查看连接和全部参数。\n卡片只显示密钥是否保存，不显示内容；“已保存”不代表鉴权成功。'), 'Wallet · 04')
-      + `<div class="wallet">${[...Object.keys(engines), 'nai'].map(id => card(id)).join('')}</div><p class="hint">点一张卡片，查看连接、模型和参数。ElevenLabs 和 Fish 的卡片上显示剩余额度。</p>`);
+    v.draw(heading('引擎', help('每个服务一张卡：文字模型、三家语音引擎，加上绘图用的 NovelAI。点一张卡片把它抽到最前面，再点一下打开，查看连接和全部参数。\n卡片只显示密钥是否保存，不显示内容；“已保存”不代表鉴权成功。'), 'Wallet · 05')
+      + `<div class="wallet">${order.map(id => card(id)).join('')}</div><p class="hint">点一张卡片把它抽到最前面，再点一下打开。ElevenLabs 和 Fish 的卡片上显示剩余额度。</p>`);
     for (const id of PRICED) if (!balances.has(id)) loadBalance(id);
   }
   /** The 额度 group of the ElevenLabs and Fish cards. */
@@ -141,9 +169,36 @@ export function enginesApp(ctx) {
       + `<div class="savebar"><span class="save-state" data-save-state>${dirty ? '未保存' : '已保存'}</span>${btn('save-connection', '保存配置', 'primary')}</div>`);
   }
 
-  const render = () => engine === 'nai' ? renderNovelAI() : engine ? renderDetail() : renderList();
+  /** 文字模型: the tavern's model, or an OpenAI-compatible API of the user's own. */
+  function renderText() {
+    const t = textDraft, saved = api.keyStatus('llm'), custom = t.source === 'custom';
+    v.root.dataset.engine = 'llm';
+    v.draw(heading('文字模型', '', 'Text Card')
+      + card('llm', 'div')
+      + groupTitle('谁来写手机里的字')
+      + `<div class="group pad"><div class="segmented" style="margin:0">${[['tavern', '酒馆主模型'], ['custom', '自定义接口']].map(([k, l]) => `<button type="button" data-action="text-source" data-source="${k}" aria-pressed="${t.source === k}">${l}</button>`).join('')}</div>
+          <p class="hint">${custom ? '手机里的字由你自己的 OpenAI 兼容接口来写，不占用酒馆正在用的模型，正文和手机可以用不同的模型。插件直接从浏览器连接这个接口，不经过酒馆。' : '和正文一样，用酒馆当前连接的模型。换了酒馆的模型，手机也跟着换。'}</p></div>`
+      + (custom ? groupTitle('连接') + `<div class="group pad">
+          ${field('接口地址', input('text-url', t.url, 'url', 'autocomplete="off" placeholder="https://api.openai.com/v1"'), '填到 /v1 为止，后面的 /chat/completions 不用写。OpenAI 格式的服务都可以：OpenAI、DeepSeek、OpenRouter、硅基流动、各种中转站。接口要允许网页直接访问（CORS），不然浏览器会拦下请求。')}
+          <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? '已保存在这台浏览器' : '还没有填写'}</span></div>
+          ${field('API Key', input('key', '', 'password', `autocomplete="off" placeholder="${saved ? '已保存，填写新密钥可替换' : '这个接口的密钥（本地模型可以不填）'}"`), '密钥只保存在当前浏览器和酒馆地址，不会写进设置或备份。')}
+          <div class="key-actions">${btn('save-key', icon('key') + '保存密钥', 'primary')}${btn('reveal-key', '显示', 'secondary')}${btn('clear-key', '清除', 'danger')}</div>
+          ${field('模型', input('text-model', t.model, 'text', 'autocomplete="off" placeholder="例如 gpt-4o-mini、deepseek-chat"'))}
+          <div class="actions">${btn('text-models', icon('refresh') + '读取模型列表', 'secondary')}</div>
+          <div class="combo-menu model-list" data-model-list ${models.length ? '' : 'hidden'}>${models.map(m => `<button type="button" class="combo-chip" data-action="text-pick" data-model="${esc(m)}" aria-pressed="${m === t.model}">${esc(m)}</button>`).join('')}</div>
+          <p class="hint" data-text-status></p>
+          ${field('温度', input('text-temperature', t.temperature, 'number', 'min="0" max="2" step="0.05"'), '越高越随性，越低越稳定。0.7–1 比较常用。')}
+          ${field('最长回复（tokens）', input('text-maxTokens', t.maxTokens, 'number', 'min="64" max="32000" step="1"'), '一次回复最多写多少。聊天和电话用不了多少，配图规划会按需要取更小的值。')}
+        </div>` : '')
+      + `<p class="hint">用在：聊天回复、朋友圈、来电、正文配图时挑画面。正文本身始终用酒馆的模型。</p>`
+      + `<div class="savebar"><span class="save-state" data-save-state>${dirty ? '未保存' : '已保存'}</span>${btn('save-text', '保存', 'primary')}</div>`);
+  }
+
+  const render = () => engine === 'nai' ? renderNovelAI() : engine === 'llm' ? renderText() : engine ? renderDetail() : renderList();
   function edit(id) {
     engine = id;
+    if (!order.length || order.at(-1) !== id) order = [...order.filter(x => x !== id), id];
+    if (id === 'llm') { textDraft = structuredClone(api.getState().text); dirty = false; render(); v.root.scrollTop = 0; return; }
     if (id === 'nai') { render(); v.root.scrollTop = 0; loadSubscription(false); return; }
     if (!drafts.has(id)) drafts.set(id, structuredClone(api.getState().connections[id]));
     dirty = JSON.stringify(draft()) !== JSON.stringify(api.getState().connections[id]);
@@ -157,6 +212,13 @@ export function enginesApp(ctx) {
 
   v.on('change', '[data-field]', el => {
     if (el.dataset.field === 'key') return;
+    if (engine === 'llm') {
+      const key = el.dataset.field.replace(/^text-/, '');
+      if (!['url', 'model', 'temperature', 'maxTokens'].includes(key)) return;
+      textDraft[key] = ['temperature', 'maxTokens'].includes(key) ? Number(el.value) : el.value.trim();
+      changed();
+      return;
+    }
     if (el.dataset.field === 'guard') { api.saveDraw({guard: el.checked}); render(); return; }
     draft()[el.dataset.field] = el.value; changed(); render();
   });
@@ -186,7 +248,28 @@ export function enginesApp(ctx) {
   v.on('change', '[data-param]', el => updateParam(el, true));
   v.on('click', '[data-action]', async el => {
     switch (el.dataset.action) {
-      case 'engine': edit(el.dataset.engine); break;
+      case 'engine': if (order.at(-1) === el.dataset.engine) edit(el.dataset.engine); else bringFront(el.dataset.engine); break;
+      case 'text-source': textDraft.source = el.dataset.source; changed(); dirty = true; render(); break;
+      case 'save-text': api.saveText(textDraft); textDraft = structuredClone(api.getState().text); dirty = false; render(); ctx.notify('文字模型已保存'); break;
+      case 'text-pick': {
+        textDraft.model = el.dataset.model;
+        const box = v.root.querySelector('[data-field=text-model]');
+        if (box) box.value = textDraft.model;
+        for (const chip of v.root.querySelectorAll('[data-action=text-pick]')) chip.setAttribute('aria-pressed', String(chip === el));
+        changed();
+        break;
+      }
+      case 'text-models': {
+        const status = () => v.root.querySelector('[data-text-status]');
+        await v.busy(el, async () => {
+          try {
+            models = await api.textModels(textDraft);
+            render();
+            if (status()) status().textContent = models.length ? `连接成功，读到 ${models.length} 个模型，点一个就能选上` : '连接成功，但这个接口没有列出模型，直接填写模型名就好';
+          } catch (error) { if (status()) status().textContent = error.message; }
+        });
+        break;
+      }
       case 'save-connection': api.saveConnection(engine, draft()); dirty = false; render(); ctx.notify('引擎配置已保存'); break;
       case 'save-key': api.setKey(engine, v.root.querySelector('[data-field=key]').value); balances.delete(engine); render(); ctx.notify('密钥已保存'); if (engine === 'nai') loadSubscription(true); else loadBalance(engine, true); break;
       case 'refresh-subscription': await v.busy(el, () => loadSubscription(true)); break;

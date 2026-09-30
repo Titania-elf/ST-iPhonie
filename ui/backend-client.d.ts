@@ -1,7 +1,8 @@
 /** Public API returned by the installed ST-iPhonie panel bridge (backend API 1.0.0 plus drawing). */
 export type Engine = 'fish' | 'mini' | 'eleven';
 /** Keys cover the voice engines and NovelAI. */
-export type KeyEngine = Engine | 'nai';
+/** llm: the key of the phone's own text model (an OpenAI-compatible API). */
+export type KeyEngine = Engine | 'nai' | 'llm';
 export type Theme = 'system' | 'light' | 'dark';
 export type InjectionPosition = 'in_chat' | 'in_prompt' | 'before_prompt';
 export type MessageRole = 'system' | 'user' | 'assistant';
@@ -77,6 +78,7 @@ export interface Settings {
     chat: ChatSettings;
     moments: MomentsSettings;
     calls: CallsSettings;
+    text: TextSettings;
 }
 export interface DrawParams {
     model: string; width: number; height: number; steps: number; scale: number;
@@ -141,6 +143,8 @@ export interface VoiceTextOptions { mode: 'translation' | 'original' | 'both'; a
 /** 朋友圈 preset: rules for posts and reactions, how much story the model reads, and posts per refresh. */
 /** 朋友圈 options; its rules are the chat preset's rules used in 朋友圈. */
 /** 来电: characters call by themselves every `every` story replies, at most `dailyMax` a day; `ring` seconds before a missed call. */
+/** 文字模型: who writes the phone's text. 'tavern' = the tavern's connected model; 'custom' = an OpenAI-compatible API (key kept as KeyEngine 'llm'). */
+export interface TextSettings { source: 'tavern' | 'custom'; url: string; model: string; temperature: number; maxTokens: number; }
 export interface SpokenLine { role: string; text: string; emotion?: string; translation?: string; }
 /** A call as the phone draws it. `since`/`answeredAt` are ms timestamps; `ended` is set once it is over. */
 export interface CallState { id: number; name: string; dir: 'in' | 'out'; state: 'ringing' | 'talking' | 'ended'; since: number; answeredAt: number; lines: CallLine[]; thinking: boolean; speaking: boolean; voiced: boolean; error: string; auto: boolean;
@@ -452,6 +456,9 @@ export interface BackendFacade {
     saveChatPreset(preset: Partial<ChatPreset> & { name: string }): ChatPreset;
     /** 朋友圈 options. */
     saveCalls(patch: Partial<CallsSettings>): CallsSettings;
+    saveText(patch: Partial<TextSettings>): TextSettings;
+    /** Model ids the custom text API lists (a free connection check); `draft` are options not saved yet. */
+    textModels(draft?: Partial<TextSettings>): Promise<string[]>;
     saveMoments(patch: Partial<Pick<MomentsSettings, 'auto' | 'every' | 'dailyMax' | 'images' | 'replyToMe'>>): MomentsSettings;
     /** Newest first. */
     listMoments(): Promise<MomentPost[]>;

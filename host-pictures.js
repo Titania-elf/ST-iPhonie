@@ -120,14 +120,13 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
   async function planPictures(id, {force = false} = {}) {
     const ctx = context(), s = settings(), message = ctx.chat[id];
     if (!message || message.is_user || message.is_system || planning.has(id)) return false;
-    if (!ctx.generateRaw) throw Error('当前酒馆版本不支持后台生成');
     if (!force && parsePictures(message.mes).length) return false;
     planning.add(id);
     notice('正在给这条回复挑画面……');
     try {
       const source = force ? withoutPictures(message.mes) : message.mes;
       const preset = s.draw.presets.find(p => p.id === s.draw.activePreset) || s.draw.presets[0];
-      const reply = await ctx.generateRaw({prompt: planRequest(s, {message: source, before: before(id)}), trimNames: false, responseLength: Math.min(4000, 500 + preset.count * 400)});
+      const reply = await backend.generateText(ctx, {prompt: planRequest(s, {message: source, before: before(id)}), trimNames: false, responseLength: Math.min(4000, 500 + preset.count * 400)});
       if (context().chat[id] !== message) return false;
       const {text, count} = insertPlanned(source, reply);
       if (!count) throw Error('这次没有挑出画面，可以在绘图 App 里点“给最新回复配图”再试一次');

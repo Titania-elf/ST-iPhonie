@@ -2,7 +2,8 @@ import {icon, spark} from './icons.js';
 
 export const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 export const engines = {fish: 'Fish Audio', mini: 'MiniMax', eleven: 'ElevenLabs'};
-export const languages = [['', '跟随默认'], ['zh', '中文'], ['en', '英语'], ['ja', '日语'], ['ko', '韩语'], ['fr', '法语'], ['de', '德语'], ['es', '西班牙语'], ['ru', '俄语'], ['it', '意大利语'], ['pt', '葡萄牙语'], ['ar', '阿拉伯语'], ['hi', '印地语'], ['th', '泰语'], ['vi', '越南语']];
+import {LANGUAGES} from '../core/languages.js';
+export const languages = LANGUAGES;
 export const languageName = code => languages.find(([value]) => value === code)?.[1] || code;
 export const size = bytes => bytes < 1024 * 1024 ? Math.round(bytes / 1024) + ' KB' : (bytes / 1024 / 1024).toFixed(1) + ' MB';
 

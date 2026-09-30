@@ -12,6 +12,7 @@ import {drawApp} from './draw.js';
 import {chatApp} from './chat.js';
 import {momentsNew, momentsSeen} from './moments.js';
 import {callScreen} from './call.js';
+import {installMotion} from './motion.js';
 
 // App factories, keyed by the ids in apps.js.
 const FACTORIES = {roles: rolesApp, engines: enginesApp, presets: presetsApp, library: libraryApp, gallery: galleryApp, notes: notesApp, listen: listenApp, settings: settingsApp, draw: drawApp, chat: chatApp};
@@ -157,6 +158,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   const engineOf = name => { const r = routeFor(name); return r?.voice ? r.engine : 'none'; };
   const ctx = {api, doc, win, notify, dialog, confirm, help, lock, open, routeFor, engineOf, openPendingRole: name => openPendingRole(name), visible: name => active === name && !locked,
     editEngine: id => views.get('engines')?.edit?.(id), showPresetKind: kind => views.get('presets')?.showKind?.(kind), momentsSeen: () => { if (fresh) { fresh = 0; renderHome(); } }};
+  installMotion(win, mount, signal);
   // 来电: one layer over everything, drawn from what the tavern side reports.
   const calls = callScreen(ctx, screen);
   const callState = () => { try { calls.update(api.callStatus?.() || null); } catch { /* not in the tavern */ } };
@@ -185,11 +187,22 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   function showHome() {
     sheet?.close(null);
     if (locked) return;
+    const arriving = active !== null;
     active = null;
     home.hidden = false;
     frame.hidden = true;
     screen.dataset.view = 'home';
     syncInert();
+    if (arriving) homeIn();
+  }
+  // Icons and widgets come in one after another when the home screen appears (not when a badge redraws it).
+  let homeTimer = 0;
+  function homeIn() {
+    win.clearTimeout(homeTimer);
+    delete screen.dataset.homeIn;
+    void screen.offsetWidth;
+    screen.dataset.homeIn = '';
+    homeTimer = win.setTimeout(() => delete screen.dataset.homeIn, 800);
   }
   function back() {
     if (sheet) { sheet.close(null); return; }
@@ -210,6 +223,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     locked = false;
     lockscreen.hidden = true;
     syncInert();
+    if (!active) homeIn();
     if (active) $('.app-nav [data-system=back]').focus({preventScroll: true});
     else home.querySelector('.app-icon')?.focus({preventScroll: true});
   }

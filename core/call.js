@@ -5,6 +5,7 @@
 // ones used in 电话. The finished call is kept in the private chat as one message of kind 'call'.
 import {parseDialogue} from './protocol.js';
 import {messageLine} from './chat.js';
+import {languageName} from './languages.js';
 
 export const CALL_LIMITS = Object.freeze({lines: 80, perTurn: 4, ring: [15, 60], history: 12});
 
@@ -40,7 +41,8 @@ export function callClock(seconds) {
  */
 export function buildCallRequest({preset, mode, contact, lines = [], history = [], story = [], user = '我', userPersona = '', voiceFormat, voiceRules = '', reason = ''}) {
   const name = contact.name, voiced = !!contact.voice && !!voiceFormat;
-  const values = {'用户': user, '对象': name, '语音格式': voiceFormat || '', '可发语音': voiced ? `${name}（${contact.language || '中文'}）` : '（只说中文）'};
+  const spoken = languageName(contact.language || 'zh');
+  const values = {'用户': user, '对象': name, '语音格式': voiceFormat || '', '可发语音': voiced ? `${name}（${spoken}）` : '（只说中文）'};
   const rules = preset.entries.filter(e => e.enabled && e.text.trim() && e.use.includes('call')).map(e => fill(e.text, values));
   const situation = {
     incoming: `${name}给${user}打了语音电话，${user}刚刚接通。${reason ? `（打来的原因：${reason}）` : '打电话要有个理由：想${user}了、有事要说、刚发生了什么、想听听声音……按人设和最近的事情来。'}`,
@@ -63,6 +65,7 @@ export function buildCallRequest({preset, mode, contact, lines = [], history = [
     `【现在】\n${situation}`,
     ['【输出格式】',
       `只写${name}接下来说的话，一到${CALL_LIMITS.perTurn - 1}句，每句单独一行${voiced ? `，整行写成：${voiceFormat}（标签里的角色写「${name}」）` : '，直接写说的话，不加名字和引号'}。`,
+      voiced ? `${name}在电话里说${spoken}：标签里的原文（{文本}）是${name}真正说出口、会被念出来的话，必须用${spoken}写${spoken === '中文' ? '' : '，不要写成中文'}；引号里的{译文}是给${user}看的中文翻译。` : '',
       `不要写${user}的话，不要写动作、旁白、表情符号、时间或任何解释。`,
       mode === 'voicemail' ? '' : `${name}想挂电话时（话说完了、被叫走了、生气了），最后单独一行写「[挂断]」。通话不要太短也不要没完没了，自然就好。`,
       voiced && voiceRules ? voiceRules : ''].filter(Boolean).join('\n')

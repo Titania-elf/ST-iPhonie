@@ -5,6 +5,7 @@ import {saveFile, downloadAction} from '../download.js';
 import {momentsPanel, momentsNew, momentsSeen} from './moments.js';
 import {PROFILE_STATUS, BUBBLES, FRAMES, BACKGROUNDS} from '../core/chat.js';
 import {callSummary} from '../core/call.js';
+import {pendant} from './pendants.js';
 
 // Chat app, QQ style: 消息 (conversations, with search, 置顶 and 免打扰), 联系人 (特别关心, friends, groups, profile cards)
 // and 动态 (朋友圈, ui/moments.js). Tapping your own avatar opens 我: name, status, signature and 个性装扮 (chat bubble,
@@ -78,7 +79,8 @@ export function chatApp(ctx) {
   // ---------- The user (我) ----------
   const profile = () => api.getState().chat.profile;
   const myName = () => profile().name || api.userName?.() || '我';
-  const myAvatar = size => `<span class="me-av" data-frame="${esc(profile().frame)}" style="--s:${size}px">${avatar(myName(), 'none', size)}</span>`;
+  let switchTimer = 0;
+  const myAvatar = size => `<span class="me-av" data-frame="${esc(profile().frame)}" style="--s:${size}px">${avatar(myName(), 'none', size)}${pendant(profile().frame)}</span>`;
   const statusLine = () => { const p = profile(); return `<i class="qq-dot" data-status="${p.status}"></i>${esc(PROFILE_STATUS[p.status])}${p.statusText ? ' · ' + esc(p.statusText) : ''}`; };
   const starred = () => api.getState().chat.starred || [];
   /** A contact's one line: a manual contact's persona, or where a role comes from. */
@@ -159,7 +161,7 @@ export function chatApp(ctx) {
   /** 我: name, status, signature, and 个性装扮. */
   function renderMe() {
     const p = profile();
-    const chips = (key, list, value) => `<div class="deco-row">${Object.entries(list).map(([k, l]) => `<button type="button" class="deco" data-action="me-set" data-key="${key}" data-value="${k}" data-${key}="${k}" aria-pressed="${value === k}"><span class="deco-sample" aria-hidden="true"></span><span>${l}</span></button>`).join('')}</div>`;
+    const chips = (key, list, value) => `<div class="deco-row">${Object.entries(list).map(([k, l]) => `<button type="button" class="deco" data-action="me-set" data-key="${key}" data-value="${k}" data-${key}="${k}" aria-pressed="${value === k}"><span class="deco-sample" aria-hidden="true">${key === 'frame' ? `<span class="me-av" style="--s:36px"><span class="avatar none" style="--s:36px"></span>${pendant(k)}</span>` : ''}</span><span>${l}</span></button>`).join('')}</div>`;
     v.draw(heading('我', '', 'Me')
       + `<div class="qq-card me" data-bubble="${esc(p.bubble)}"><span class="qq-card-cover" aria-hidden="true"></span>${myAvatar(84)}<h2>${esc(myName())}</h2><p>${esc(p.signature || '还没有个性签名')}</p><div class="qq-card-tags"><span class="chip">${statusLine()}</span></div></div>`
       + `<div class="group pad">${field('名字', input('me-name', p.name, 'text', `maxlength="40" placeholder="${esc(api.userName?.() || '我')}（跟随酒馆里的用户名）"`))}${field('个性签名', input('me-signature', p.signature, 'text', 'maxlength="80" placeholder="写一句话"'))}
@@ -746,7 +748,10 @@ export function chatApp(ctx) {
     if (selecting && ['message', 'voice', 'photo', 'packet', 'transfer'].includes(action)) return;
     const find = () => thread.messages.find(x => x.id === el.dataset.mid);
     switch (action) {
-      case 'tab': tab = el.dataset.tab; search = ''; if (tab === 'moments') moments.only(''); v.root.scrollTop = 0; render(); break;
+      case 'tab': {
+        if (tab !== el.dataset.tab) { v.root.dataset.switching = el.dataset.tab; ctx.win.clearTimeout(switchTimer); switchTimer = ctx.win.setTimeout(() => delete v.root.dataset.switching, 420); }
+        tab = el.dataset.tab; search = ''; if (tab === 'moments') moments.only(''); v.root.scrollTop = 0; render(); break;
+      }
       case 'open': open(el.dataset.id); break;
       case 'new-chat': newChat(); break;
       case 'plus-menu': plusMenu(); break;

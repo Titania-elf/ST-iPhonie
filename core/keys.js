@@ -1,4 +1,5 @@
-const engines=['fish','mini','eleven','nai'];
+// Voice engines, NovelAI for drawing, and llm: the phone's own text model (an OpenAI-compatible API).
+const engines=['fish','mini','eleven','nai','llm'];
 export function validateKey(engine,value){if(!engines.includes(engine))throw Error('引擎无效');const key=String(value).trim();if(key.length>4096||/[\r\n]/.test(key))throw Error('密钥格式无效');return key;}
 export class LocalKeyStore{
  constructor(scope,storage=()=>globalThis.localStorage){this.prefix='sttts.keys.v1:'+encodeURIComponent(scope)+':';this.storage=storage;}

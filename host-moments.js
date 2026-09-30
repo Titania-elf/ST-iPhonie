@@ -26,13 +26,12 @@ export function createMomentsHost({context, settings, backend, notice}) {
     busy = (async () => {
       emit({kind});
       const ctx = context();
-      if (!ctx?.generateRaw) throw Error('当前酒馆版本不支持后台生成');
       return task(ctx);
     })().finally(() => { busy = null; emit({kind}); });
     return busy;
   }
   async function ask(ctx, request) {
-    const text = await ctx.generateRaw({prompt: request, trimNames: false});
+    const text = await backend.generateText(ctx, {prompt: request, trimNames: false});
     return String(text || '');
   }
   const base = () => {

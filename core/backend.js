@@ -1,6 +1,7 @@
 import { MomentStore } from './moments-store.js';
 import { normalizeMoments, buildMomentsRequest } from './moments.js';
 import { normalizeCalls, buildCallRequest } from './call.js';
+import { normalizeText, customRequest, listModels } from './llm.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup } from './backup.js';
 import { normalizeSettings, validateSettings, modelRules, freshState } from './state.js';
 import { normalizeRoute, switchRouteEngine, removeRoute } from './routes.js';
@@ -22,8 +23,8 @@ export const BACKEND_API_VERSION = '1.0.0';
 const ENGINES = ['fish', 'mini', 'eleven'];
 const clone = value => structuredClone(value);
 const engineCheck = engine => { if (!ENGINES.includes(engine)) throw Error('引擎无效'); };
-// Keys cover the voice engines plus NovelAI for drawing.
-const keyCheck = engine => { if (engine !== 'nai') engineCheck(engine); };
+// Keys cover the voice engines, NovelAI for drawing, and llm (the phone's own text model).
+const keyCheck = engine => { if (engine !== 'nai' && engine !== 'llm') engineCheck(engine); };
 const modelCheck = (engine, model) => { engineCheck(engine); if (model && !TTSParameters.catalogs[engine].models.includes(model)) throw Error('请选择列表中的模型'); };
 const message = error => error instanceof TypeError ? '设置格式无效，请检查字段和条目' : error.message;
 
@@ -63,7 +64,7 @@ export class TTSBackend {
     }
     async initialize() {
         this.assertOpen();
-        try { for (const [engine, key] of this.keyStore.load()) { if (engine === 'nai') this.novelai.setKey(key); else this.providers.setKey(engine, key); } }
+        try { for (const [engine, key] of this.keyStore.load()) { if (engine === 'nai') this.novelai.setKey(key); else if (engine === 'llm') this.textKey = key; else this.providers.setKey(engine, key); } }
         catch (error) { this.notify(error.message); }
         try {
             const phone = await this.library.getPhone();
@@ -235,12 +236,12 @@ export class TTSBackend {
     setKey(engine, key) {
         keyCheck(engine); if (!String(key).trim()) throw Error('请填写密钥，或使用清除密钥');
         const saved = this.keyStore.save(engine, key);
-        if (engine === 'nai') { this.novelai.setKey(saved); this.subscription = null; } else { this.providers.setKey(engine, saved); this.balances.delete(engine); }
+        if (engine === 'nai') { this.novelai.setKey(saved); this.subscription = null; } else if (engine === 'llm') this.textKey = saved; else { this.providers.setKey(engine, saved); this.balances.delete(engine); }
         this.emit('keys', { engine, configured: true });
     }
     clearKey(engine) {
         keyCheck(engine); this.keyStore.save(engine, '');
-        if (engine === 'nai') { this.novelai.setKey(''); this.subscription = null; } else { this.providers.setKey(engine, ''); this.balances.delete(engine); }
+        if (engine === 'nai') { this.novelai.setKey(''); this.subscription = null; } else if (engine === 'llm') this.textKey = ''; else { this.providers.setKey(engine, ''); this.balances.delete(engine); }
         this.emit('keys', { engine, configured: false });
     }
     /** What is left on a voice account (ElevenLabs credits, Fish API balance); null without a key. Cached for a minute. */
@@ -255,7 +256,27 @@ export class TTSBackend {
         this.emit('balance', { engine, balance: clone(value) });
         return clone(value);
     }
-    keyStatus(engine) { keyCheck(engine); return engine === 'nai' ? this.novelai.configured : this.providers.keys.has(engine); }
+    keyStatus(engine) { keyCheck(engine); return engine === 'nai' ? this.novelai.configured : engine === 'llm' ? !!this.textKey : this.providers.keys.has(engine); }
+
+    // ---------- 文字模型 ----------
+    /** Text model options: {source:'tavern'|'custom', url, model, temperature, maxTokens}. */
+    saveText(patch) {
+        const next = this.getState(), allowed = ['source', 'url', 'model', 'temperature', 'maxTokens'];
+        next.text = normalizeText({ ...next.text, ...Object.fromEntries(Object.entries(patch || {}).filter(([key]) => allowed.includes(key))) });
+        return this.save(next).text;
+    }
+    /**
+     * Writes phone text (chat, 朋友圈, calls, picture plans) with the chosen model. context: the tavern context, used
+     * when the source is the tavern's model. request: {prompt, responseLength?, ...} as for generateRaw.
+     */
+    async generateText(context, request) {
+        const text = this.settings.text;
+        if (text.source === 'custom') return customRequest({ text, key: this.textKey, prompt: request.prompt, responseLength: request.responseLength });
+        if (!context?.generateRaw) throw Error('当前酒馆版本不支持后台生成');
+        return context.generateRaw(request);
+    }
+    /** Model ids of the custom API (also a free connection check). `draft`: options not saved yet. */
+    textModels(draft) { return listModels({ text: normalizeText({ ...this.settings.text, ...draft }), key: this.textKey }); }
 
     // ---------- Drawing ----------
     saveDraw(patch) {
@@ -619,6 +640,7 @@ export class TTSBackend {
             getPhone: () => this.getPhone(), savePhone: patch => this.savePhone(patch), libraryStats: () => this.library.stats(),
             generatedPhotos: () => this.generatedPhotos().then(({ count, bytes }) => ({ count, bytes })), deleteGeneratedPhotos: () => this.deleteGeneratedPhotos(),
             saveMoments: patch => this.saveMoments(clone(patch)), saveCalls: patch => this.saveCalls(clone(patch)),
+            saveText: patch => this.saveText(clone(patch)), textModels: draft => this.textModels(clone(draft || {})),
             listMoments: () => this.moments.list(), getMoment: id => this.moments.get(id),
             postMoment: ({ text, photoId } = {}) => this.momentsMutate(async () => (await this.moments.add([{ author: 'me', source: 'me', text, photoId }]))[0]),
             likeMoment: (id, on = true) => this.momentsMutate(() => this.moments.like(id, 'me', on)),

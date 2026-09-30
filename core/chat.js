@@ -6,6 +6,7 @@
 import {parseDialogue, isPlaceholderRole} from './protocol.js';
 import {money} from './chats.js';
 import {callSummary} from './call.js';
+import {languageName} from './languages.js';
 
 export const CHAT_LIMITS = Object.freeze({contacts: 200, persona: 4000, story: 40, history: 200});
 
@@ -169,7 +170,7 @@ export function buildChatRequest({preset, thread, members, story = [], user = '�
   const values = {
     '用户': user, '对象': partner,
     '语音格式': voiceFormat,
-    '可发语音': speakers.length ? speakers.map(m => `${m.name}（${m.language || '中文'}）`).join('、') : '（暂时没有人能发语音，只发文字）'
+    '可发语音': speakers.length ? speakers.map(m => `${m.name}（${languageName(m.language || 'zh')}）`).join('、') : '（暂时没有人能发语音，只发文字）'
   };
   const used = preset.entries.filter(e => e.enabled && e.text.trim() && e.use.includes(group ? 'group' : 'dm')).filter(e => speakers.length || e.id !== 'voice');
   const rules = used.map(e => fill(e.text, values)), posting = used.some(e => e.id === 'post' || /朋友圈/.test(e.text)), dialing = !group && used.some(e => e.id === 'c-dial');
@@ -183,7 +184,7 @@ export function buildChatRequest({preset, thread, members, story = [], user = '�
     ['【输出格式】',
       `只输出新消息，每条消息单独一行，写成「名字：消息内容」。名字只能是：${names}。`,
       `不要写${user}的消息，不要写时间、编号、引号或任何解释。`,
-      speakers.length ? `语音消息的整行写成「名字：${voiceFormat}」，标签里的角色填同一个名字。` : '',
+      speakers.length ? `语音消息的整行写成「名字：${voiceFormat}」，标签里的角色填同一个名字；标签里的原文（{文本}）是念出来的话，用这个人的语音语言写（${speakers.map(m => `${m.name}：${languageName(m.language || 'zh')}`).join('，')}），引号里的{译文}写中文。` : '',
       `需要时也可以像真人一样用手机功能，每种单独一行，偶尔用，别每轮都用：「名字：[图片] 一句话描述拍的照片」「名字：[位置] 地点」「名字：[红包 ¥金额] 祝福语」「名字：[转账 ¥金额] 备注」「名字：[拍一拍]」（拍一拍${user}）。`,
       `${user}发来红包或转账时，收下红包单独写一行「名字：[领取红包]」，收下转账写「名字：[收款]」，退还转账写「名字：[退还]」；收不收按人设决定。`,
       dialing ? `很偶尔可以直接给${user}打语音电话：这一轮最后单独一行写成「名字：[打电话] 为什么打」，大多数回复都不要打。` : '',

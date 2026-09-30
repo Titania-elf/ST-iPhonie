@@ -41,7 +41,6 @@ export function createChatHost({context, settings, backend, notice, onCall = () 
     if (busy.has(threadId)) return busy.get(threadId);
     const job = (async () => {
       const ctx = context();
-      if (!ctx?.generateRaw) throw Error('当前酒馆版本不支持后台生成');
       const thread = await backend.chats.get(threadId);
       if (!thread) throw Error('这段聊天已不存在');
       const s = settings(), preset = activeChatPreset(s.chat), people = members(thread), voiceFormat = backend.voiceFormat(), user = userName();
@@ -49,7 +48,7 @@ export function createChatHost({context, settings, backend, notice, onCall = () 
       if (s.general.voiceEnabled === false) for (const p of people) p.voice = false;
       backend.emit('chat', {threadId, typing: true});
       const prompt = buildChatRequest({preset, thread, members: people, story: story(preset.context), user, userPersona: userPersona(), voiceFormat});
-      const text = await ctx.generateRaw({prompt, trimNames: false});
+      const text = await backend.generateText(ctx, {prompt, trimNames: false});
       const items = parseChatReply(text, {members: people, user, voiceFormat, voiceNames: people.filter(p => p.voice).map(p => p.name)});
       if (!items.length) throw Error('这次没有收到消息，可以再试一次');
       return backend.chatMutate(threadId, () => settle(threadId, items));

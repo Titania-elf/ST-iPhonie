@@ -11,6 +11,7 @@
   --mini:#f2a93b;--mini-ink:#86520c;--mini-soft:#fff0d6;--mini-btn:#f2a93b;--mini-on:#3b2400;
   --eleven:#ec6f9f;--eleven-ink:#a3345f;--eleven-soft:#ffe4ee;--eleven-btn:#c2447a;--eleven-on:#fff;
   --nai:#7d80f2;--nai-ink:#3f43ad;--nai-soft:#ecebff;--nai-btn:#4f54c8;--nai-on:#fff;
+  --llm:#23b19c;--llm-ink:#0f6e60;--llm-soft:#d8f6ef;--llm-btn:#1a9a87;--llm-on:#fff;
   font-family:"PingFang SC","HarmonyOS Sans SC","MiSans","Microsoft YaHei",system-ui,sans-serif;font-size:15px;
 }
 :root[data-theme=dark]{
@@ -23,11 +24,13 @@
   --mini:#f5b659;--mini-ink:#ffd08a;--mini-soft:#3b2f22;--mini-btn:#f5b659;--mini-on:#2e1c00;
   --eleven:#f58ab2;--eleven-ink:#ffb3cf;--eleven-soft:#45223f;--eleven-btn:#f58ab2;--eleven-on:#300a1c;
   --nai:#9ea1ff;--nai-ink:#c6c8ff;--nai-soft:#28295e;--nai-btn:#9ea1ff;--nai-on:#0b0c2a;
+  --llm:#5fd6c1;--llm-ink:#9ff0e1;--llm-soft:#173f3f;--llm-btn:#5fd6c1;--llm-on:#062421;
 }
 [data-engine=fish]{--e:var(--fish);--e-ink:var(--fish-ink);--e-soft:var(--fish-soft);--e-btn:var(--fish-btn);--e-on:var(--fish-on)}
 [data-engine=mini]{--e:var(--mini);--e-ink:var(--mini-ink);--e-soft:var(--mini-soft);--e-btn:var(--mini-btn);--e-on:var(--mini-on)}
 [data-engine=eleven]{--e:var(--eleven);--e-ink:var(--eleven-ink);--e-soft:var(--eleven-soft);--e-btn:var(--eleven-btn);--e-on:var(--eleven-on)}
 [data-engine=nai]{--e:var(--nai);--e-ink:var(--nai-ink);--e-soft:var(--nai-soft);--e-btn:var(--nai-btn);--e-on:var(--nai-on)}
+[data-engine=llm]{--e:var(--llm);--e-ink:var(--llm-ink);--e-soft:var(--llm-soft);--e-btn:var(--llm-btn);--e-on:var(--llm-on)}
 [data-engine=none]{--e:var(--ink2);--e-ink:var(--ink2);--e-soft:var(--card2);--e-btn:var(--ink2);--e-on:var(--card)}
 
 /* ---------- Base ---------- */
@@ -337,7 +340,12 @@ details>div{padding-bottom:10px}
 .wallet{padding:2px 2px 8px}
 .bank-card{position:relative;display:flex;flex-direction:column;width:100%;height:200px;padding:16px 20px;text-align:left;overflow:hidden;border-radius:24px;color:var(--e-on);background:radial-gradient(circle at 88% 120%,rgba(255,255,255,.25) 0 22%,transparent 22.5%),radial-gradient(circle at 100% 0,rgba(255,255,255,.19) 0 18%,transparent 18.5%),repeating-linear-gradient(-45deg,rgba(255,255,255,.08) 0 10px,transparent 10px 20px),linear-gradient(135deg,var(--e-btn),color-mix(in srgb,var(--e) 70%,#fff));box-shadow:0 -6px 18px -8px rgba(0,0,0,.25),0 12px 24px -12px var(--e)}
 .wallet .bank-card+.bank-card{margin-top:-146px}
-.wallet .bank-card:active{transform:translateY(-6px)}
+.wallet .bank-card{transition:transform .55s cubic-bezier(.2,.9,.25,1.04),box-shadow .35s,filter .35s}
+.wallet .bank-card:not(:last-child){filter:saturate(.92) brightness(.97)}
+.wallet .bank-card:last-child{box-shadow:0 18px 36px -18px color-mix(in srgb,var(--e) 80%,#000)}
+@media (hover:hover){.wallet .bank-card:not(:last-child):hover{transform:translateY(-8px)}}
+.wallet .bank-card:active{transform:translateY(-6px) scale(.99)}
+.model-list{margin:10px 0 0}
 .bank-card .spark{position:absolute;width:12px;height:12px;left:52%;top:22px;color:#fff;opacity:.85}
 .card-top{display:flex;align-items:flex-start;justify-content:space-between}
 .card-name{font-size:21px;font-weight:900}
@@ -695,6 +703,64 @@ details>div{padding-bottom:10px}
 .packet-go{--e-btn:#e0473a;--e-on:#fff}
 @media (max-height:700px){.clock-block{padding:4px 0 10px}.home-clock{font-size:56px}.widget{min-height:110px}.listen-stage{height:206px}}
 @media (hover:hover) and (pointer:fine){.list-row:hover,.dialogue-row:hover{background:color-mix(in srgb,var(--accent) 5%,transparent)}}
+/* ---------- Motion ----------
+   Entrances come in one after another, presses sink and spring back, idle pendants breathe. Everything here stops
+   under prefers-reduced-motion (the rule right after this block). */
+@keyframes rise-in{from{opacity:0;transform:translateY(14px) scale(.985)}}
+@keyframes blur-in{from{opacity:0;filter:blur(8px);transform:scale(.99)}}
+@keyframes pop-in{0%{opacity:0;transform:scale(.6)}70%{transform:scale(1.06)}100%{opacity:1;transform:none}}
+.screen[data-opening=true] .app-content>.view>*{animation:rise-in .46s cubic-bezier(.2,.85,.25,1) both}
+.screen[data-opening=true] .app-content>.view>:nth-child(2){animation-delay:.04s}
+.screen[data-opening=true] .app-content>.view>:nth-child(3){animation-delay:.08s}
+.screen[data-opening=true] .app-content>.view>:nth-child(4){animation-delay:.12s}
+.screen[data-opening=true] .app-content>.view>:nth-child(5){animation-delay:.16s}
+.screen[data-opening=true] .app-content>.view>:nth-child(6){animation-delay:.2s}
+.screen[data-opening=true] .app-content>.view>:nth-child(n+7){animation-delay:.24s}
+.screen[data-home-in] .home-page .app-icon{animation:pop-in .5s cubic-bezier(.2,.9,.3,1.2) both}
+.screen[data-home-in] .home-page .app-icon:nth-child(2){animation-delay:.03s}
+.screen[data-home-in] .home-page .app-icon:nth-child(3){animation-delay:.06s}
+.screen[data-home-in] .home-page .app-icon:nth-child(4){animation-delay:.09s}
+.screen[data-home-in] .home-page .app-icon:nth-child(5){animation-delay:.12s}
+.screen[data-home-in] .home-page .app-icon:nth-child(6){animation-delay:.15s}
+.screen[data-home-in] .home-page .app-icon:nth-child(n+7){animation-delay:.18s}
+.screen[data-home-in] .widget{animation:rise-in .5s cubic-bezier(.2,.85,.25,1) both}
+.screen[data-home-in] .widget+.widget{animation-delay:.06s}
+.view[data-switching] .qq-page{animation:blur-in .34s cubic-bezier(.2,.8,.2,1)}
+/* Presses: sink a little, spring back past rest */
+.list-row,.conv,.widget,.control-tile,.deco,.qq-card,.role-card,.chat-bubble,.voice-msg,.call-msg,.moment-actions button{transition:transform .38s cubic-bezier(.3,1.7,.45,1)}
+.list-row:active,.conv:active,.deco:active,.control-tile:active,.voice-msg:active,.call-msg:active{transform:scale(.97);transition-duration:.08s}
+.widget:active{transform:scale(.975);transition-duration:.08s}
+.chat-bubble:active{transform:scale(.98);transition-duration:.08s}
+.qq-tabs button .qq-tab-ico{transition:transform .38s cubic-bezier(.3,1.7,.45,1),background .2s}
+.qq-tabs button:active .qq-tab-ico{transform:scale(.86);transition-duration:.08s}
+.cc-toggle .bubble{transition:transform .38s cubic-bezier(.3,1.7,.45,1),background .2s,color .2s}
+.cc-toggle:active .bubble{transform:scale(.88);transition-duration:.08s}
+.segmented button{transition:background .25s,color .25s,box-shadow .25s,transform .35s cubic-bezier(.3,1.7,.45,1)}
+.segmented button:active{transform:scale(.95)}
+.switch:active:after{width:30px}
+.switch:checked:active:after{transform:translateX(14px)}
+/* Ripple (ui/motion.js) */
+.list-row,.control-tile,.segmented button,.qq-tabs button,.deco,.tool{position:relative}
+.list-row,.conv,.control-tile,.segmented button,.qq-tabs button,.deco{overflow:hidden}
+.ripple{position:absolute;border-radius:50%;pointer-events:none;background:currentColor;opacity:.16;transform:scale(0);animation:ripple .6s cubic-bezier(.2,.7,.3,1) forwards}
+@keyframes ripple{to{transform:scale(1);opacity:0}}
+/* A light following the mouse over cards and widgets (ui/motion.js) */
+.widget,.control-tile,.qq-card{position:relative;overflow:hidden}
+.spotlight{position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:radial-gradient(220px circle at var(--mx,50%) var(--my,50%),rgba(255,255,255,.26),transparent 62%);opacity:0;transition:opacity .3s;mix-blend-mode:soft-light}
+@media (hover:hover){.widget:hover>.spotlight,.bank-card:hover>.spotlight,.control-tile:hover>.spotlight,.qq-card:hover>.spotlight{opacity:1}}
+/* Online status breathes */
+.qq-dot:not([data-status]),.qq-dot[data-status=online],.qq-dot[data-status=qme]{position:relative}
+.qq-dot:not([data-status]):after,.qq-dot[data-status=online]:after,.qq-dot[data-status=qme]:after{content:"";position:absolute;inset:0;border-radius:50%;background:inherit;animation:dot-ring 2.4s ease-out infinite}
+@keyframes dot-ring{from{transform:scale(1);opacity:.6}70%,to{transform:scale(2.6);opacity:0}}
+/* Pendants move a little */
+.me-av[data-frame=halo] .pendant{animation:halo-float 3.2s ease-in-out infinite}
+@keyframes halo-float{50%{transform:translateY(-3%)}}
+.me-av[data-frame=star] .pendant polygon{transform-box:fill-box;transform-origin:center;animation:star-twinkle 2.6s ease-in-out infinite}
+@keyframes star-twinkle{50%{transform:scale(1.14) rotate(10deg)}}
+.me-av[data-frame=cat] .pendant path:nth-child(1),.me-av[data-frame=cat] .pendant path:nth-child(2){transform-box:fill-box;transform-origin:50% 100%;animation:ear-twitch 5s ease-in-out infinite}
+@keyframes ear-twitch{0%,86%,100%{transform:none}90%{transform:rotate(-12deg)}94%{transform:rotate(4deg)}}
+.me-av[data-frame=flower] .pendant{transform-origin:50% 60%;animation:crown-sway 4s ease-in-out infinite}
+@keyframes crown-sway{50%{transform:rotate(-3deg)}}
 @media (prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
 html[data-keyboard=true] *{animation:none!important;transition:none!important}
 
@@ -837,18 +903,9 @@ button.moment-note{color:var(--accent-ink);text-decoration:underline;text-underl
 .qq-card h2{margin:6px 0 0;font-size:20px}
 .qq-card p{margin:0;font-size:13px;color:var(--ink2)}
 .qq-card-tags{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin-top:6px}
-/* 头像挂件 */
+/* 头像挂件: an SVG drawing (ui/pendants.js) a little larger than the avatar, so ears or a halo can stick out */
 .me-av{position:relative;display:inline-grid;flex:none}
-.me-av:not([data-frame=none])::after{content:'';position:absolute;inset:-3px;border-radius:50%;pointer-events:none}
-.me-av:not([data-frame=none])::before{position:absolute;z-index:1;font-size:calc(var(--s,40px) * .36);line-height:1;pointer-events:none}
-.me-av[data-frame=star]::after{border:2px dashed #f5b301}
-.me-av[data-frame=star]::before{content:'⭐';top:-10%;right:-12%}
-.me-av[data-frame=cat]::after{border:2px solid #ffb3c8}
-.me-av[data-frame=cat]::before{content:'🐱';top:-26%;left:50%;transform:translateX(-50%)}
-.me-av[data-frame=flower]::after{border:3px dotted #ff8fb8}
-.me-av[data-frame=flower]::before{content:'🌸';bottom:-10%;right:-10%}
-.me-av[data-frame=halo]::after{box-shadow:0 0 0 2px #fff8,0 0 12px 3px #ffd86a}
-.me-av[data-frame=halo]::before{content:'✨';top:-14%;left:-12%}
+.me-av .pendant{position:absolute;inset:-17.6%;width:135.2%;height:135.2%;overflow:visible;pointer-events:none;z-index:1;filter:drop-shadow(0 1px 1.5px #0003)}
 .msg.me .me-side{flex:none}
 /* 聊天气泡 */
 .chat-thread[data-bubble=candy] .msg.me .chat-bubble{background:linear-gradient(135deg,#ff9ec4,#ffc6a3);color:#4a1630;box-shadow:0 3px 0 #e2779f}
@@ -871,11 +928,8 @@ button.moment-note{color:var(--accent-ink);text-decoration:underline;text-underl
 .deco[data-bubble=mint] .deco-sample{background:linear-gradient(135deg,#7fe0c3,#c1f2a6)}
 .deco[data-bubble=night] .deco-sample{background:linear-gradient(135deg,#2b2f6b,#5a3d8a)}
 .deco[data-bubble=ink] .deco-sample{background:var(--card);border:2px solid var(--ink);box-shadow:2px 2px 0 var(--ink)}
-.deco[data-frame] .deco-sample{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--card2);font-size:16px}
-.deco[data-frame=star] .deco-sample::after{content:'⭐'}
-.deco[data-frame=cat] .deco-sample::after{content:'🐱'}
-.deco[data-frame=flower] .deco-sample::after{content:'🌸'}
-.deco[data-frame=halo] .deco-sample::after{content:'✨'}
+.deco[data-frame] .deco-sample{display:grid;place-items:center;width:52px;height:52px;border-radius:50%;background:none}
+.deco[data-frame] .deco-sample .avatar{background:color-mix(in srgb,var(--accent) 35%,var(--card2))}
 .deco[data-background] .deco-sample{width:44px;height:44px;border-radius:12px;background:var(--card2);box-shadow:inset 0 0 0 1px var(--line)}
 .deco[data-background=clouds] .deco-sample{background:radial-gradient(40% 16% at 30% 30%,#fff 0,#fff0 70%),radial-gradient(40% 14% at 70% 70%,#fff 0,#fff0 70%),#bfe3ff}
 .deco[data-background=stars] .deco-sample{background:radial-gradient(#ffe7a0 1px,transparent 1.5px) 0 0/10px 10px,#2a2d5e}
@@ -918,44 +972,70 @@ button.moment-note{color:var(--accent-ink);text-decoration:underline;text-underl
 .combo-chip[aria-pressed=true] small{color:inherit;opacity:.8}
 .combo-chip[hidden]{display:none}
 
-/* ---------- 来电 ---------- */
-.call-screen{position:absolute;inset:0;z-index:70;display:flex;flex-direction:column;align-items:center;padding:74px 18px calc(env(safe-area-inset-bottom,0px) + 34px);color:#fff;overflow:hidden;animation:fade .25s}
+/* ---------- 来电 ----------
+   Colours come from the theme tokens, so every theme has its own day and night call screen; each theme adds its own
+   moving layer (sky: drifting clouds and stars at night, aero: rising soap bubbles, fresh: falling petals). */
+.call-screen{position:absolute;inset:0;z-index:70;display:flex;flex-direction:column;align-items:center;padding:74px 18px calc(env(safe-area-inset-bottom,0px) + 34px);color:var(--ink);overflow:hidden;animation:call-in .38s cubic-bezier(.2,.9,.3,1.05)}
 .call-screen[hidden]{display:none}
-.call-bg{position:absolute;inset:-40px;z-index:-1;background:radial-gradient(120% 70% at 50% 18%,color-mix(in srgb,var(--e-btn,var(--accent)) 70%,#fff0) 0,#0000 70%),linear-gradient(170deg,#1d2440,#10131f 70%);filter:saturate(1.1)}
+@keyframes call-in{from{opacity:0;transform:scale(1.04);filter:blur(6px)}}
+.call-bg{position:absolute;inset:0;z-index:-1;overflow:hidden;background:radial-gradient(90% 55% at 50% 18%,color-mix(in srgb,var(--accent) 42%,transparent),transparent 70%),radial-gradient(70% 45% at 88% 92%,color-mix(in srgb,var(--pink) 34%,transparent),transparent 72%),linear-gradient(180deg,var(--bg),var(--page))}
+.call-bg:before,.call-bg:after{content:"";position:absolute;inset:-20% -10%;pointer-events:none}
+/* 晴空: clouds by day, twinkling stars by night */
+.call-bg:before{background:radial-gradient(30% 9% at 22% 30%,#fff9 0,#fff0 70%),radial-gradient(26% 8% at 74% 52%,#fff8 0,#fff0 70%),radial-gradient(34% 10% at 40% 80%,#fff7 0,#fff0 70%);animation:call-drift 26s linear infinite alternate}
+.call-bg:after{background:radial-gradient(circle,var(--accent) 1px,transparent 1.6px) 0 0/46px 46px,radial-gradient(circle,var(--pink) 1px,transparent 1.6px) 23px 17px/58px 58px;opacity:.35}
+:root[data-theme=dark] .call-bg:before{background:radial-gradient(circle,#fff 1px,transparent 1.6px) 13px 29px/97px 89px,radial-gradient(circle,#ffffffa0 .8px,transparent 1.4px) 61px 7px/131px 113px,radial-gradient(circle,#ffe7a0 1.3px,transparent 2px) 83px 51px/173px 157px,radial-gradient(circle,#cfe3ff 1px,transparent 1.6px) 29px 97px/211px 197px,radial-gradient(circle,#fff 1.5px,transparent 2.2px) 150px 140px/263px 241px;animation:call-twinkle 3.4s ease-in-out infinite alternate}
+:root[data-theme=dark] .call-bg:after{background:radial-gradient(60% 40% at 20% 100%,color-mix(in srgb,var(--pink) 22%,transparent),transparent 70%);opacity:1}
+/* 水感玻璃: soap bubbles rising */
+:root[data-skin=aero] .call-bg:before{inset:0 -10% -60%;background:radial-gradient(circle at 42% 38%,#fffd 0 3%,#fff0 5%) 30px 60px/190px 230px,radial-gradient(circle at 50% 50%,transparent 0 16%,#ffffff80 17%,#9be6ff45 19.5%,transparent 21%) 30px 60px/190px 230px,radial-gradient(circle at 44% 40%,#fffc 0 2.2%,#fff0 4%) 120px 10px/260px 300px,radial-gradient(circle at 50% 50%,transparent 0 11%,#ffffff70 12%,#b5f59c40 14%,transparent 15.5%) 120px 10px/260px 300px,radial-gradient(circle at 50% 50%,transparent 0 7%,#ffffff60 8%,transparent 9.5%) 70px 170px/150px 170px;animation:call-rise 22s linear infinite}
+:root[data-skin=aero] .call-bg:after{background:linear-gradient(180deg,#fff6,transparent 38%);opacity:1}
+:root[data-skin=aero][data-theme=dark] .call-bg:before{opacity:.5}
+:root[data-skin=aero][data-theme=dark] .call-bg:after{background:linear-gradient(180deg,#fff2,transparent 38%)}
+/* 青草信笺: paper lines and falling petals */
+:root[data-skin=fresh] .call-bg:before{inset:-60% 0 0;background:radial-gradient(ellipse 5px 3px at 30% 40%,color-mix(in srgb,var(--pink) 80%,transparent) 98%,transparent) 11px 23px/113px 137px,radial-gradient(ellipse 4px 2.5px at 70% 70%,color-mix(in srgb,var(--accent) 70%,transparent) 98%,transparent) 57px 81px/167px 149px,radial-gradient(ellipse 3.5px 2.2px at 20% 60%,color-mix(in srgb,var(--pink) 60%,transparent) 98%,transparent) 90px 10px/211px 233px,radial-gradient(ellipse 4.5px 2.8px at 60% 25%,color-mix(in srgb,var(--pink) 70%,transparent) 98%,transparent) 150px 120px/257px 199px;animation:call-fall 26s linear infinite}
+:root[data-skin=fresh] .call-bg:after{background:repeating-linear-gradient(180deg,transparent 0 27px,color-mix(in srgb,var(--line) 70%,transparent) 27px 28px);opacity:.6}
+@keyframes call-drift{to{transform:translateX(8%)}}
+@keyframes call-twinkle{to{opacity:.45}}
+@keyframes call-rise{to{transform:translateY(-40%)}}
+@keyframes call-fall{to{transform:translateY(40%)}}
 .call-top{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center}
-.call-top h2{margin:10px 0 0;font-size:26px;font-weight:900;color:#fff}
-.call-status{margin:0;font-size:15px;font-weight:700;opacity:.85;font-variant-numeric:tabular-nums}
-.call-note{margin:0;min-height:18px;font-size:12px;opacity:.7}
+.call-top h2{margin:10px 0 0;font-size:26px;font-weight:900;color:var(--ink)}
+.call-status{margin:0;font-size:15px;font-weight:700;color:var(--ink2);font-variant-numeric:tabular-nums}
+.call-note{margin:0;min-height:18px;font-size:12px;color:var(--ink2)}
 .call-av{position:relative;border-radius:50%}
-.call-av .avatar{box-shadow:0 0 0 4px #ffffff30}
-.call-av.ringing:before,.call-av.ringing:after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid #ffffff70;animation:call-ring 2s ease-out infinite}
+.call-av .avatar{box-shadow:0 0 0 4px color-mix(in srgb,var(--card) 70%,transparent),0 14px 30px -10px color-mix(in srgb,var(--accent) 70%,transparent)}
+.call-av.ringing:before,.call-av.ringing:after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid color-mix(in srgb,var(--accent) 70%,transparent);animation:call-ring 2s cubic-bezier(.2,.6,.4,1) infinite}
 .call-av.ringing:after{animation-delay:1s}
-@keyframes call-ring{from{transform:scale(1);opacity:.9}to{transform:scale(1.7);opacity:0}}
+@keyframes call-ring{from{transform:scale(1);opacity:.9}to{transform:scale(1.75);opacity:0}}
 .call-screen[data-state=talking]{padding-top:56px}
 .call-lines{flex:1;width:100%;min-height:0;margin:14px 0 8px;overflow:auto;scrollbar-width:none;display:flex;flex-direction:column;gap:8px;mask-image:linear-gradient(transparent,#000 22%)}
 .call-lines::-webkit-scrollbar{display:none}
 .call-lines>:first-child{margin-top:auto}
-.cl{align-self:flex-start;max-width:88%;margin:0;padding:9px 13px;border-radius:18px 18px 18px 6px;background:#ffffff1f;font-size:15px;line-height:1.5;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
-.cl small{display:block;margin-top:3px;font-size:12px;opacity:.65}
-.cl.me{align-self:flex-end;border-radius:18px 18px 6px 18px;background:#ffffff38}
-.call-error{display:flex;align-items:center;gap:8px;width:100%;margin-bottom:8px;padding:8px 12px;border-radius:14px;background:#ff5b5b33;font-size:13px}
+.cl{align-self:flex-start;max-width:88%;margin:0;padding:9px 13px;border-radius:18px 18px 18px 6px;background:color-mix(in srgb,var(--card) 72%,transparent);color:var(--ink);font-size:15px;line-height:1.5;box-shadow:0 6px 16px -10px #0005;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);animation:cl-in .32s cubic-bezier(.2,.9,.3,1.2)}
+@keyframes cl-in{from{opacity:0;transform:translateY(8px) scale(.96)}}
+.cl small{display:block;margin-top:3px;font-size:12px;color:var(--ink2)}
+.cl.me{align-self:flex-end;border-radius:18px 18px 6px 18px;background:var(--accent-btn);color:var(--on-accent)}
+.call-error{display:flex;align-items:center;gap:8px;width:100%;margin-bottom:8px;padding:8px 12px;border-radius:14px;background:var(--danger-soft);color:var(--danger);font-size:13px}
 .call-error[hidden]{display:none}
 .call-error span{flex:1}
-.call-error button{padding:6px 12px;border-radius:999px;background:#fff;color:#c62f2f;font-weight:800;font-size:12px}
+.call-error button{padding:6px 12px;border-radius:999px;background:var(--danger);color:var(--card);font-weight:800;font-size:12px}
 .call-say{display:flex;gap:8px;width:100%;margin-bottom:18px}
-.call-say input{flex:1;min-width:0;height:44px;padding:0 16px;border:0;border-radius:999px;background:#ffffff26;color:#fff;font:inherit;font-size:16px;outline:none}
-.call-say input::placeholder{color:#ffffffa0}
-.call-send{flex:none;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:#fff;color:#1d2440}
+.call-say input{flex:1;min-width:0;height:44px;padding:0 16px;border:0;border-radius:999px;background:color-mix(in srgb,var(--card) 78%,transparent);color:var(--ink);box-shadow:inset 0 0 0 1.5px var(--line);font:inherit;font-size:16px;outline:none;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+.call-say input::placeholder{color:var(--ink2)}
+.call-say input:focus{box-shadow:inset 0 0 0 2px var(--accent)}
+.call-send{flex:none;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--accent-btn);color:var(--on-accent);transition:transform .2s cubic-bezier(.3,1.6,.5,1)}
+.call-send:active{transform:scale(.88)}
 .call-send:disabled{opacity:.4}
 .call-send .icon{width:20px;height:20px}
 .call-actions{display:flex;justify-content:space-evenly;width:100%;margin-top:auto}
 .call-screen[data-state=talking] .call-actions{margin-top:0}
-.call-btn{display:flex;flex-direction:column;align-items:center;gap:8px;font-size:13px;font-weight:700;color:#fff}
-.call-btn .icon{box-sizing:content-box;width:30px;height:30px;padding:19px;border-radius:50%;background:#34c759;box-shadow:0 8px 24px -6px #0008}
-.call-btn.decline .icon{background:#ff3b30;transform:rotate(135deg)}
+.call-btn{display:flex;flex-direction:column;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--ink)}
+.call-btn .icon{box-sizing:content-box;width:30px;height:30px;padding:19px;border-radius:50%;background:#34c759;color:#fff;box-shadow:0 10px 24px -8px #34c759aa;transition:transform .22s cubic-bezier(.3,1.6,.5,1)}
+.call-btn.decline .icon{background:#ff3b30;box-shadow:0 10px 24px -8px #ff3b30aa;transform:rotate(135deg)}
+.call-btn:active .icon{transform:scale(.9)}
+.call-btn.decline:active .icon{transform:rotate(135deg) scale(.9)}
 .call-btn.answer .icon{animation:call-shake 1.2s ease-in-out infinite}
 @keyframes call-shake{0%,60%,100%{transform:rotate(0)}70%{transform:rotate(-14deg)}80%{transform:rotate(12deg)}90%{transform:rotate(-8deg)}}
-.call-screen[data-state=ended] .call-top{opacity:.8}
+.call-screen[data-state=ended] .call-top{opacity:.75;transition:opacity .4s}
 /* Call records in a chat */
 .call-msg{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:18px;background:var(--card);color:var(--ink);font-size:14px;font-weight:700;box-shadow:var(--shadow)}
 .msg.me .call-msg{background:var(--accent-btn);color:var(--on-accent)}

@@ -109,13 +109,12 @@ export function createCallHost({context, settings, backend, notice, ringing = ()
 
   async function ask(mode, c) {
     const ctx = context();
-    if (!ctx?.generateRaw) throw Error('当前酒馆版本不支持后台生成');
     const s = settings(), preset = activeChatPreset(s.chat), user = userName(), thread = (await backend.chats.list()).find(t => t.type === 'dm' && t.members[0] === c.name);
     const history = thread ? (await backend.chats.get(thread.id)).messages.filter(m => m.kind !== 'system' && m.kind !== 'call').slice(-CALL_LIMITS.history) : [];
     const voiceFormat = backend.voiceFormat();
     const prompt = buildCallRequest({preset, mode, contact: c.contact, lines: c.lines, history, story: storyLines(ctx.chat || [], preset.context, user), user, userPersona: userPersona(),
       voiceFormat, voiceRules: c.voiced ? modelRules(s, [c.name]) : '', reason: c.reason});
-    const text = await ctx.generateRaw({prompt, trimNames: false});
+    const text = await backend.generateText(ctx, {prompt, trimNames: false});
     return parseCallReply(text, {name: c.name, user, voiceFormat, voiced: c.voiced});
   }
 
