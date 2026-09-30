@@ -9,6 +9,7 @@ export function normalizeSettings(value){const base=freshState();if(!value)retur
 export function validateSettings(s){if(JSON.stringify(s).length>2_000_000)throw Error('设置内容过大');if(s.routes.some(r=>!r.name?.trim()||!['fish','mini','eleven'].includes(r.engine)))throw Error('角色配音设置无效');if(new Set(s.routes.map(r=>r.name.trim())).size!==s.routes.length)throw Error('角色名不可重复');for(const p of s.presets)validatePreset(p);if(s.chat){for(const p of s.chat.presets)validateChatPreset(p);if(new Set(s.chat.presets.map(p=>p.id)).size!==s.chat.presets.length||new Set(s.chat.contacts.map(c=>c.name)).size!==s.chat.contacts.length)throw Error('聊天预设 ID 或联系人名字重复');}if(s.draw){for(const p of s.draw.presets)validateDrawPreset(p);if(new Set(s.draw.presets.map(p=>p.id)).size!==s.draw.presets.length||new Set(s.draw.styles.map(p=>p.id)).size!==s.draw.styles.length)throw Error('绘图预设 ID 不可重复');}for(const [key,c] of Object.entries(s.connections)){if(!TTSParameters.catalogs[key])continue;const err=TTSParameters.validate(key,c);if(err)throw Error(TTSParameters.catalogs[key].model+'：'+err);}return s;}
 // Reading rules for the story model, one line per speaker, following each engine's official tag syntax (2026-09-30).
 // The 情绪 field is used by the plugin: MiniMax gets it as its emotion setting, Fish and Eleven v3/v4 as an opening tag.
+const ENGINE_NAMES={fish:'Fish Audio',mini:'MiniMax',eleven:'ElevenLabs'};
 export function modelRules(s){const {FISH_S1_EMOTIONS,FISH_S1_TONES,FISH_S1_SOUNDS,MINI_SOUNDS,ELEVEN_TAGS}=TTSParameters.vocab;const output=[];const configured=s.routes.filter(r=>!isPlaceholderRole(r.name));const routes=configured.length?configured:[{name:'未配置角色',engine:'fish',model:s.connections.fish.model}];
  for(const r of routes){const model=r.model||s.connections[r.engine]?.model||TTSParameters.catalogs[r.engine]?.model||'';let rule;
   if(r.engine==='mini'){
@@ -24,5 +25,8 @@ export function modelRules(s){const {FISH_S1_EMOTIONS,FISH_S1_TONES,FISH_S1_SOUN
   }else{
    rule='情绪字段写一个描述声音的英文词或短语（如 happy、nervous、whispers sweetly、slightly sad），插件会把它放在原文开头当方括号标签。原文里也可以在任意位置插方括号英文描述，如 [whispers sweetly]、[laughing nervously]、[very excited]、[sigh]、[emphasis]，一句最多三个，只描述声音。';
   }
-  output.push(JSON.stringify(r.name)+' 使用 '+r.engine+' / '+model+'：'+rule);}
- return '各说话者的朗读规则（只用于台词，不改变人物设定）：\n'+output.join('\n');}
+  // Speakers that share a rule share one entry: the rule is written once, with every name and model in front.
+  const same=output.find(o=>o.rule===rule),who=String(r.name),label=(ENGINE_NAMES[r.engine]||r.engine)+' '+model;
+  if(same){const group=same.groups.find(g=>g.label===label);if(group)group.names.push(who);else same.groups.push({label,names:[who]});}
+  else output.push({rule,groups:[{label,names:[who]}]});}
+ return '各说话者的朗读规则（只用于台词，不改变人物设定）：\n'+output.map(o=>'· '+o.groups.map(g=>g.names.join('、')+'（'+g.label+'）').join('、')+'：\n  '+o.rule).join('\n');}
