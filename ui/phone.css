@@ -735,9 +735,11 @@ html[data-keyboard=true] *{animation:none!important;transition:none!important}
 @keyframes wm-blink{0%,100%{opacity:.12}50%{opacity:1}}
 
 /* On a computer the phone floats over the dimmed tavern: the page around it is transparent (a phone screen, where the
-   phone fills everything, keeps the page colour above). The root stays in the light scheme like the iframe element
-   (style.css), or Chrome paints the whole frame opaque when the two differ; dark form controls come from body. */
-html{color-scheme:light!important;background:transparent}
+   phone fills everything, keeps the page colour above). The root and the iframe element (style.css) both follow the
+   system: Chrome paints the whole frame opaque when their schemes differ, and inside a frame prefers-color-scheme
+   (跟随系统) reports the frame element's scheme. The theme the phone shows is set on body. */
+html{color-scheme:light dark!important;background:transparent}
+:root[data-theme=light] body{color-scheme:light}
 :root[data-theme=dark] body{color-scheme:dark}
 .stage-bar{color:#fff;text-shadow:0 1px 3px #0009}
 .stage-bar .close{color:#fff;background:#ffffff26}
