@@ -110,8 +110,12 @@
   box-shadow:0 0 0 1px color-mix(in srgb,var(--ink) 18%,transparent),0 7px 12px -8px rgba(70,70,50,.55);
   outline:1.2px dashed color-mix(in srgb,var(--t2) 38%,transparent);outline-offset:-5px}
 :root[data-skin=fresh][data-theme=dark] .screen:not([data-icon-style=glass]):not([data-icon-style=mono]) .icon-tile{
-  --paper:#2b322d;--ink:#e6e0cf;--wash:20%;--dab:9%;
-  box-shadow:0 0 0 1px rgba(255,255,255,.08),0 7px 12px -8px rgba(0,0,0,.8)}
+  /* At night a wash on dark paper reads as a glow, not watercolour: plain dark paper, and the app's own colour
+     goes to the picture and the dashed stamp frame instead. */
+  --paper:#262d29;--ink:#e6e0cf;
+  background:var(--paper);color:color-mix(in srgb,var(--t1) 70%,var(--ink));
+  outline:1.5px dashed color-mix(in srgb,var(--t1) 60%,transparent);
+  box-shadow:0 0 0 1px rgba(255,255,255,.07),0 7px 12px -8px rgba(0,0,0,.8)}
 /* Inside the picture: details in paper colour, accents in a dusty version of the app's accent. */
 :root[data-skin=fresh] .screen:not([data-icon-style=glass]):not([data-icon-style=mono]) .icon-tile .glyph{
   width:38px;height:38px;--t2:var(--paper);--tac:color-mix(in srgb,var(--tac) 55%,#c9a79c)}
