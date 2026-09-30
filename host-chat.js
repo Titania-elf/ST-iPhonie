@@ -63,9 +63,11 @@ export function createChatHost({context, settings, backend, notice}) {
    * and leaves a notice where it happened.
    */
   async function settle(threadId, items) {
-    const thread = await backend.chats.get(threadId), taken = new Set(), out = [];
+    const thread = await backend.chats.get(threadId), taken = new Set(), out = [], posts = [];
     let latest = thread;
     for (const item of items) {
+      // 「[朋友圈] …」: posted to 朋友圈 while chatting, not a chat message.
+      if (item.kind === 'moment') { posts.push({author: item.from, text: item.text, source: 'chat'}); continue; }
       if (item.kind !== 'claim') { out.push(item); continue; }
       const kinds = item.action === 'return' ? ['transfer'] : item.what ? [item.what] : ['redpacket', 'transfer'];
       const target = thread.messages.findLast(m => m.from === 'me' && kinds.includes(m.kind) && m.state === 'sent' && !taken.has(m.id));
@@ -75,6 +77,7 @@ export function createChatHost({context, settings, backend, notice}) {
       latest = await backend.chats.updateMessage(threadId, target.id, {state, openedBy: item.from});
       out.push({from: item.from, kind: 'notice', target: 'me', text: {opened: '领取了{对方}的红包', accepted: '收下了{对方}的转账', returned: '退还了{对方}的转账'}[state]});
     }
+    if (posts.length) await backend.momentsMutate(() => backend.moments.add(posts)).catch(() => {});
     return out.length ? backend.chats.append(threadId, out) : latest;
   }
 

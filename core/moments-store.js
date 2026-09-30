@@ -1,5 +1,5 @@
 // 朋友圈 posts, kept in this browser (IndexedDB) and scoped to the tavern account like the other local data.
-// Post: {id, author:'me'|name, text, at, source:'manual'|'auto'|'me', photoId?, imageTags?, imageState?:'waiting'|'done'|'failed',
+// Post: {id, author:'me'|name, text, at, source:'manual'|'auto'|'me'|'chat', photoId?, imageTags?, imageState?:'waiting'|'done'|'failed',
 //        imageNote?, likes:[name|'me'], comments:[{id, from:'me'|name, to?:'me'|name, text, at}]}
 import {MOMENTS_LIMITS} from './moments.js';
 
@@ -16,7 +16,7 @@ function cleanPost(p, id, at) {
   const author = person(p?.author), said = clip(p?.text, MOMENTS_LIMITS.text).trim();
   if (!author) throw fail('动态缺少发布人');
   if (!said && !p?.photoId) throw fail('动态内容为空');
-  const out = {id, author, text: said, at, source: ['manual', 'auto', 'me'].includes(p.source) ? p.source : 'manual', likes: [], comments: []};
+  const out = {id, author, text: said, at, source: ['manual', 'auto', 'me', 'chat'].includes(p.source) ? p.source : 'manual', likes: [], comments: []};
   if (p.photoId) out.photoId = clip(p.photoId, 512);
   if (p.imageTags) out.imageTags = clip(p.imageTags, 600);
   if (['waiting', 'done', 'failed'].includes(p.imageState)) out.imageState = p.imageState;

@@ -5,7 +5,9 @@
 //   redpacket: amount, state:'sent'|'opened', openedBy? · transfer: amount, state:'sent'|'accepted'|'returned'
 //   location: text = place, detail = address · pat: target (who was patted) · dice: text = 1..6
 //   notice: text = what `from` did, with {对方} standing for `target` · recall: a withdrawn message · system: app notes
-// list() returns threads without their messages, plus the last message for previews.
+// list() returns threads without their messages, plus the last message for previews, pinned threads first.
+// A thread can be pinned (置顶) or muted (免打扰: its unread messages do not count toward the app's badge).
+// streak (聊天火花): days in a row, up to today or yesterday, on which both the user and the other side wrote.
 
 export const CHAT_STORE_LIMITS = Object.freeze({messages: 1000, text: 4000, members: 20});
 const KINDS = ['text', 'voice', 'photo', 'system', 'redpacket', 'transfer', 'location', 'pat', 'dice', 'notice', 'recall'];
@@ -83,12 +85,24 @@ export class ChatStore {
   #public(row, full = true) {
     if (!row) return null;
     const {scope, messages, ...rest} = row;
-    return full ? structuredClone({...rest, messages}) : structuredClone({...rest, count: messages.length, last: messages.filter(m => m.kind !== 'system').at(-1) || null});
+    const base = {pinned: false, muted: false, ...rest};
+    return full ? structuredClone({...base, messages}) : structuredClone({...base, count: messages.length, last: messages.filter(m => m.kind !== 'system').at(-1) || null, streak: this.#streak(messages)});
+  }
+  #streak(messages) {
+    const day = at => { const d = new Date(at); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); };
+    const mine = new Set(), theirs = new Set();
+    for (const m of messages) if (!['system', 'notice', 'recall'].includes(m.kind)) (m.from === 'me' ? mine : theirs).add(day(m.at));
+    const both = [...mine].filter(d => theirs.has(d)).sort((a, b) => b - a);
+    const today = day(this.#now()), DAY = 86400000;
+    if (!both.length || today - both[0] > DAY) return 0;
+    let n = 1;
+    while (n < both.length && both[n - 1] - both[n] <= DAY + 3600000 && both[n - 1] - both[n] >= DAY - 3600000) n++;
+    return n;
   }
 
   async list() {
     const rows = await this.#tx('readonly', (store, done) => { const req = store.index('scope').getAll(this.#scope); req.onsuccess = () => done(req.result); });
-    return rows.sort((a, b) => b.updatedAt - a.updatedAt).map(row => this.#public(row, false));
+    return rows.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.updatedAt - a.updatedAt).map(row => this.#public(row, false));
   }
   async get(id) {
     return this.#tx('readonly', (store, done) => this.#get(store, id, row => done(this.#public(row))));
@@ -111,15 +125,17 @@ export class ChatStore {
       done(this.#public(row));
     }));
   }
-  async update(id, {name, members} = {}) {
+  async update(id, {name, members, pinned, muted} = {}) {
     return this.#change(id, row => {
+      if (pinned !== undefined) row.pinned = pinned === true;
+      if (muted !== undefined) row.muted = muted === true;
       if (name !== undefined) row.name = clip(name, 40).trim() || row.name;
       if (members !== undefined && row.type === 'group') {
         const list = [...new Set(members.map(m => clip(m, 40).trim()).filter(Boolean))];
         if (list.length < 2) throw fail('群聊至少要选两个人');
         row.members = list.slice(0, CHAT_STORE_LIMITS.members);
       }
-      row.updatedAt = this.#now();
+      if (name !== undefined || members !== undefined) row.updatedAt = this.#now();
     });
   }
   /** Adds messages. Replies count as unread unless `read` is set (the chat is open on screen). */
@@ -164,7 +180,7 @@ export class ChatStore {
     return this.#tx('readwrite', (store, done) => { store.delete([this.#scope, String(id)]); done(true); });
   }
   async unread() {
-    return (await this.list()).reduce((n, t) => n + t.unread, 0);
+    return (await this.list()).reduce((n, t) => n + (t.muted ? 0 : t.unread), 0);
   }
   /** Every thread with its messages, for a backup. */
   async exportThreads() {
@@ -179,7 +195,7 @@ export class ChatStore {
       const members = [...new Set((Array.isArray(t.members) ? t.members : []).map(m => clip(m, 40).trim()).filter(Boolean))].slice(0, CHAT_STORE_LIMITS.members);
       if (!members.length) throw fail('备份里有一段聊天没有聊天对象');
       const messages = (Array.isArray(t.messages) ? t.messages : []).slice(-CHAT_STORE_LIMITS.messages).map(m => cleanMessage(m, clip(m?.id || this.#id(), 512), Number.isFinite(m?.at) ? m.at : now));
-      return {scope: this.#scope, id: clip(t.id, 512), type: t.type === 'group' ? 'group' : 'dm', name: clip(t.name, 40).trim() || members.join('、').slice(0, 40), members: t.type === 'group' ? members : [members[0]],
+      return {scope: this.#scope, id: clip(t.id, 512), type: t.type === 'group' ? 'group' : 'dm', name: clip(t.name, 40).trim() || members.join('、').slice(0, 40), members: t.type === 'group' ? members : [members[0]], pinned: t.pinned === true, muted: t.muted === true,
         unread: Math.max(0, Math.min(CHAT_STORE_LIMITS.messages, Math.round(Number(t.unread)) || 0)), createdAt: Number.isFinite(t.createdAt) ? t.createdAt : now, updatedAt: Number.isFinite(t.updatedAt) ? t.updatedAt : now, messages};
     });
     return this.#tx('readwrite', (store, done) => {

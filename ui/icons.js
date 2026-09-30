@@ -7,14 +7,7 @@ const gear = (() => {
   return `<circle cx="32" cy="32" r="15"/>${teeth}<circle cx="32" cy="32" r="6" fill="var(--tac)"/>`;
 })();
 
-const aperture = (() => {
-  let blades = '';
-  for (let k = 0; k < 6; k++) blades += `<path d="M32 10a22 22 0 0 1 19 11L36.5 29.5z" transform="rotate(${k * 60} 32 32)" fill="${k % 2 ? 'var(--tac)' : 'currentColor'}"/>`;
-  return `<circle cx="32" cy="32" r="23" fill="var(--t2)"/>${blades}<circle cx="32" cy="32" r="7.5" fill="var(--t2)"/>`;
-})();
-
 const GLYPHS = {
-  moments: aperture,
   roles: '<path d="M14 57c1-10 8-15 18-15s17 5 18 15z"/><circle cx="32" cy="28" r="13"/><path d="M31 15c-1-5 2-9 7-9-3 2-4 5-3 9" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M25 29q2.5-3 5 0M34 29q2.5-3 5 0" fill="none" stroke="var(--t2)" stroke-width="2.2" stroke-linecap="round"/><ellipse cx="24" cy="34" rx="3" ry="1.8" fill="var(--tac)"/><ellipse cx="40" cy="34" rx="3" ry="1.8" fill="var(--tac)"/>',
   engines: '<rect x="23" y="8" width="18" height="30" rx="9"/><path d="M16 30a16 16 0 0 0 32 0M32 46v9M24 55h16" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><path d="M52 15q4 5 0 10M57 11q7 9 0 18" fill="none" stroke="var(--tac)" stroke-width="3" stroke-linecap="round"/>',
   presets: '<rect x="14" y="9" width="36" height="46" rx="6"/><path d="M21 25h22M21 33h22M21 41h14" stroke="var(--t2)" stroke-width="3" stroke-linecap="round"/><path d="M39 9h8v16l-4-3-4 3z" fill="var(--tac)"/>',
@@ -50,6 +43,7 @@ const LINES = {
   alert: 'M12 8v5M12 16.5v.5M10.3 3.9 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
   wave: 'M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2', trash: 'M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13', refresh: 'M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5',
   eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6', image: 'M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M15 9.5h.01',
+  search: 'M11 4a7 7 0 1 1 0 14 7 7 0 0 1 0-14zM20 20l-4.2-4.2', mute: 'M9 5.2A6 6 0 0 1 18 10v3l2 3H9M6 10v3l-2 3h3M10 20a2 2 0 0 0 4 0M3 3l18 18', moments: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 3l3.2 6.8M21 12l-6.8 3.2M12 21l-3.2-6.8M3 12l6.8-3.2',
   import: 'M12 4v11M7 10l5 5 5-5M5 20h14', download: 'M12 4v11M7 10l5 5 5-5M5 20h14', key: 'M15 7a4 4 0 1 1-3.9 5H4v3H2v-5h9.1A4 4 0 0 1 15 7z', check: 'm5 12 5 5 9-10',
   nfc: 'M8 8a6 6 0 0 1 0 8M11.5 5.5a10 10 0 0 1 0 13M15 3a14 14 0 0 1 0 18', sun: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M5 19l1.4-1.4M17.6 6.4 19 5',
   float: 'M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18zM9 12h.01M15 12h.01', volume: 'M4 9v6h4l5 4V5L8 9zM16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11',

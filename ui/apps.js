@@ -11,8 +11,7 @@ export const APPS = {
   listen: {name: '听取', eyebrow: 'Now Playing', colors: ['#ffa3c3', '#e9588e', '#fff09a']},
   settings: {name: '设置', eyebrow: 'Settings', colors: ['#e4e8f0', '#98a2b6', '#ffd36a']},
   draw: {name: '绘图', eyebrow: 'NovelAI', colors: ['#c3c3ff', '#6d6ff0', '#ffd46a']},
-  chat: {name: '聊天', eyebrow: 'Messages', colors: ['#8fd8ff', '#3d8ff0', '#ff9dbb']},
-  moments: {name: '朋友圈', eyebrow: 'Moments', colors: ['#b7f0c4', '#3fb46a', '#ffd56a']}
+  chat: {name: '聊天', eyebrow: 'Messages', colors: ['#8fd8ff', '#3d8ff0', '#ff9dbb']}
 };
 
 export const SLOT = null;
@@ -20,7 +19,7 @@ export const SLOT = null;
 // Home screen: page 1 sits under the clock and widgets; page 2 is kept for future apps.
 export const HOME = {
   pages: [
-    ['roles', 'engines', 'presets', 'library', 'gallery', 'notes', 'moments'],
+    ['roles', 'engines', 'presets', 'library', 'gallery', 'notes'],
     [SLOT, SLOT, SLOT, SLOT, SLOT, SLOT, SLOT, SLOT]
   ],
   dock: ['chat', 'draw', 'listen', 'settings']

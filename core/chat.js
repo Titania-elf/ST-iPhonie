@@ -8,18 +8,27 @@ import {money} from './chats.js';
 
 export const CHAT_LIMITS = Object.freeze({contacts: 200, persona: 4000, story: 40, history: 200});
 
+// Where a rule is used: private chats, group chats, 朋友圈 (posts, likes and comments).
+export const RULE_USES = Object.freeze(['dm', 'group', 'moments']);
 export const DEFAULT_CHAT_ENTRIES = Object.freeze([
-  {id: 'style', title: '短信口吻', text: '你在一个手机聊天软件里，以联系人本人的身份回复{{用户}}。像真的在发手机消息：口语、简短，一次发一到三条，每条一两句话。可以用语气词和颜文字，不写动作、旁白和心理描写，不加引号。'},
-  {id: 'persona', title: '守住人设', text: '严格按每个联系人的人设、和{{用户}}的关系、说话习惯来回复。最近的剧情只作背景：可以提到发生过的事，但不要复述剧情，也不要替{{用户}}说话。'},
-  {id: 'group', title: '群聊', text: '群聊里每次由一到三位成员接话，谁接话看话题和各自性格，成员之间也可以互相回应、吐槽。'},
-  {id: 'features', title: '手机功能', text: '你们是在手机上聊天，可以像真人一样用手机功能，但要有理由、看场合，大多数时候还是发文字：\n- 照片：分享正在看的东西、自拍、吃的、窗外的景色，或者{{用户}}问起时。写成「名字：[图片] 一句话描述照片里拍到的画面」，写清楚看得见的东西。\n- 位置：约见面、说自己在哪、让{{用户}}来找时。写成「名字：[位置] 地点」。\n- 红包：节日、道谢、道歉、哄人、庆祝、开玩笑时，金额和身份、关系相称。写成「名字：[红包 ¥金额] 祝福语」。\n- 转账：还钱、付账、给零花钱这类真的涉及钱的事，只在私聊里用。写成「名字：[转账 ¥金额] 备注」。\n- 拍一拍：想引起注意、撒娇、打招呼，或者{{用户}}很久没回时。写成「名字：[拍一拍]」。\n- {{用户}}发来的红包和转账，收不收按人设来：客气的人可能先推辞，嘴硬的人嘴上说不要，正直的人会退还不该收的钱。收下红包写「名字：[领取红包]」，收下转账写「名字：[收款]」，退还转账写「名字：[退还]」，通常再跟一句话。\n- {{用户}}撤回消息、拍了拍谁、掷骰子、发来照片或位置时，可以自然地接话。\n一轮回复里最多用一次这些功能，不要连着几轮都发红包或照片。'},
-  {id: 'voice', title: '语音消息', text: '情绪强烈、不方便打字，或者想让对方听到声音时，可以发语音消息，偶尔发就好。语音消息整条写成：{{语音格式}}\n能发语音的人和各自的语音语言：{{可发语音}}'}
+  {id: 'style', title: '短信口吻', text: '你在一个手机聊天软件里，以联系人本人的身份回复{{用户}}。像真的在发手机消息：口语、简短，一次发一到三条，每条一两句话。可以用语气词和颜文字，不写动作、旁白和心理描写，不加引号。', use: ['dm', 'group']},
+  {id: 'persona', title: '守住人设', text: '严格按每个联系人的人设、和{{用户}}的关系、说话习惯来回复。最近的剧情只作背景：可以提到发生过的事，但不要复述剧情，也不要替{{用户}}说话。', use: ['dm', 'group']},
+  {id: 'group', title: '群聊', text: '群聊里每次由一到三位成员接话，谁接话看话题和各自性格，成员之间也可以互相回应、吐槽。', use: ['group']},
+  {id: 'features', title: '手机功能', text: '你们是在手机上聊天，可以像真人一样用手机功能，但要有理由、看场合，大多数时候还是发文字：\n- 照片：分享正在看的东西、自拍、吃的、窗外的景色，或者{{用户}}问起时。写成「名字：[图片] 一句话描述照片里拍到的画面」，写清楚看得见的东西。\n- 位置：约见面、说自己在哪、让{{用户}}来找时。写成「名字：[位置] 地点」。\n- 红包：节日、道谢、道歉、哄人、庆祝、开玩笑时，金额和身份、关系相称。写成「名字：[红包 ¥金额] 祝福语」。\n- 转账：还钱、付账、给零花钱这类真的涉及钱的事，只在私聊里用。写成「名字：[转账 ¥金额] 备注」。\n- 拍一拍：想引起注意、撒娇、打招呼，或者{{用户}}很久没回时。写成「名字：[拍一拍]」。\n- {{用户}}发来的红包和转账，收不收按人设来：客气的人可能先推辞，嘴硬的人嘴上说不要，正直的人会退还不该收的钱。收下红包写「名字：[领取红包]」，收下转账写「名字：[收款]」，退还转账写「名字：[退还]」，通常再跟一句话。\n- {{用户}}撤回消息、拍了拍谁、掷骰子、发来照片或位置时，可以自然地接话。\n一轮回复里最多用一次这些功能，不要连着几轮都发红包或照片。', use: ['dm', 'group']},
+  {id: 'voice', title: '语音消息', text: '情绪强烈、不方便打字，或者想让对方听到声音时，可以发语音消息，偶尔发就好。语音消息整条写成：{{语音格式}}\n能发语音的人和各自的语音语言：{{可发语音}}', use: ['dm', 'group']},
+  {id: 'post', title: '顺手发朋友圈', use: ['dm', 'group'], text: '聊天里发生了让人有感触的事（开心、委屈、被逗笑、吵了架、想念对方），很偶尔可以顺手发一条朋友圈，大多数时候不发。朋友圈是给所有朋友看的，可以含蓄、意有所指，不要直接复述聊天内容。'},
+  {id: 'm-style', title: '朋友圈口吻', use: ['moments'], text: '你在替联系人发朋友圈。像真人发动态：一两句话到一小段，写日常、心情、吐槽、见闻，或者对最近发生的事的感受。口语、自然，可以用表情和颜文字，不写旁白、动作描写和心理描写。每个人发的内容和语气都要符合自己的人设和说话习惯，彼此不要雷同。'},
+  {id: 'm-persona', title: '朋友圈里守住人设', use: ['moments'], text: '朋友圈是发给所有朋友看的，不是单独对{{用户}}说话。可以含蓄地提到和{{用户}}之间的事，但不要把只有两个人知道的秘密直接写出来，除非人设就是这样。最近的剧情只作背景，不要复述剧情，也不要替{{用户}}说话或发动态。'},
+  {id: 'm-interact', title: '点赞和评论', use: ['moments'], text: '别人发动态时，关系好的联系人会点赞或评论；评论简短口语，可以互相接话、吐槽、开玩笑。{{用户}}评论时，被评论的人一定会回复，别的人看到了也可以接话。'},
+  {id: 'm-picture', title: '朋友圈配图', use: ['moments'], text: '有画面感的动态可以配一张图，大约三成的动态配图就好：自拍、吃的、风景、宠物、正在看的东西。配图写成英文 danbooru tag，描述画面本身。'}
 ]);
 export const DEFAULT_BRING = '以下是{{用户}}刚才在手机上和{{对象}}的聊天记录。接下来的正文可以自然地承接、提到或回应这段聊天，不要原样复述：\n{{聊天记录}}';
 const DEFAULT_INJECTION = {position: 'in_chat', depth: 1, role: 'system'};
 // rev 2 (0.6): presets made earlier get the 手机功能 entry once; deleting it afterwards sticks.
-const PRESET_REV = 2;
-const DEFAULT_PRESET = {id: 'default', name: '日常短信', rev: PRESET_REV, context: 6, history: 30, bring: DEFAULT_BRING, injection: DEFAULT_INJECTION, entries: DEFAULT_CHAT_ENTRIES.map(e => ({...e, enabled: true}))};
+// rev 3 (0.6.19): rules say where they are used (私聊 / 群聊 / 朋友圈); presets made earlier get 顺手发朋友圈 and the
+// four 朋友圈 rules once, and their own rules keep applying to both kinds of chat as before.
+const PRESET_REV = 3;
+const DEFAULT_PRESET = {id: 'default', name: '日常短信', rev: PRESET_REV, context: 6, history: 30, posts: 2, bring: DEFAULT_BRING, injection: DEFAULT_INJECTION, entries: DEFAULT_CHAT_ENTRIES.map(e => ({...e, enabled: true}))};
 
 // How voice messages read in the phone: only the voice bar until the user asks for 转文字 (or `auto`),
 // then the translation, the original line, or both.
@@ -30,7 +39,7 @@ export function normalizeVoiceText(v = {}) {
 }
 
 export function defaultChat() {
-  return {presets: [structuredClone(DEFAULT_PRESET)], activePreset: 'default', contacts: [], voiceText: {...DEFAULT_VOICE_TEXT}};
+  return {presets: [structuredClone(DEFAULT_PRESET)], activePreset: 'default', contacts: [], voiceText: {...DEFAULT_VOICE_TEXT}, profile: normalizeProfile(), starred: []};
 }
 
 const text = (value, max) => String(value ?? '').slice(0, max);
@@ -43,14 +52,36 @@ export function normalizeChatPreset(p = {}) {
     const added = {...DEFAULT_CHAT_ENTRIES.find(e => e.id === 'features'), enabled: true};
     entries = at < 0 ? [...entries, added] : [...entries.slice(0, at), added, ...entries.slice(at)];
   }
+  if (!(Number(p.rev) >= 3) && entries.length) {
+    const missing = DEFAULT_CHAT_ENTRIES.filter(e => ['post', 'm-style', 'm-persona', 'm-interact', 'm-picture'].includes(e.id) && !entries.some(x => x.id === e.id));
+    entries = [...entries, ...missing.map(e => ({...e, enabled: true}))];
+  }
   return {
     id: String(p.id || crypto.randomUUID()), name: text(p.name, 60) || '聊天预设', rev: PRESET_REV,
     context: count(p.context, 0, CHAT_LIMITS.story, DEFAULT_PRESET.context),
     history: count(p.history, 2, CHAT_LIMITS.history, DEFAULT_PRESET.history),
+    posts: count(p.posts, 1, 5, DEFAULT_PRESET.posts),
     bring: text(p.bring ?? DEFAULT_BRING, 4000),
     injection: {...DEFAULT_INJECTION, ...p.injection, depth: count(p.injection?.depth, 0, 10000, DEFAULT_INJECTION.depth)},
-    entries: entries.map(e => ({id: String(e.id || crypto.randomUUID()), title: text(e.title, 80), enabled: e.enabled !== false, text: text(e.text, 20000)}))
+    entries: entries.map(e => ({id: String(e.id || crypto.randomUUID()), title: text(e.title, 80), enabled: e.enabled !== false, text: text(e.text, 20000), use: ruleUse(e)}))
   };
+}
+
+/** Where a rule is used; a rule saved before rules had places is used where the shipped rule of that id is, else in both chats. */
+function ruleUse(e) {
+  if (Array.isArray(e.use)) return RULE_USES.filter(u => e.use.includes(u));
+  return [...(DEFAULT_CHAT_ENTRIES.find(d => d.id === e.id)?.use || ['dm', 'group'])];
+}
+
+// The user in the chat app (QQ style): shown name (empty: the tavern's persona name), status, signature, and looks.
+export const PROFILE_STATUS = Object.freeze({online: '在线', qme: 'Q我吧', busy: '忙碌', away: '离开', hidden: '隐身'});
+export const BUBBLES = Object.freeze({default: '默认', candy: '糖果', mint: '薄荷', night: '星空', ink: '描边'});
+export const FRAMES = Object.freeze({none: '无', star: '星星', cat: '猫耳', flower: '花环', halo: '光环'});
+export const BACKGROUNDS = Object.freeze({none: '无', clouds: '云朵', stars: '星空', grid: '格子', sakura: '樱花'});
+export function normalizeProfile(p = {}) {
+  const pick = (value, list, fallback) => Object.hasOwn(list, value) ? value : fallback;
+  return {name: text(p.name, 40).trim(), status: pick(p.status, PROFILE_STATUS, 'online'), statusText: text(p.statusText, 20).trim(), signature: text(p.signature, 80).trim(),
+    bubble: pick(p.bubble, BUBBLES, 'default'), frame: pick(p.frame, FRAMES, 'none'), background: pick(p.background, BACKGROUNDS, 'none'), backgroundPhoto: text(p.backgroundPhoto, 512)};
 }
 
 export function normalizeContact(c = {}) {
@@ -62,14 +93,15 @@ export function normalizeChat(value) {
   if (!value || typeof value !== 'object') return base;
   const presets = (Array.isArray(value.presets) && value.presets.length ? value.presets : base.presets).map(normalizeChatPreset);
   const contacts = (Array.isArray(value.contacts) ? value.contacts : []).slice(0, CHAT_LIMITS.contacts).map(normalizeContact).filter(c => c.name);
-  return {presets, activePreset: presets.some(p => p.id === value.activePreset) ? value.activePreset : presets[0].id, contacts, voiceText: normalizeVoiceText(value.voiceText)};
+  const starred = [...new Set((Array.isArray(value.starred) ? value.starred : []).map(n => text(n, 40).trim()).filter(Boolean))].slice(0, CHAT_LIMITS.contacts);
+  return {presets, activePreset: presets.some(p => p.id === value.activePreset) ? value.activePreset : presets[0].id, contacts, voiceText: normalizeVoiceText(value.voiceText), profile: normalizeProfile(value.profile), starred};
 }
 
 export function validateChatPreset(p) {
   if (!p?.name?.trim()) throw Error('请填写聊天预设名称');
   const i = p.injection;
   if (!['in_chat', 'in_prompt', 'before_prompt'].includes(i?.position) || !['system', 'user', 'assistant'].includes(i?.role)) throw Error('插入位置或身份无效');
-  if (!p.entries.some(e => e.enabled && e.text.trim())) throw Error('至少启用一条聊天规则');
+  if (!p.entries.some(e => e.enabled && e.text.trim() && (e.use.includes('dm') || e.use.includes('group')))) throw Error('至少启用一条用在私聊或群聊的规则');
   if (!p.bring.includes('{{聊天记录}}')) throw Error('带进剧情的模板需要包含 {{聊天记录}}');
   return p;
 }
@@ -130,7 +162,8 @@ export function buildChatRequest({preset, thread, members, story = [], user = '�
     '语音格式': voiceFormat,
     '可发语音': speakers.length ? speakers.map(m => `${m.name}（${m.language || '中文'}）`).join('、') : '（暂时没有人能发语音，只发文字）'
   };
-  const rules = preset.entries.filter(e => e.enabled && e.text.trim()).filter(e => group || e.id !== 'group').filter(e => speakers.length || e.id !== 'voice').map(e => fill(e.text, values));
+  const used = preset.entries.filter(e => e.enabled && e.text.trim() && e.use.includes(group ? 'group' : 'dm')).filter(e => speakers.length || e.id !== 'voice');
+  const rules = used.map(e => fill(e.text, values)), posting = used.some(e => e.id === 'post' || /朋友圈/.test(e.text));
   const people = members.map(m => `- ${m.name}：${(m.persona || m.card || '').trim() || '（没有资料，按剧情里的表现来）'}`).join('\n');
   const names = members.map(m => m.name).join('、');
   const system = [
@@ -143,7 +176,8 @@ export function buildChatRequest({preset, thread, members, story = [], user = '�
       `不要写${user}的消息，不要写时间、编号、引号或任何解释。`,
       speakers.length ? `语音消息的整行写成「名字：${voiceFormat}」，标签里的角色填同一个名字。` : '',
       `需要时也可以像真人一样用手机功能，每种单独一行，偶尔用，别每轮都用：「名字：[图片] 一句话描述拍的照片」「名字：[位置] 地点」「名字：[红包 ¥金额] 祝福语」「名字：[转账 ¥金额] 备注」「名字：[拍一拍]」（拍一拍${user}）。`,
-      `${user}发来红包或转账时，收下红包单独写一行「名字：[领取红包]」，收下转账写「名字：[收款]」，退还转账写「名字：[退还]」；收不收按人设决定。`].filter(Boolean).join('\n')
+      `${user}发来红包或转账时，收下红包单独写一行「名字：[领取红包]」，收下转账写「名字：[收款]」，退还转账写「名字：[退还]」；收不收按人设决定。`,
+      posting ? `很偶尔可以顺手发一条朋友圈，单独一行写成「名字：[朋友圈] 动态内容」；这是发给所有朋友看的动态，不是发给${user}的消息，大多数回复都不要发。` : ''].filter(Boolean).join('\n')
   ].filter(Boolean).join('\n\n');
   const history = thread.messages.filter(m => m.kind !== 'system').slice(-preset.history);
   const last = history.at(-1);
@@ -156,7 +190,7 @@ export function buildChatRequest({preset, thread, members, story = [], user = '�
 
 const NAME_LINE = /^\s*(?:\*\*)?[[【]?([^\]】:：\n]{1,40}?)[\]】]?(?:\*\*)?\s*[:：]\s*(.*)$/;
 const unquote = s => s.trim().replace(/^[「“"『](.*)[」”"』]$/s, '$1').trim();
-const SPECIAL = /^\s*[[【]\s*(图片|照片|位置|定位|红包|转账|拍一拍|领取红包|领取|收下|收款|退还|退回)\s*([^\]】]*)[\]】]\s*(.*)$/;
+const SPECIAL = /^\s*[[【]\s*(图片|照片|位置|定位|红包|转账|拍一拍|领取红包|领取|收下|收款|退还|退回|朋友圈|发朋友圈|动态)\s*([^\]】]*)[\]】]\s*(.*)$/;
 const LUCKY = ['6.66', '8.88', '5.20', '13.14', '16.80', '1.88'];
 /**
  * A phone-feature line (「[红包 ¥8.88] 祝福」 and the like) as a message; {kind:'claim', action} for taking or returning
@@ -167,6 +201,8 @@ function special(from, content, {names, user}) {
   if (!m) return null;
   const [, what, arg, rest] = m, text = unquote(rest || '').replace(/<[^>]+>/g, '');
   switch (what) {
+    // A 朋友圈 post made while chatting: it goes to 朋友圈, not into the chat.
+    case '朋友圈': case '发朋友圈': case '动态': { const said = (text || arg.trim()).slice(0, 2000); return said ? {from, kind: 'moment', text: said} : null; }
     case '图片': case '照片': return text || arg.trim() ? {from, kind: 'photo', text: (text || arg.trim()).slice(0, 500)} : null;
     case '位置': case '定位': { const place = arg.trim() || text; return place ? {from, kind: 'location', text: place.slice(0, 100)} : null; }
     case '红包': return {from, kind: 'redpacket', amount: money(arg) || LUCKY[[...from + text].length % LUCKY.length], text: text.slice(0, 40) || DEFAULT_BLESSING, state: 'sent'};

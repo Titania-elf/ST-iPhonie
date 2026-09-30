@@ -6,55 +6,23 @@
 //   【配图】english tags       a picture for the post above (optional)
 //   【赞】名字、名字            likes on the post above (or on the post being reacted to)
 //   【评论】名字：内容          a comment; 「名字 回复 名字：内容」 answers someone
+// The rules come from the chat preset: its rules marked for 朋友圈, plus its story length and posts per refresh.
 import {plainStory} from './chat.js';
 import {isPlaceholderRole} from './protocol.js';
 
 export const MOMENTS_LIMITS = Object.freeze({posts: 300, comments: 60, text: 2000, people: 12, story: 40, perRefresh: 5});
 
-export const DEFAULT_MOMENTS_ENTRIES = Object.freeze([
-  {id: 'style', title: '朋友圈口吻', text: '你在替联系人发朋友圈。像真人发动态：一两句话到一小段，写日常、心情、吐槽、见闻，或者对最近发生的事的感受。口语、自然，可以用表情和颜文字，不写旁白、动作描写和心理描写。每个人发的内容和语气都要符合自己的人设和说话习惯，彼此不要雷同。'},
-  {id: 'persona', title: '守住人设', text: '朋友圈是发给所有朋友看的，不是单独对{{用户}}说话。可以含蓄地提到和{{用户}}之间的事，但不要把只有两个人知道的秘密直接写出来，除非人设就是这样。最近的剧情只作背景，不要复述剧情，也不要替{{用户}}说话或发动态。'},
-  {id: 'interact', title: '点赞和评论', text: '别人发动态时，关系好的联系人会点赞或评论；评论简短口语，可以互相接话、吐槽、开玩笑。{{用户}}评论时，被评论的人一定会回复，别的人看到了也可以接话。'},
-  {id: 'picture', title: '配图', text: '有画面感的动态可以配一张图，大约三成的动态配图就好：自拍、吃的、风景、宠物、正在看的东西。配图写成英文 danbooru tag，描述画面本身。'}
-]);
-const PRESET_REV = 1;
-const DEFAULT_PRESET = {id: 'default', name: '日常朋友圈', rev: PRESET_REV, context: 6, posts: 2, entries: DEFAULT_MOMENTS_ENTRIES.map(e => ({...e, enabled: true}))};
-
-/** Moments settings: presets, and when posts happen by themselves (off by default: each refresh costs a model call). */
+/** 朋友圈 options (the rules live in the chat preset, as rules used in 朋友圈). Automatic posts are off by default:
+ *  each costs a model call. */
 export function defaultMoments() {
-  return {presets: [structuredClone(DEFAULT_PRESET)], activePreset: 'default', auto: false, every: 8, dailyMax: 4, images: true, replyToMe: true};
+  return {auto: false, every: 8, dailyMax: 4, images: true, replyToMe: true};
 }
-
-const text = (value, max) => String(value ?? '').slice(0, max);
 const count = (value, min, max, fallback) => { const n = Math.round(Number(value)); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback; };
-
-export function normalizeMomentsPreset(p = {}) {
-  const entries = Array.isArray(p.entries) ? p.entries : DEFAULT_PRESET.entries;
-  return {
-    id: String(p.id || crypto.randomUUID()), name: text(p.name, 60) || '朋友圈预设', rev: PRESET_REV,
-    context: count(p.context, 0, MOMENTS_LIMITS.story, DEFAULT_PRESET.context),
-    posts: count(p.posts, 1, MOMENTS_LIMITS.perRefresh, DEFAULT_PRESET.posts),
-    entries: entries.map(e => ({id: String(e.id || crypto.randomUUID()), title: text(e.title, 80), enabled: e.enabled !== false, text: text(e.text, 20000)}))
-  };
-}
-
 export function normalizeMoments(value) {
   const base = defaultMoments();
   if (!value || typeof value !== 'object') return base;
-  const presets = (Array.isArray(value.presets) && value.presets.length ? value.presets : base.presets).map(normalizeMomentsPreset);
-  return {
-    presets, activePreset: presets.some(p => p.id === value.activePreset) ? value.activePreset : presets[0].id,
-    auto: value.auto === true, every: count(value.every, 1, 100, base.every), dailyMax: count(value.dailyMax, 1, 30, base.dailyMax),
-    images: value.images !== false, replyToMe: value.replyToMe !== false
-  };
+  return {auto: value.auto === true, every: count(value.every, 1, 100, base.every), dailyMax: count(value.dailyMax, 1, 30, base.dailyMax), images: value.images !== false, replyToMe: value.replyToMe !== false};
 }
-
-export function validateMomentsPreset(p) {
-  if (!p?.name?.trim()) throw Error('请填写朋友圈预设名称');
-  if (!p.entries.some(e => e.enabled && e.text.trim())) throw Error('至少启用一条朋友圈规则');
-  return p;
-}
-export const activeMomentsPreset = moments => moments.presets.find(p => p.id === moments.activePreset) || moments.presets[0];
 
 const fill = (template, values) => String(template).replace(/\{\{(.+?)\}\}/g, (m, key) => values[key.trim()] ?? m);
 const who = (name, user) => name === 'me' ? user : name;
@@ -68,12 +36,12 @@ export function postLines(post, user) {
 }
 
 /**
- * The request for moments. mode 'posts': new posts from the people; 'react': reactions to one post (the user's new post);
+ * The request for moments, with the chat preset's rules used in 朋友圈. mode 'posts': new posts from the people; 'react': reactions to one post (the user's new post);
  * 'reply': answers to the user's comment on a post. people: [{name, persona, card}]. recent: latest posts, for variety.
  */
 export function buildMomentsRequest({preset, mode = 'posts', people, story = [], user = '我', userPersona = '', recent = [], post = null, comment = null, images = true}) {
   const values = {'用户': user};
-  const rules = preset.entries.filter(e => e.enabled && e.text.trim()).filter(e => images || e.id !== 'picture').map(e => fill(e.text, values));
+  const rules = preset.entries.filter(e => e.enabled && e.text.trim() && (e.use || []).includes('moments')).filter(e => images || e.id !== 'm-picture').map(e => fill(e.text, values));
   const names = people.map(p => p.name);
   const system = [
     rules.join('\n\n'),

@@ -10,10 +10,10 @@ import {libraryApp, galleryApp, notesApp, listenApp} from './media-apps.js';
 import {settingsApp} from './settings.js';
 import {drawApp} from './draw.js';
 import {chatApp} from './chat.js';
-import {momentsApp, momentsNew, momentsSeen} from './moments.js';
+import {momentsNew, momentsSeen} from './moments.js';
 
 // App factories, keyed by the ids in apps.js.
-const FACTORIES = {roles: rolesApp, engines: enginesApp, presets: presetsApp, library: libraryApp, gallery: galleryApp, notes: notesApp, listen: listenApp, settings: settingsApp, draw: drawApp, chat: chatApp, moments: momentsApp};
+const FACTORIES = {roles: rolesApp, engines: enginesApp, presets: presetsApp, library: libraryApp, gallery: galleryApp, notes: notesApp, listen: listenApp, settings: settingsApp, draw: drawApp, chat: chatApp};
 const ACTIVE_PHASES = ['playing', 'paused', 'generating', 'waiting'];
 
 const SIGNAL = '<svg viewBox="0 0 18 12" fill="currentColor" aria-hidden="true"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>';
@@ -222,9 +222,10 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     const meta = APPS[id], custom = preferences?.icons?.[id], [t1, t2, tac] = meta.colors;
     const image = custom?.kind === 'photo' ? assets.get(custom.photoId) : null;
     const art = image ? `<img src="${esc(image)}" alt="">` : glyph(custom?.kind === 'glyph' && custom.key !== 'default' ? custom.key : id);
-    const count = id === 'chat' ? unread : id === 'moments' ? fresh : 0;
-    const badge = count ? `<span class="badge app-badge">${count > 99 ? '99+' : count}</span>` : '';
-    return `<button class="app-icon" data-app="${id}" aria-label="${esc(meta.name)}${badge ? `，${count} 条${id === 'moments' ? '新动态和评论' : '未读'}` : ''}"><span class="icon-tile" style="--t1:${t1};--t2:${t2};--tac:${tac}">${art}</span>${badge}<span class="app-label">${esc(meta.name)}</span></button>`;
+    // The chat icon: unread messages as a number; new 动态 alone as a dot.
+    const count = id === 'chat' ? unread : 0, dot = id === 'chat' && !unread && fresh;
+    const badge = count ? `<span class="badge app-badge">${count > 99 ? '99+' : count}</span>` : dot ? '<span class="badge app-badge dot"></span>' : '';
+    return `<button class="app-icon" data-app="${id}" aria-label="${esc(meta.name)}${count ? `，${count} 条未读` : dot ? '，有新动态' : ''}"><span class="icon-tile" style="--t1:${t1};--t2:${t2};--tac:${tac}">${art}</span>${badge}<span class="app-label">${esc(meta.name)}</span></button>`;
   }
   function renderHome() {
     const pages = HOME.pages.map((ids, index) => `<div class="home-page">${index === 0
@@ -453,7 +454,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     if (event.type === 'draw') views.get('draw')?.onDraw?.(event);
     if (event.type === 'balance') run(() => views.get('engines')?.onBalance?.(event));
     if (event.type === 'chat') { run(() => views.get('chat')?.onChat?.(event)); countUnread(); }
-    if (event.type === 'moments') { views.get('moments')?.onMoments?.(event); countMoments(); }
+    if (event.type === 'moments') { views.get('chat')?.onMoments?.(event); countMoments(); }
     if (event.type === 'settings') run(() => views.get('chat')?.onChat?.({}));
   });
 
@@ -462,7 +463,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   function countMoments() {
     win.clearTimeout(freshTimer);
     freshTimer = win.setTimeout(() => run(async () => {
-      const n = active === 'moments' && !locked ? 0 : momentsNew(await api.listMoments(), momentsSeen(win));
+      const n = momentsNew(await api.listMoments(), momentsSeen(win));
       if (disposed || n === fresh) return;
       fresh = n;
       renderHome();

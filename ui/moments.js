@@ -1,12 +1,13 @@
-// 朋友圈: the characters' posts, likes and comments, and the user's own posts and comments. New posts, reactions and
-// replies are generated in the tavern page (host-moments.js); this view only shows them and sends what the user does.
-import {createView, esc, btn, heading, empty, avatar, field, textArea, input, toggle} from './common.js';
+// 动态 (朋友圈) in the chat app: the characters' posts, likes and comments, and the user's own posts and comments.
+// New posts, reactions and replies are generated in the tavern page (host-moments.js); this panel only shows them and
+// sends what the user does. It draws into the chat app's view, inside the frame the chat app gives it (tabs and all).
+import {esc, btn, empty, avatar, field, textArea, input, toggle} from './common.js';
 import {icon} from './icons.js';
 import {openImageViewer} from '../image-viewer.js';
 import {downloadAction} from '../download.js';
 
 const SEEN_KEY = 'st-iphonie-moments-seen';
-/** When the user last looked at 朋友圈 (per browser; only for the dot on the icon). */
+/** When the user last looked at 动态 (per browser; only for the dots). */
 export function momentsSeen(win) { try { return Number(win.localStorage.getItem(SEEN_KEY)) || 0; } catch { return 0; } }
 function markSeen(win) { try { win.localStorage.setItem(SEEN_KEY, String(Date.now())); } catch { /* the dot is only a convenience */ } }
 /** Posts and comments by others since the user last looked. */
@@ -22,10 +23,14 @@ function ago(at) {
   return `${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
-export function momentsApp(ctx) {
-  const {api} = ctx, v = createView(ctx, 'moments'), urls = new Map();
-  let epoch = 0, posts = [];
-  const nameOf = who => who === 'me' ? '我' : who;
+/**
+ * v: the chat app's view. frame(html): the page with the chat app's tabs. me(): {name, avatar(size)} for the user.
+ * visible(): whether the 动态 tab is on screen (only then does it count as seen).
+ */
+export function momentsPanel(ctx, {v, frame, me, visible}) {
+  const {api} = ctx, urls = new Map();
+  let epoch = 0, posts = [], author = '';
+  const nameOf = who => who === 'me' ? me().name : who;
   const urlFor = async id => {
     if (urls.has(id)) return urls.get(id);
     const photo = await api.getPhoto(id);
@@ -33,6 +38,7 @@ export function momentsApp(ctx) {
     urls.set(id, url);
     return url;
   };
+  const face = (who, size) => who === 'me' ? me().avatar(size) : avatar(who, ctx.engineOf(who), size);
 
   function picture(p) {
     if (p.photoId) return `<button type="button" class="moment-photo" data-action="view-photo" data-id="${esc(p.id)}" aria-label="查看配图"><img data-photo="${esc(p.photoId)}" alt="${esc(nameOf(p.author))} 的配图"></button>`;
@@ -46,31 +52,33 @@ export function momentsApp(ctx) {
   function post(p) {
     const liked = p.likes.includes('me');
     const social = p.likes.length || p.comments.length
-      ? `<div class="moment-social">${p.likes.length ? `<p class="moment-likes">${icon('heart', true)}${esc(p.likes.map(nameOf).join('、'))}</p>` : ''}${p.comments.map(c => `<button type="button" class="moment-comment" data-action="${c.from === 'me' ? 'my-comment' : 'comment'}" data-id="${esc(p.id)}" data-comment="${esc(c.id)}" data-to="${esc(c.from)}"><b>${esc(nameOf(c.from))}</b>${c.to ? ` 回复 <b>${esc(nameOf(c.to))}</b>` : ''}：${esc(c.text)}</button>`).join('')}</div>`
+      ? `<div class="moment-social">${p.likes.length ? `<p class="moment-likes">${icon('heart', true)}${esc(p.likes.map(nameOf).join('、'))}</p>` : ''}${p.comments.map(c => `<button type="button" class="moment-comment" data-action="${c.from === 'me' ? 'm-my-comment' : 'm-comment'}" data-id="${esc(p.id)}" data-comment="${esc(c.id)}" data-to="${esc(c.from)}"><b>${esc(nameOf(c.from))}</b>${c.to ? ` 回复 <b>${esc(nameOf(c.to))}</b>` : ''}：${esc(c.text)}</button>`).join('')}</div>`
       : '';
-    return `<article class="moment" data-id="${esc(p.id)}">${avatar(nameOf(p.author), p.author === 'me' ? 'none' : ctx.engineOf(p.author), 42)}
+    return `<article class="moment" data-id="${esc(p.id)}"><button type="button" class="moment-av" data-action="m-author" data-name="${esc(p.author)}" aria-label="只看 ${esc(nameOf(p.author))} 的动态">${face(p.author, 42)}</button>
       <div class="moment-body"><strong class="moment-name">${esc(nameOf(p.author))}</strong>${p.text ? `<p class="moment-text">${esc(p.text)}</p>` : ''}${picture(p)}
-        <div class="moment-meta"><time>${ago(p.at)}</time><span class="moment-tools">${btn('like', icon('heart', liked), 'text-button', `data-id="${esc(p.id)}" aria-pressed="${liked}" aria-label="${liked ? '取消点赞' : '点赞'}"`)}${btn('comment', icon('bubble'), 'text-button', `data-id="${esc(p.id)}" aria-label="评论"`)}${btn('post-menu', icon('more'), 'text-button', `data-id="${esc(p.id)}" aria-label="更多"`)}</span></div>
+        <div class="moment-meta"><time>${ago(p.at)}${p.source === 'chat' ? ' · 聊天时发的' : ''}</time><span class="moment-tools">${btn('m-like', icon('heart', liked), 'text-button', `data-id="${esc(p.id)}" aria-pressed="${liked}" aria-label="${liked ? '取消点赞' : '点赞'}"`)}${btn('m-comment', icon('bubble'), 'text-button', `data-id="${esc(p.id)}" aria-label="评论"`)}${btn('m-post-menu', icon('more'), 'text-button', `data-id="${esc(p.id)}" aria-label="更多"`)}</span></div>
         ${social}</div></article>`;
   }
 
   async function render() {
     const ticket = ++epoch;
-    posts = await api.listMoments();
-    if (v.disposed || ticket !== epoch) return;
-    const busy = api.momentsBusy?.();
-    const tools = btn('refresh-moments', icon('refresh'), 'round-button', `aria-label="刷新：让角色发新动态" ${busy ? 'disabled' : ''}`) + btn('new-post', icon('add'), 'round-button', 'aria-label="发动态"') + btn('moments-options', icon('sliders'), 'round-button', 'aria-label="朋友圈设置"');
+    const all = await api.listMoments();
+    if (ticket !== epoch || v.disposed) return;
+    posts = author ? all.filter(p => p.author === author) : all;
+    const busy = api.momentsBusy?.(), who = me();
+    const tools = btn('m-refresh', icon('refresh'), 'round-button', `aria-label="刷新：让角色发新动态" ${busy ? 'disabled' : ''}`) + btn('m-new', icon('add'), 'round-button', 'aria-label="发动态"') + btn('m-options', icon('sliders'), 'round-button', 'aria-label="动态设置"');
     const scroll = v.root.scrollTop;
-    v.draw(heading('朋友圈', tools, 'Moments')
-      + (busy ? '<p class="moments-busy" role="status">朋友们正在刷朋友圈……</p>' : '')
+    v.draw(frame(`<div class="qzone-cover"><span class="qzone-title">好友动态</span><span class="qzone-tools">${tools}</span><span class="qzone-me">${who.avatar(58)}<strong>${esc(who.name)}</strong></span></div>`
+      + (author ? `<div class="banner">${icon('person')}<span>只看 ${esc(nameOf(author))} 的动态</span>${btn('m-all', '看全部', 'chip-button')}</div>` : '')
+      + (busy ? '<p class="moments-busy" role="status">朋友们正在刷动态……</p>' : '')
       + (posts.length ? `<div class="moments-feed">${posts.map(post).join('')}</div>`
-        : empty('朋友圈还是空的', '点右上角的刷新，角色们就会发动态；也可以自己先发一条。每次刷新会调用一次酒馆当前的模型。', 'image')));
+        : empty(author ? `${nameOf(author)} 还没有发过动态` : '还没有动态', author ? '' : '点封面右上角的刷新，角色们就会发动态；也可以自己先发一条。每次刷新会调用一次酒馆当前的模型。', 'image'))));
     v.root.scrollTop = scroll;
-    // Seen only when it is on screen: the view also redraws in the background when new posts arrive.
-    if (ctx.visible?.('moments') !== false) { markSeen(ctx.win); ctx.momentsSeen?.(); }
+    // Seen only when it is on screen: the panel also redraws in the background when new posts arrive.
+    if (visible()) { markSeen(ctx.win); ctx.momentsSeen?.(); }
     for (const img of v.root.querySelectorAll('img[data-photo]')) {
       const url = await urlFor(img.dataset.photo);
-      if (v.disposed || ticket !== epoch) return;
+      if (ticket !== epoch || v.disposed) return;
       if (url) img.src = url; else img.closest('.moment-photo')?.replaceWith(Object.assign(ctx.doc.createElement('p'), {className: 'moment-note', textContent: '配图已经从相册删掉了'}));
     }
   }
@@ -85,10 +93,10 @@ export function momentsApp(ctx) {
     });
     return d;
   }
-  /** Runs a model request in the background; the view shows it as busy and redraws when it ends. */
+  /** Runs a model request in the background; the panel shows it as busy and redraws when it ends. */
   function background(job, done) {
-    render();
-    job.then(result => { if (done) ctx.notify(done(result)); }).catch(error => ctx.notify(error.message, {error: true})).finally(() => render());
+    if (visible()) render();
+    job.then(result => { if (done) ctx.notify(done(result)); }).catch(error => ctx.notify(error.message, {error: true})).finally(() => { if (visible()) render(); });
   }
   const replyOn = () => api.getState().moments.replyToMe !== false;
 
@@ -104,20 +112,21 @@ export function momentsApp(ctx) {
         if (!text && !chosen) throw Error('写点什么，或者选一张照片');
         const made = await api.postMoment({text, ...(chosen ? {photoId: chosen} : {})});
         d.close();
-        if (replyOn()) background(api.momentsReact(made.id), () => '朋友们看到了你的动态');
+        if (replyOn() && api.momentsReact) background(api.momentsReact(made.id), () => '朋友们看到了你的动态');
         else render();
       }
     });
     for (const img of d.body.querySelectorAll('img[data-photo]')) urlFor(img.dataset.photo).then(url => { if (url) img.src = url; });
   }
   function commentOn(id, to = '') {
-    const d = sheet(to && to !== 'me' ? `回复 ${to}` : '评论', `${field('评论', textArea('text', '', `rows="3" maxlength="500" placeholder="${to && to !== 'me' ? '回复 ' + esc(to) : '说点什么…'}"`))}<div class="actions">${btn('send-comment', icon('send') + '发送', 'primary')}</div>`, {
+    const reply = to && to !== 'me';
+    const d = sheet(reply ? `回复 ${to}` : '评论', `${field('评论', textArea('text', '', `rows="3" maxlength="500" placeholder="${reply ? '回复 ' + esc(to) : '说点什么…'}"`))}<div class="actions">${btn('send-comment', icon('send') + '发送', 'primary')}</div>`, {
       'send-comment': async () => {
         const text = d.body.querySelector('[data-field=text]').value.trim();
         if (!text) throw Error('写点什么再发送');
-        const {comment} = await api.commentMoment(id, {text, ...(to && to !== 'me' ? {to} : {})});
+        const {comment} = await api.commentMoment(id, {text, ...(reply ? {to} : {})});
         d.close();
-        if (replyOn()) background(api.momentsReply(id, comment.id));
+        if (replyOn() && api.momentsReply) background(api.momentsReply(id, comment.id));
         else render();
       }
     });
@@ -125,53 +134,55 @@ export function momentsApp(ctx) {
   }
   function options() {
     const m = api.getState().moments;
-    const d = sheet('朋友圈设置', `<div class="group">${toggle('auto', '角色自己发朋友圈', m.auto, '打开后，每隔几条正文回复，角色们会自己发一次动态（会调用一次酒馆当前的模型，花费和一次聊天回复差不多）。')}
+    const d = sheet('动态设置', `<div class="group">${toggle('auto', '角色自己发动态', m.auto, '打开后，每隔几条正文回复，角色们会自己发一次动态（会调用一次酒馆当前的模型，花费和一次聊天回复差不多）。')}
         ${field('每几条正文回复发一次', input('every', m.every, 'number', 'min="1" max="100" step="1"'))}
         ${field('每天最多自动发几次', input('dailyMax', m.dailyMax, 'number', 'min="1" max="30" step="1"'))}
         ${toggle('images', '动态配图', m.images, '有画面感的动态会用 NovelAI 画一张配图。只在免费档内自动画；会扣 Anlas 的图要你点一下确认。没有 NovelAI 密钥时只显示文字。')}
         ${toggle('replyToMe', '角色回复我', m.replyToMe, '你发动态或评论后，角色会点赞、评论和回复（每次调用一次模型）。')}</div>
-      <div class="actions">${btn('edit-prompt', icon('edit') + '编辑朋友圈提示词', 'secondary')}</div>
-      <div class="actions">${btn('clear-moments', icon('trash') + '清空朋友圈', 'danger')}</div>`, {
-      'edit-prompt': () => { d.close(); ctx.open('presets'); ctx.showPresetKind?.('moments'); },
-      'clear-moments': async () => { if (!await ctx.confirm('清空朋友圈？', '所有动态、点赞和评论都会删除，配图还留在相册里。')) return; d.close(); await api.clearMoments(); await render(); ctx.notify('朋友圈已清空'); }
+      <p class="hint">动态怎么写，在预设 App 的聊天预设里：勾了「朋友圈」的规则就用在这里。</p>
+      <div class="actions">${btn('edit-prompt', icon('edit') + '编辑聊天预设', 'secondary')}</div>
+      <div class="actions">${btn('clear-moments', icon('trash') + '清空动态', 'danger')}</div>`, {
+      'edit-prompt': () => { d.close(); ctx.open('presets'); ctx.showPresetKind?.('chat'); },
+      'clear-moments': async () => { if (!await ctx.confirm('清空所有动态？', '所有动态、点赞和评论都会删除，配图还留在相册里。')) return; d.close(); await api.clearMoments(); await render(); ctx.notify('动态已清空'); }
     });
     d.body.addEventListener('change', e => {
       const el = e.target.closest('[data-field]');
       if (!el) return;
-      const key = el.dataset.field;
-      try { api.saveMoments({[key]: el.type === 'checkbox' ? el.checked : Number(el.value)}); }
+      try { api.saveMoments({[el.dataset.field]: el.type === 'checkbox' ? el.checked : Number(el.value)}); }
       catch (error) { ctx.notify(error.message, {error: true}); }
     });
   }
 
-  v.refresh = render;
-  v.onMoments = () => { if (!v.disposed) render().catch(error => ctx.notify(error.message)); };
-  const dispose = v.dispose;
-  v.dispose = () => { epoch++; for (const url of urls.values()) if (url) ctx.win.URL.revokeObjectURL(url); urls.clear(); dispose(); };
-  v.on('click', '[data-action]', async el => {
+  /** Handles a click inside the panel; false when it is not the panel's. */
+  async function click(el) {
     const id = el.dataset.id, target = posts.find(p => p.id === id);
     switch (el.dataset.action) {
-      case 'refresh-moments': background(api.momentsRefresh(), made => `${[...new Set(made.map(p => p.author))].join('、')} 发了新动态`); break;
-      case 'new-post': await newPost(); break;
-      case 'moments-options': options(); break;
-      case 'like': if (target) { await api.likeMoment(id, !target.likes.includes('me')); await render(); } break;
-      case 'comment': commentOn(id, el.dataset.to || ''); break;
-      case 'my-comment': if (await ctx.confirm('删除这条评论？')) { await api.deleteMomentComment(id, el.dataset.comment); await render(); } break;
-      case 'post-menu': if (await ctx.confirm('删除这条动态？', '点赞和评论会一起删除，配图还留在相册里。')) { await api.deleteMoment(id); await render(); } break;
+      case 'm-refresh': background(api.momentsRefresh(), made => `${[...new Set(made.map(p => p.author))].join('、')} 发了新动态`); return true;
+      case 'm-new': await newPost(); return true;
+      case 'm-options': options(); return true;
+      case 'm-all': author = ''; await render(); return true;
+      case 'm-author': author = el.dataset.name; await render(); return true;
+      case 'm-like': if (target) { await api.likeMoment(id, !target.likes.includes('me')); await render(); } return true;
+      case 'm-comment': commentOn(id, el.dataset.to || ''); return true;
+      case 'm-my-comment': if (await ctx.confirm('删除这条评论？')) { await api.deleteMomentComment(id, el.dataset.comment); await render(); } return true;
+      case 'm-post-menu': if (await ctx.confirm('删除这条动态？', '点赞和评论会一起删除，配图还留在相册里。')) { await api.deleteMoment(id); await render(); } return true;
       case 'view-photo': {
         const img = el.querySelector('img');
-        if (!img?.src || !target) break;
-        openImageViewer({doc: ctx.doc, src: img.src, alt: img.alt, from: img, actions: [downloadAction(ctx.doc, async () => ({source: (await api.getPhoto(target.photoId)).blob, name: `朋友圈 · ${nameOf(target.author)}`}), ctx.notify)]});
-        break;
+        if (img?.src && target) openImageViewer({doc: ctx.doc, src: img.src, alt: img.alt, from: img, actions: [downloadAction(ctx.doc, async () => ({source: (await api.getPhoto(target.photoId)).blob, name: `动态 · ${nameOf(target.author)}`}), ctx.notify)]});
+        return true;
       }
       case 'draw-image': {
         const paid = /Anlas/.test(target?.imageNote || '');
-        if (paid && !await ctx.confirm('这张图会扣 Anlas', '超出了 NovelAI 的免费档，确认后再画。')) break;
-        background(api.momentsDrawImage(id, paid));
-        break;
+        if (!paid || await ctx.confirm('这张图会扣 Anlas', '超出了 NovelAI 的免费档，确认后再画。')) background(api.momentsDrawImage(id, paid));
+        return true;
       }
     }
-  });
-  render().catch(error => ctx.notify(error.message));
-  return v;
+    return false;
+  }
+  return {
+    render, click,
+    /** Shows one person's posts (their profile's 「TA 的动态」), or everyone's. */
+    only(name = '') { author = name; },
+    dispose() { epoch++; for (const url of urls.values()) if (url) ctx.win.URL.revokeObjectURL(url); urls.clear(); }
+  };
 }

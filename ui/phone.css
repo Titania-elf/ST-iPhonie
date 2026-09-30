@@ -769,3 +769,113 @@ button.moment-note{color:var(--accent-ink);text-decoration:underline;text-underl
 .moment-likes+.moment-comment{margin-top:5px;padding-top:5px;border-top:1px solid var(--line)}
 .moment-comment{display:block;width:100%;padding:2px 0;text-align:left;color:var(--ink);font-size:13px;line-height:1.5;overflow-wrap:anywhere}
 .moment-comment b{color:var(--accent-ink);font-weight:700}
+
+/* A group title keeps its words on one line; the buttons beside it sit together. */
+.group-title>span:first-child{white-space:nowrap}
+.group-title .title-tools{display:flex;gap:6px;flex-shrink:0}
+
+/* ---------- Chat app, QQ style ---------- */
+.view.qq-mode{display:flex;flex-direction:column;padding-bottom:0}
+.qq-page{flex:1 0 auto;padding-bottom:14px}
+.qq-tabs{position:sticky;bottom:0;z-index:5;display:flex;margin:0 -16px;padding:6px 8px calc(env(safe-area-inset-bottom,0px) + 22px);background:color-mix(in srgb,var(--card) 90%,transparent);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border-top:1px solid var(--line)}
+.qq-tabs button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;min-height:50px;font-size:11px;font-weight:800;color:var(--ink2)}
+.qq-tabs button[aria-pressed=true]{color:var(--accent-ink)}
+.qq-tab-ico{position:relative;display:grid;place-items:center;width:34px;height:30px;border-radius:12px;transition:transform .2s,background .2s}
+.qq-tabs button[aria-pressed=true] .qq-tab-ico{background:var(--accent-soft);transform:translateY(-1px) scale(1.06)}
+.qq-tab-ico .icon{width:22px;height:22px}
+.qq-tab-ico .badge{position:absolute;top:-6px;left:22px;min-width:18px;height:18px;padding:0 5px;font-size:10px}
+.qq-dot-new{position:absolute;top:0;right:2px;width:9px;height:9px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 2px var(--card)}
+.app-badge.dot{min-width:12px;width:12px;height:12px;padding:0}
+.qq-top{display:flex;align-items:center;gap:10px;padding:14px 0 10px}
+.qq-me{display:flex;align-items:center;gap:10px;flex:1;min-width:0;padding:0;text-align:left}
+.qq-me-text{display:flex;flex-direction:column;min-width:0}
+.qq-me-text strong{font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qq-me-text small,.qq-card-tags .chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--ink2)}
+.qq-dot{display:inline-block;flex:none;width:8px;height:8px;border-radius:50%;background:#35c46b;box-shadow:0 0 0 2px #35c46b40}
+.qq-dot[data-status=qme]{background:#3aa0ff;box-shadow:0 0 0 2px #3aa0ff40}
+.qq-dot[data-status=busy]{background:#f05a5a;box-shadow:0 0 0 2px #f05a5a40}
+.qq-dot[data-status=away]{background:#f2b23b;box-shadow:0 0 0 2px #f2b23b40}
+.qq-dot[data-status=hidden]{background:#9aa3b2;box-shadow:0 0 0 2px #9aa3b240}
+.qq-search{display:flex;align-items:center;gap:8px;height:40px;margin:0 0 10px;padding:0 14px;border-radius:999px;background:var(--card);box-shadow:inset 0 0 0 1.5px var(--line);color:var(--ink2)}
+.qq-search input{flex:1;min-width:0;border:0;background:none;font:inherit;color:var(--ink);outline:none}
+.qq-search .icon{width:18px;height:18px;flex:none}
+.qq-list .conv.pinned{background:color-mix(in srgb,var(--accent-soft) 55%,transparent)}
+.at-me{margin-right:2px;font-style:normal;font-weight:800;color:var(--danger)}
+.spark{margin-left:3px;font-size:11px;font-weight:900;color:#ff7a3c}
+.badge.muted{background:var(--ink2);opacity:.7}
+.mute-ico{display:inline-grid;flex:none;color:var(--ink2);opacity:.75}
+.mute-ico .icon{width:14px;height:14px}
+.star-mark{color:#f5b301;font-size:16px}
+/* Profile cards (a contact, or 我) */
+.qq-card{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;margin:12px 0 14px;padding:0 16px 16px;border-radius:24px;background:var(--card);box-shadow:var(--shadow);overflow:hidden;text-align:center}
+.qq-card-cover{align-self:stretch;height:86px;margin:0 -16px -44px;background:radial-gradient(circle at 20% 30%,#ffffff55 0 3px,transparent 4px) 0 0/30px 30px,linear-gradient(135deg,var(--accent),var(--pink))}
+.qq-card>.avatar,.qq-card>.me-av .avatar{box-shadow:0 0 0 4px var(--card)}
+.qq-card h2{margin:6px 0 0;font-size:20px}
+.qq-card p{margin:0;font-size:13px;color:var(--ink2)}
+.qq-card-tags{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin-top:6px}
+/* 头像挂件 */
+.me-av{position:relative;display:inline-grid;flex:none}
+.me-av:not([data-frame=none])::after{content:'';position:absolute;inset:-3px;border-radius:50%;pointer-events:none}
+.me-av:not([data-frame=none])::before{position:absolute;z-index:1;font-size:calc(var(--s,40px) * .36);line-height:1;pointer-events:none}
+.me-av[data-frame=star]::after{border:2px dashed #f5b301}
+.me-av[data-frame=star]::before{content:'⭐';top:-10%;right:-12%}
+.me-av[data-frame=cat]::after{border:2px solid #ffb3c8}
+.me-av[data-frame=cat]::before{content:'🐱';top:-26%;left:50%;transform:translateX(-50%)}
+.me-av[data-frame=flower]::after{border:3px dotted #ff8fb8}
+.me-av[data-frame=flower]::before{content:'🌸';bottom:-10%;right:-10%}
+.me-av[data-frame=halo]::after{box-shadow:0 0 0 2px #fff8,0 0 12px 3px #ffd86a}
+.me-av[data-frame=halo]::before{content:'✨';top:-14%;left:-12%}
+.msg.me .me-side{flex:none}
+/* 聊天气泡 */
+.chat-thread[data-bubble=candy] .msg.me .chat-bubble{background:linear-gradient(135deg,#ff9ec4,#ffc6a3);color:#4a1630;box-shadow:0 3px 0 #e2779f}
+.chat-thread[data-bubble=mint] .msg.me .chat-bubble{background:linear-gradient(135deg,#7fe0c3,#c1f2a6);color:#0d3b2e;box-shadow:0 3px 0 #4fb996}
+.chat-thread[data-bubble=night] .msg.me .chat-bubble{background:radial-gradient(circle at 80% 30%,#fff9 0 1px,transparent 1.5px) 0 0/14px 14px,linear-gradient(135deg,#2b2f6b,#5a3d8a);color:#fff;box-shadow:0 3px 0 #1a1c44}
+.chat-thread[data-bubble=ink] .msg.me .chat-bubble{background:var(--card);color:var(--ink);border:2px solid var(--ink);box-shadow:3px 3px 0 var(--ink)}
+/* 聊天背景 */
+.chat-thread[data-bg=clouds] .msgs{background:radial-gradient(40% 12% at 20% 18%,#ffffffcc 0,#fff0 70%),radial-gradient(35% 10% at 78% 42%,#ffffffb0 0,#fff0 70%),radial-gradient(45% 12% at 40% 78%,#ffffffc0 0,#fff0 70%),linear-gradient(180deg,#bfe3ff,#e8f5ff)}
+.chat-thread[data-bg=stars] .msgs{background:radial-gradient(#ffe7a0 1.1px,transparent 1.6px) 0 0/26px 26px,radial-gradient(#ffffffaa .8px,transparent 1.2px) 13px 9px/31px 31px,linear-gradient(180deg,#1b1f4a,#3a2d63)}
+.chat-thread[data-bg=grid] .msgs{background:linear-gradient(var(--line) 1px,transparent 1px) 0 0/22px 22px,linear-gradient(90deg,var(--line) 1px,transparent 1px) 0 0/22px 22px,var(--bg)}
+.chat-thread[data-bg=sakura] .msgs{background:radial-gradient(ellipse 5px 3px at 30% 40%,#ff9ec4aa 98%,transparent) 0 0/48px 44px,radial-gradient(ellipse 4px 3px at 70% 75%,#ffc0d6aa 98%,transparent) 0 0/62px 58px,linear-gradient(180deg,#fff0f5,#ffe3ee)}
+.chat-thread[data-bg=photo] .msgs{background-size:cover;background-position:center}
+.chat-thread[data-bg=stars] .day,.chat-thread[data-bg=stars] .note-line{color:#e9e6ff}
+/* 个性装扮 choices */
+.deco-row{display:flex;flex-wrap:wrap;gap:8px}
+.deco{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:60px;padding:6px 4px;border-radius:14px;font-size:12px;font-weight:700;color:var(--ink2)}
+.deco[aria-pressed=true]{outline:2px solid var(--accent-btn);color:var(--accent-ink)}
+.deco-sample{width:52px;height:30px;border-radius:14px 14px 5px 14px;background:var(--accent-btn)}
+.deco[data-bubble=candy] .deco-sample{background:linear-gradient(135deg,#ff9ec4,#ffc6a3)}
+.deco[data-bubble=mint] .deco-sample{background:linear-gradient(135deg,#7fe0c3,#c1f2a6)}
+.deco[data-bubble=night] .deco-sample{background:linear-gradient(135deg,#2b2f6b,#5a3d8a)}
+.deco[data-bubble=ink] .deco-sample{background:var(--card);border:2px solid var(--ink);box-shadow:2px 2px 0 var(--ink)}
+.deco[data-frame] .deco-sample{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--card2);font-size:16px}
+.deco[data-frame=star] .deco-sample::after{content:'⭐'}
+.deco[data-frame=cat] .deco-sample::after{content:'🐱'}
+.deco[data-frame=flower] .deco-sample::after{content:'🌸'}
+.deco[data-frame=halo] .deco-sample::after{content:'✨'}
+.deco[data-background] .deco-sample{width:44px;height:44px;border-radius:12px;background:var(--card2);box-shadow:inset 0 0 0 1px var(--line)}
+.deco[data-background=clouds] .deco-sample{background:radial-gradient(40% 16% at 30% 30%,#fff 0,#fff0 70%),radial-gradient(40% 14% at 70% 70%,#fff 0,#fff0 70%),#bfe3ff}
+.deco[data-background=stars] .deco-sample{background:radial-gradient(#ffe7a0 1px,transparent 1.5px) 0 0/10px 10px,#2a2d5e}
+.deco[data-background=grid] .deco-sample{background:linear-gradient(var(--line) 1px,transparent 1px) 0 0/8px 8px,linear-gradient(90deg,var(--line) 1px,transparent 1px) 0 0/8px 8px,var(--bg)}
+.deco[data-background=sakura] .deco-sample{background:radial-gradient(ellipse 3px 2px at 30% 40%,#ff9ec4 98%,transparent) 0 0/14px 12px,#ffe9f1}
+.status-chip{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:0 12px;border-radius:999px;background:var(--card2);font-size:13px;font-weight:700;color:var(--ink2)}
+.status-chip[aria-pressed=true]{background:var(--accent-soft);color:var(--accent-ink)}
+/* 动态: the QQ-space style cover */
+.qzone-cover{position:relative;height:168px;margin:0 -16px 40px;border-radius:0 0 26px 26px;background:radial-gradient(circle at 20% 30%,#ffffff55 0 3px,transparent 4px) 0 0/34px 34px,radial-gradient(circle at 70% 60%,#ffffff40 0 2px,transparent 3px) 0 0/22px 22px,linear-gradient(160deg,var(--accent),var(--pink))}
+.qzone-title{position:absolute;left:18px;top:18px;font-size:20px;font-weight:900;color:#fff;text-shadow:0 2px 6px #0004}
+.qzone-tools{position:absolute;right:12px;top:12px;display:flex;gap:6px}
+.qzone-tools .round-button{background:#ffffff38;color:#fff;box-shadow:none}
+.qzone-me{position:absolute;right:18px;bottom:-30px;display:flex;align-items:flex-end;gap:10px}
+.qzone-me strong{order:-1;margin-bottom:36px;font-size:16px;color:#fff;text-shadow:0 1px 4px #0006}
+.qzone-me .avatar{box-shadow:0 0 0 3px var(--card)}
+.moment-av{flex:none;padding:0;border-radius:50%}
+/* Posts start at the top; a group avatar keeps its size in a list row. */
+.moment{align-items:flex-start}
+.list-row>span.group-av:not(.avatar):not(.plate){flex:none;width:var(--s);min-width:var(--s)}
+/* 用在 (私聊 / 群聊 / 朋友圈) on a chat rule: pill toggles on one row. */
+.use-row{display:flex;flex-wrap:wrap;gap:8px}
+.field .use-chip{position:relative;display:inline-flex;margin:0}
+.field .use-chip input{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;border:0;opacity:0;appearance:none;-webkit-appearance:none;cursor:pointer}
+.use-chip span{display:inline-flex;align-items:center;min-height:34px;padding:0 14px;border-radius:999px;background:var(--card2);box-shadow:inset 0 0 0 1.5px var(--line);font-size:13px;font-weight:800;color:var(--ink2)}
+.use-chip input:checked+span{background:var(--accent-soft);color:var(--accent-ink);box-shadow:inset 0 0 0 1.5px var(--accent)}
+.use-chip input:checked+span::before{content:'✓';margin-right:4px}
+.use-chip input:focus-visible+span{outline:2px solid var(--accent-btn);outline-offset:2px}

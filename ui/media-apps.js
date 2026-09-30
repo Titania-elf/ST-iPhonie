@@ -190,7 +190,7 @@ export function listenApp(ctx) {
         <div class="actions" data-waiting hidden>${btn('configure', icon('mic') + '去给这个角色选音色', 'primary')}</div>
         <div class="transport">${btn('favorite', icon('heart'), '', 'aria-label="收藏这一句"')}${btn('download', icon('download'), '', 'aria-label="下载这一句"')}${btn('prev', icon('prev', true), '', 'aria-label="上一句"')}${btn('main-play', icon('play', true), 'main-play', 'aria-label="播放"')}${btn('next', icon('skip', true), '', 'aria-label="下一句"')}${btn('stop', icon('stop', true), '', 'aria-label="停止"')}</div>
         ${latest.lines.length
-          ? groupTitle('Log · 本条回复', btn('export-all', icon('download') + '导出整条', 'chip-button', 'aria-label="把这条回复的台词拼成一个音频文件"') + btn('play-all', icon('play', true) + '整条播放', 'chip-button'))
+          ? groupTitle('本条回复', `<span class="title-tools">${btn('export-all', icon('download') + '导出', 'chip-button', 'aria-label="导出整条：把这条回复的台词拼成一个音频文件"')}${btn('play-all', icon('play', true) + '整条播放', 'chip-button')}</span>`)
             + `<div class="group">${latest.lines.map((l, i) => `<div class="dialogue-row" data-row="${i}" data-engine="${ctx.engineOf(l.role)}"><div><small>${esc(l.role)}</small><p>${esc(l.translation)}</p></div>${btn('play-line', wave, 'wave-button', `data-index="${i}" data-state="ungenerated" aria-label="朗读 ${esc(l.role)} 的台词"`)}</div>`).join('')}</div>`
           : empty('等一句真正说出口的话', '回到聊天，点台词旁的声波；最新一条回复的台词会出现在这里。')}`);
     v.onPlayback(api.status());

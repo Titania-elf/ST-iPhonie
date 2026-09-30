@@ -1,5 +1,5 @@
 import { MomentStore } from './moments-store.js';
-import { defaultMoments, normalizeMoments, normalizeMomentsPreset, validateMomentsPreset, activeMomentsPreset, buildMomentsRequest } from './moments.js';
+import { normalizeMoments, buildMomentsRequest } from './moments.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup } from './backup.js';
 import { normalizeSettings, validateSettings, modelRules, freshState } from './state.js';
 import { normalizeRoute, switchRouteEngine, removeRoute } from './routes.js';
@@ -12,7 +12,7 @@ import { DialoguePlayer } from './player.js';
 import { LocalLibrary, PHONE_APPS, PHONE_WALLPAPERS, PHONE_GLYPHS, PHONE_SKINS } from './library.js';
 import { NovelAIClient, NAI_MODELS, NAI_MODEL_NAMES, NAI_SAMPLERS, NAI_SCHEDULES, buildImageRequest, guardParams, isFree, isV5, normalizeDrawParams } from './novelai.js';
 import { PIC_TAG_FORMAT, DEFAULT_DRAW_RULE, DRAW_COUNT_MAX, drawPromptPlan, planRequest, validateDrawPreset, normalizeDraw, defaultDraw } from './draw.js';
-import { defaultChat, normalizeChatPreset, normalizeContact, validateChatPreset, validateContact, chatContacts, buildChatRequest, activeChatPreset, normalizeVoiceText } from './chat.js';
+import { defaultChat, normalizeChatPreset, normalizeContact, validateChatPreset, validateContact, chatContacts, buildChatRequest, activeChatPreset, normalizeVoiceText, normalizeProfile } from './chat.js';
 import { ChatStore } from './chats.js';
 import { DrawQueue } from './draw-queue.js';
 import { CloudQueue, KeyHashQueue, newRoomCode, validRoom, sha256Hex } from './cloud-queue.js';
@@ -376,10 +376,12 @@ export class TTSBackend {
         this.save(next);
         return clone(contact);
     }
-    /** Phone chat options: {voiceText: {mode, auto}}. */
+    /** Phone chat options: {voiceText: {mode, auto}, profile: {name, status, statusText, signature, bubble, frame, background, backgroundPhoto}, starred: [name]}. */
     saveChatOptions(patch) {
         const next = this.getState();
         if (patch?.voiceText) next.chat.voiceText = normalizeVoiceText({ ...next.chat.voiceText, ...patch.voiceText });
+        if (patch?.profile) next.chat.profile = normalizeProfile({ ...next.chat.profile, ...patch.profile });
+        if (Array.isArray(patch?.starred)) next.chat.starred = patch.starred;
         return this.save(next).chat;
     }
     deleteContact(id) {
@@ -391,8 +393,12 @@ export class TTSBackend {
         const p = validateChatPreset(normalizeChatPreset(clone(preset || activeChatPreset(this.settings.chat))));
         const contact = chatContacts(this.settings)[0] || { name: '联系人', persona: '', voice: false };
         const thread = { type: 'dm', name: contact.name, members: [contact.name], messages: [{ from: 'me', kind: 'text', text: '（这里是手机里的聊天记录）' }] };
-        return buildChatRequest({ preset: p, thread, members: [{ ...contact, card: contact.persona ? '' : '（酒馆角色卡里的设定）' }], story: [{ name: '（最近的剧情）', text: '……' }], user: '{{user}}', voiceFormat: this.voiceFormat() })
-            .map(m => `【${m.role}】\n${m.content}`).join('\n\n');
+        const member = { ...contact, card: contact.persona ? '' : '（酒馆角色卡里的设定）' }, story = [{ name: '（最近的剧情）', text: '……' }], text = request => request.map(m => `【${m.role}】\n${m.content}`).join('\n\n');
+        const other = { name: '另一位联系人', persona: '', card: '（酒馆角色卡里的设定）', voice: false };
+        const group = { type: 'group', name: '群聊', members: [contact.name, other.name], messages: thread.messages };
+        return ['━━ 私聊 ━━', text(buildChatRequest({ preset: p, thread, members: [member], story, user: '{{user}}', voiceFormat: this.voiceFormat() })),
+            '━━ 群聊 ━━', text(buildChatRequest({ preset: p, thread: group, members: [member, other], story, user: '{{user}}', voiceFormat: this.voiceFormat() })),
+            '━━ 朋友圈（刷新时） ━━', text(buildMomentsRequest({ preset: p, people: [member, other], story, user: '{{user}}', images: this.settings.moments.images }))].join('\n\n');
     }
     // ---------- 朋友圈 ----------
     /** Moments options: {auto, every, dailyMax, images, replyToMe}. */
@@ -400,32 +406,6 @@ export class TTSBackend {
         const next = this.getState(), allowed = ['auto', 'every', 'dailyMax', 'images', 'replyToMe'];
         next.moments = normalizeMoments({ ...next.moments, ...Object.fromEntries(Object.entries(patch || {}).filter(([key]) => allowed.includes(key))) });
         return this.save(next).moments;
-    }
-    saveMomentsPreset(value) {
-        if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('朋友圈预设格式无效');
-        const next = this.getState(), preset = validateMomentsPreset(normalizeMomentsPreset({ ...clone(value), id: value.id || crypto.randomUUID() }));
-        const index = next.moments.presets.findIndex(p => p.id === preset.id);
-        if (index < 0) next.moments.presets.push(preset); else next.moments.presets[index] = preset;
-        this.save(next);
-        return clone(preset);
-    }
-    deleteMomentsPreset(id) {
-        const next = this.getState();
-        if (next.moments.presets.length === 1) throw Error('请至少保留一个朋友圈预设');
-        next.moments.presets = next.moments.presets.filter(p => p.id !== id);
-        return this.save(next).moments;
-    }
-    selectMomentsPreset(id) {
-        const next = this.getState();
-        if (!next.moments.presets.some(p => p.id === id)) throw Error('朋友圈预设不存在');
-        next.moments.activePreset = id;
-        return this.save(next).moments;
-    }
-    previewMomentsPrompt(preset) {
-        const p = validateMomentsPreset(normalizeMomentsPreset(clone(preset || activeMomentsPreset(this.settings.moments))));
-        const people = chatContacts(this.settings).slice(0, 3).map(c => ({ name: c.name, persona: c.persona, card: c.persona ? '' : '（酒馆角色卡里的设定）' }));
-        return buildMomentsRequest({ preset: p, people: people.length ? people : [{ name: '联系人', card: '（酒馆角色卡里的设定）' }], story: [{ name: '（最近的剧情）', text: '……' }], user: '{{user}}', images: this.settings.moments.images })
-            .map(m => `【${m.role}】\n${m.content}`).join('\n\n');
     }
     /** Runs a change to the moments and tells the phone. */
     async momentsMutate(task) {
@@ -629,8 +609,7 @@ export class TTSBackend {
             listNotes: () => this.library.listNotes(), saveNote: value => this.mutateLibrary('notes', 'saveNote', value), deleteNote: id => this.mutateLibrary('notes', 'deleteNote', id),
             getPhone: () => this.getPhone(), savePhone: patch => this.savePhone(patch), libraryStats: () => this.library.stats(),
             generatedPhotos: () => this.generatedPhotos().then(({ count, bytes }) => ({ count, bytes })), deleteGeneratedPhotos: () => this.deleteGeneratedPhotos(),
-            saveMoments: patch => this.saveMoments(clone(patch)), saveMomentsPreset: preset => this.saveMomentsPreset(preset), deleteMomentsPreset: id => this.deleteMomentsPreset(id), selectMomentsPreset: id => this.selectMomentsPreset(id),
-            previewMomentsPrompt: preset => this.previewMomentsPrompt(preset), validateMomentsPreset: preset => { try { validateMomentsPreset(normalizeMomentsPreset(clone(preset))); return ''; } catch (error) { return error.message; } },
+            saveMoments: patch => this.saveMoments(clone(patch)),
             listMoments: () => this.moments.list(), getMoment: id => this.moments.get(id),
             postMoment: ({ text, photoId } = {}) => this.momentsMutate(async () => (await this.moments.add([{ author: 'me', source: 'me', text, photoId }]))[0]),
             likeMoment: (id, on = true) => this.momentsMutate(() => this.moments.like(id, 'me', on)),
@@ -651,7 +630,7 @@ export class TTSBackend {
             speak: line => this.speak(clone(line)), voiceFormat: () => this.voiceFormat(),
         };
         return Object.freeze({ apiVersion: BACKEND_API_VERSION, defaultPrompt: DEFAULT_PROMPT, defaultFormat: DEFAULT_FORMAT,
-            picTagFormat: PIC_TAG_FORMAT, defaultDrawRule: DEFAULT_DRAW_RULE, drawCountMax: DRAW_COUNT_MAX, defaultChatPreset: Object.freeze((({ id, ...rest }) => rest)(defaultChat().presets[0])), defaultMomentsPreset: Object.freeze((({ id, ...rest }) => rest)(defaultMoments().presets[0])),
+            picTagFormat: PIC_TAG_FORMAT, defaultDrawRule: DEFAULT_DRAW_RULE, drawCountMax: DRAW_COUNT_MAX, defaultChatPreset: Object.freeze((({ id, ...rest }) => rest)(defaultChat().presets[0])),
             // The shipped presets of each kind, without ids: for 恢复默认 in the preset app.
             defaultVoicePreset: Object.freeze((({ id, ...rest }) => rest)(freshState().presets[0])), defaultDrawPreset: Object.freeze((({ id, ...rest }) => rest)(defaultDraw().presets[0])),
             drawCatalog: Object.freeze({ models: NAI_MODELS, modelNames: NAI_MODEL_NAMES, samplers: NAI_SAMPLERS, schedules: NAI_SCHEDULES }),

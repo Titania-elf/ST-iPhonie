@@ -1,8 +1,8 @@
 // 朋友圈, tavern side. Posts, reactions and replies are generated separately from the story with the tavern's connected
 // model (generateRaw), like phone chat replies; nothing is written into the story. Pictures go through the drawing
 // queue and only when they are free (NovelAI's free tier); others wait for the user to ask.
-import {buildMomentsRequest, parseMoments, activeMomentsPreset, storyLines, MOMENTS_LIMITS} from './core/moments.js';
-import {chatContacts} from './core/chat.js';
+import {buildMomentsRequest, parseMoments, storyLines, MOMENTS_LIMITS} from './core/moments.js';
+import {chatContacts, activeChatPreset} from './core/chat.js';
 import {pictureInputs} from './core/draw.js';
 
 export function createMomentsHost({context, settings, backend, notice}) {
@@ -36,7 +36,7 @@ export function createMomentsHost({context, settings, backend, notice}) {
     return String(text || '');
   }
   const base = () => {
-    const s = settings(), preset = activeMomentsPreset(s.moments), crowd = people();
+    const s = settings(), preset = activeChatPreset(s.chat), crowd = people();
     if (!crowd.length) throw Error('还没有能发朋友圈的人：先在角色 App 里添加角色，或在聊天里添加联系人');
     return {s, preset, crowd, user: userName(), names: crowd.map(p => p.name)};
   };

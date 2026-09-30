@@ -112,6 +112,7 @@ function connect(source){
   momentsBusy:()=>{check();return momentsHost.busy();},
    playFavorite:id=>{check();playbackMessage=null;return api.playFavorite(id);},
   diagnose:()=>{check();return diagnose();},
+  userName:()=>{check();return context()?.name1||'';},
   exportBackup:async parts=>{check();const manifest=await fetch(new URL('manifest.json',base)).then(r=>r.ok?r.json():null).catch(()=>null);return api.exportBackup(parts,manifest?.version||'');},
   noteError:text=>{check();remember(text,'error');}
  });
