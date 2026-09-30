@@ -12,6 +12,7 @@
 // automatically. Older records ({url, seed, …}) read as a single version.
 import {parsePictures, pictureInputs, planRequest, insertPlanned, withoutPictures, sameExact} from './core/draw.js';
 import {openImageViewer} from './image-viewer.js';
+import {downloadAction} from './download.js';
 import {TIER_NAMES, NAI_MODEL_NAMES} from './core/novelai.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -294,6 +295,7 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
       openImageViewer({doc: document, from: source?.querySelector?.('img') || source,
         gallery: {items: list.map(v => ({src: v.url, alt: tag.prompt, info: pictureInfo(v, tag)})), index: pic.index, onIndex: pick},
         actions: [
+          downloadAction(document, i => ({source: list[i].url, name: [(list[i].characters || []).join('、') || context()?.name2 || 'ST-iPhonie', list[i].seed].filter(v => v !== undefined && v !== '').join('_')}), notice),
           {label: '重画', run: () => act('redo', id, message, tag)},
           {label: '在绘图中打开', run: () => act('open', id, message, tag)},
           {label: '收起', run: () => act('fold', id, message, tag)},

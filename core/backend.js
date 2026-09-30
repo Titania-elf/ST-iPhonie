@@ -24,6 +24,9 @@ const modelCheck = (engine, model) => { engineCheck(engine); if (model && !TTSPa
 const message = error => error instanceof TypeError ? '设置格式无效，请检查字段和条目' : error.message;
 
 /** Framework-independent operations. Host callbacks own SillyTavern persistence and rendering. */
+// Audio files are named after who said what: 诺亚 - 午安，格林小姐.
+const audioName = (role, said) => [String(role || '').trim(), String(said || '').replace(/\s+/g, ' ').trim().slice(0, 30)].filter(Boolean).join(' - ') || 'ST-iPhonie 语音';
+
 export class TTSBackend {
     constructor({ settings, persist = () => {}, notify = () => {}, change = () => {}, unknown = () => {},
         providers = new Providers(), cache, library, keyStore, sink, novelai, chats, indexedDB = globalThis.indexedDB } = {}) {
@@ -421,6 +424,22 @@ export class TTSBackend {
     audioInfo(audio) {
         return { key: audio.key, line: clone(audio.line), route: clone(audio.route), bytes: audio.blob.size, fromCache: audio.fromCache };
     }
+    /** The audio of a favorite ({favorite: id}), a cached line ({key}) or a line as spoken now ({line}), with a file name. */
+    async audioFile({ favorite, key, line } = {}) {
+        this.assertOpen();
+        if (favorite) {
+            const row = await this.library.getFavorite(favorite);
+            if (!row?.blob) throw Error('这段收藏已经不在了');
+            return { blob: row.blob, name: audioName(row.role, row.translation || row.text) };
+        }
+        if (!key && line) key = await this.player.lineKey(line);
+        const prepared = key && this.prepared?.key === key ? this.prepared : null;
+        const record = prepared || !key ? null : await this.cache.getRecord(key);
+        const blob = prepared?.blob || record?.blob;
+        if (!blob?.size) throw Error('这句还没有生成语音，先播放一次再下载');
+        const said = prepared?.line || record?.metadata?.line || line || {};
+        return { blob, name: audioName(said.role, said.translation || said.text) };
+    }
     async favoriteAudio(key) {
         this.assertOpen();
         const prepared = this.prepared?.key === key ? this.prepared : null;
@@ -507,7 +526,7 @@ export class TTSBackend {
             cacheStats: () => this.cache.stats(), clearCache: () => this.clearCache(), listAudio: () => this.cache.list(),
             deleteAudio: async key => { if (this.player.requestKey === key) this.player.stop('音频已删除'); if (this.prepared?.key === key) this.prepared = null; await this.cache.remove(key); this.emit('library', { collection: 'cache' }); },
             latestAudio: () => this.prepared ? this.audioInfo(this.prepared) : null,
-            favoriteAudio: key => this.favoriteAudio(key), listFavorites: query => this.library.listFavorites(query),
+            favoriteAudio: key => this.favoriteAudio(key), audioFile: ref => this.audioFile(ref), listFavorites: query => this.library.listFavorites(query),
             getFavorite: id => this.library.getFavorite(id), playFavorite: id => this.playFavorite(id),
             deleteFavorite: id => this.mutateLibrary('favorites', 'deleteFavorite', id),
             listPhotos: () => this.library.listPhotos(), addPhoto: value => this.mutateLibrary('photos', 'addPhoto', value),

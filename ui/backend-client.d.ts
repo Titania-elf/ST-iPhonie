@@ -394,6 +394,9 @@ export interface BackendFacade {
     deleteAudio(key: string): Promise<void>;
     latestAudio(): ReadyAudio | null;
     favoriteAudio(key: string): Promise<Favorite>;
+    /** The audio of a favorite, a cached line, or a line with its speaker's current voice, named for saving.
+     *  Rejects when that line has not been generated yet. */
+    audioFile(ref: { favorite: string } | { key: string } | { line: { role: string; text: string; emotion?: string; translation?: string } }): Promise<{ blob: Blob; name: string }>;
     listFavorites(query?: FavoriteQuery): Promise<FavoriteMetadata[]>;
     getFavorite(id: string): Promise<Favorite | null>;
     /** Resolves after lookup and playback handoff, not after audio playback ends. */

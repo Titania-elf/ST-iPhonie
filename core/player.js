@@ -155,12 +155,16 @@ export class DialoguePlayer {
   return this.volume;
  }
  getVolume() { return this.volume; }
+ /** The cache key a line's audio has with its speaker's current voice settings, or null without a speaker. */
+ async lineKey(line) {
+  const s = this.settings(), route = s.routes.find(r => r.name === line.role);
+  if (!route) return null;
+  return requestHash(buildRequest(route.engine, s.connections[route.engine], { ...route, language: route.language || s.general.defaultLanguage }, line, this.providers.references));
+ }
  async lineState(line) {
   try {
-   const s = this.settings(), route = s.routes.find(r => r.name === line.role);
-   if (!route) return 'ungenerated';
-   const request = buildRequest(route.engine, s.connections[route.engine], { ...route, language: route.language || s.general.defaultLanguage }, line, this.providers.references);
-   const key = await requestHash(request);
+   const s = this.settings(), key = await this.lineKey(line);
+   if (!key) return 'ungenerated';
    if (this.played.has(key)) return 'played';
    return s.general.cacheEnabled && await this.cache.has(key) ? 'ready' : 'ungenerated';
   } catch { return 'ungenerated'; }

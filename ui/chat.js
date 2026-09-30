@@ -1,6 +1,7 @@
 import {createView, esc, btn, field, input, textArea, heading, groupTitle, avatar, empty} from './common.js';
 import {icon} from './icons.js';
 import {openImageViewer} from '../image-viewer.js';
+import {saveFile, downloadAction} from '../download.js';
 
 // Chat app: conversation list, private and group chats, voice messages, manual contacts,
 // and "带进剧情" (carry selected messages into the next story reply).
@@ -434,7 +435,7 @@ export function chatApp(ctx) {
     const shown = m.kind === 'voice' ? (m.translation || m.text) : m.kind === 'dice' ? `骰子 ${m.text} 点` : ['redpacket', 'transfer'].includes(m.kind) ? preview(m) : quoteText(m);
     const voice = m.kind === 'voice', open = voice && (voiceText().auto || transcribed.has(m.id));
     const d = sheet('消息', `${voice ? '' : `<p class="help-copy">${esc(shown)}</p>`}
-      ${voice ? `<div class="actions">${btn('transcribe', icon('book') + (open ? '收起文字' : '转文字'), 'primary')}</div>` : ''}
+      ${voice ? `<div class="actions">${btn('transcribe', icon('book') + (open ? '收起文字' : '转文字'), 'primary')}${btn('download', icon('download') + '下载语音', 'secondary')}</div>` : ''}
       <div class="actions">${quotable(m) ? btn('quote', icon('reply') + '引用', 'secondary') : ''}${copyable ? btn('copy', icon('copy') + '复制', 'secondary') : ''}</div>
       <div class="actions">${canRecall ? btn('recall', icon('undo') + '撤回', 'secondary') : ''}${btn('delete', icon('trash') + '删除', 'danger')}</div>
       ${last && live ? `<div class="actions">${btn('reroll', icon('refresh') + '重新回复这一轮', 'secondary')}</div>` : ''}`, {
@@ -444,6 +445,7 @@ export function chatApp(ctx) {
         if (open) transcribed.delete(m.id); else transcribed.add(m.id);
         render();
       },
+      download: async () => { d.close(); const {blob, name} = await api.audioFile({line: lineOf(m)}); ctx.notify('已下载 ' + await saveFile(ctx.doc, blob, name)); },
       quote: () => { d.close(); quote = {from: m.from, text: quoteText(m).slice(0, 200)}; panel = null; render(); },
       copy: async () => { d.close(); await ctx.win.navigator.clipboard?.writeText(m.kind === 'voice' ? m.text : quoteText(m)); ctx.notify('已复制'); },
       recall: async () => {
@@ -600,7 +602,7 @@ export function chatApp(ctx) {
       case 'photo': {
         const m = find(), img = el.querySelector('img');
         if (!m || !img?.src) break;
-        openImageViewer({doc: ctx.doc, src: img.src, alt: img.alt, from: img, actions: [{label: '消息选项', run: () => messageMenu(m)}]});
+        openImageViewer({doc: ctx.doc, src: img.src, alt: img.alt, from: img, actions: [downloadAction(ctx.doc, () => ({source: img.src, name: `${m.from === 'me' ? '我' : m.from} 的照片`}), ctx.notify), {label: '消息选项', run: () => messageMenu(m)}]});
         break;
       }
       case 'packet': { const m = find(); if (m) openPacket(m); break; }

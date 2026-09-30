@@ -1,6 +1,7 @@
 import {createView, esc, btn, field, input, select, textArea, toggle, heading, help, groupTitle, plate, avatar, empty} from './common.js';
 import {icon} from './icons.js';
 import {openImageViewer} from '../image-viewer.js';
+import {saveFile, downloadAction} from '../download.js';
 
 const SIZES = [['portrait', '竖图', 832, 1216], ['landscape', '横图', 1216, 832], ['square', '方图', 1024, 1024], ['tall', '大竖图', 1024, 1536]];
 const TIERS = {0: '未订阅', 1: 'Tablet', 2: 'Scroll', 3: 'Opus'};
@@ -20,6 +21,8 @@ export function drawApp(ctx) {
     return {enabled: saved.enabled, kind: saved.kind, url: (field('url') ?? saved.url).trim(), room: (field('room') ?? saved.room).trim()};
   };
   const style = () => { const d = state(); return d.styles.find(s => s.id === d.activeStyle) || d.styles[0]; };
+  // A result as a file: NovelAI_种子.png.
+  const resultFile = async result => { const photo = await api.getPhoto(result.photoId); if (!photo) throw Error('这张图已经不在相册里了'); return {source: photo.blob, name: `NovelAI_${result.seed ?? photo.name}`}; };
   const urlFor = async id => {
     if (urls.has(id)) return urls.get(id);
     const photo = await api.getPhoto(id);
@@ -100,7 +103,7 @@ export function drawApp(ctx) {
         <div class="canvas-card"><div class="canvas-main${main ? '' : ' empty'}" style="aspect-ratio:${p.width}/${p.height}">${main ? `<button type="button" class="canvas-zoom" data-action="zoom" aria-label="放大查看"><img src="${esc(main)}" alt="生成的图片"></button>` : `<span>${p.width} × ${p.height}<br>还没有图</span>`}${busy ? '<span class="canvas-busy">NovelAI 正在画……</span>' : ''}</div>
           ${results.length ? `<div class="canvas-side">${thumbs.map((url, i) => `<button class="thumb" data-action="thumb" data-index="${i}" aria-pressed="${i === current}" aria-label="第 ${i + 1} 张">${url ? `<img src="${esc(url)}" alt="">` : ''}</button>`).join('')}</div>` : ''}</div>
         ${shown ? `<p class="hint canvas-meta">${esc(shown.params.model)} · ${shown.params.width}×${shown.params.height} · ${shown.params.steps} 步 · 种子 ${shown.seed}</p>` : ''}
-        <div class="draw-actions">${btn('insert', icon('insert') + '插入正文', 'secondary', shown ? '' : 'disabled')}${btn('wallpaper', icon('image') + '设为壁纸', 'secondary', shown ? '' : 'disabled')}${btn('reuse-seed', icon('dice') + '用这个种子', 'secondary', shown ? '' : 'disabled')}</div>
+        <div class="draw-actions">${btn('insert', icon('insert') + '插入正文', 'secondary', shown ? '' : 'disabled')}${btn('wallpaper', icon('image') + '设为壁纸', 'secondary', shown ? '' : 'disabled')}${btn('reuse-seed', icon('dice') + '用这个种子', 'secondary', shown ? '' : 'disabled')}${btn('download-image', icon('download') + '下载', 'secondary', shown ? '' : 'disabled')}</div>
         <details data-group="style" class="style-card"><summary>${icon('paint')}画风 · ${esc(s.name)}<span class="save-state" data-style-state>${styleDraft ? '未保存' : ''}</span></summary><div>
           ${field('画师串', textArea('artist', s.artist, 'class="code" rows="2" data-style-field placeholder="例如 artist:wlop, artist:ciloranko"'))}
           ${field('固定正面', textArea('positive', s.positive, 'class="code" rows="2" data-style-field'))}
@@ -191,7 +194,8 @@ export function drawApp(ctx) {
       case 'remove-char': characters.splice(index, 1); render(); break;
       case 'add-custom': characters.push({name: '角色', prompt: '', position: -1}); render(); break;
       case 'add-char': pickCharacter(); break;
-      case 'zoom': { const img = el.querySelector('img'); if (img) openImageViewer({doc: ctx.doc, src: img.src, alt: '生成的图片', from: img}); break; }
+      case 'zoom': { const img = el.querySelector('img'), shown = results[current]; if (img) openImageViewer({doc: ctx.doc, src: img.src, alt: '生成的图片', from: img, actions: shown ? [downloadAction(ctx.doc, () => resultFile(shown), ctx.notify)] : []}); break; }
+      case 'download-image': { const shown = results[current]; if (!shown) break; await v.busy(el, async () => { const {source, name} = await resultFile(shown); ctx.notify('已下载 ' + await saveFile(ctx.doc, source, name)); }); break; }
       case 'suggest':
         await v.busy(el, async () => {
           el.innerHTML = icon('spin') + '正在读剧情…';

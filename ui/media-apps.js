@@ -1,9 +1,12 @@
 import {createView, esc, engines, btn, heading, empty, size, field, input, textArea, groupTitle, avatar} from './common.js';
 import {icon, wave, halo} from './icons.js';
 import {openImageViewer} from '../image-viewer.js';
+import {saveFile, downloadAction} from '../download.js';
 
 const NOTE_COLORS = ['#fff4b0', '#ffd9e6', '#d9ecff', '#e3f5d9', '#efe0ff', '#ffe6cc'];
 const hash = text => [...String(text)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7);
+/** Saves the audio or picture a backend call returns ({blob, name}) and says under which name. */
+const saveAs = async (ctx, file) => { const {blob, name} = await file; ctx.notify('已下载 ' + await saveFile(ctx.doc, blob, name)); };
 const dateLabel = time => new Date(time).toLocaleDateString('zh-CN', {month: 'numeric', day: 'numeric'});
 
 export function libraryApp(ctx) {
@@ -21,14 +24,14 @@ export function libraryApp(ctx) {
     let body;
     if (tab === 'favorites') {
       body = shown.length
-        ? '<div class="group">' + shown.map(r => `<div class="audio-row" data-engine="${esc(r.engine)}">${btn('play-favorite', icon('play', true), 'play-round', `data-id="${esc(r.id)}" aria-label="播放收藏"`)}<div><p>“${esc(r.translation || r.text)}”</p><small>${esc(r.role)} · ${engines[r.engine] || r.engine} · ${size(r.size)} · ${dateLabel(r.createdAt)}</small></div><span class="row-tools">${btn('delete-favorite', icon('trash'), 'text-button', `data-id="${esc(r.id)}" aria-label="删除收藏"`)}</span></div>`).join('') + '</div>'
+        ? '<div class="group">' + shown.map(r => `<div class="audio-row" data-engine="${esc(r.engine)}">${btn('play-favorite', icon('play', true), 'play-round', `data-id="${esc(r.id)}" aria-label="播放收藏"`)}<div><p>“${esc(r.translation || r.text)}”</p><small>${esc(r.role)} · ${engines[r.engine] || r.engine} · ${size(r.size)} · ${dateLabel(r.createdAt)}</small></div><span class="row-tools">${btn('download-favorite', icon('download'), 'text-button', `data-id="${esc(r.id)}" aria-label="下载到本地"`)}${btn('delete-favorite', icon('trash'), 'text-button', `data-id="${esc(r.id)}" aria-label="删除收藏"`)}</span></div>`).join('') + '</div>'
         : empty('把喜欢的对白留在这里', '在听取里点爱心，就能把生成过的台词收藏起来。', 'heart');
     } else {
       const used = library?.limit ? Math.min(100, cache.bytes / library.limit * 100) : 0, fav = library?.limit ? Math.min(100, library.bytes / library.limit * 100) : 0;
       body = `<div class="group pad"><strong>本机音频</strong><div class="storage-meter"><i style="width:${fav}%;background:var(--pink)"></i><i style="width:${used}%;background:var(--accent)"></i></div>
           <div class="legend"><span style="--c:var(--pink)">收藏与资料 ${library ? size(library.bytes) : '无法读取'}</span><span style="--c:var(--accent)">缓存 ${cache.available ? cache.count + ' 段 · ' + size(cache.bytes) : '不可用'}</span></div></div>`
         + (shown.length
-          ? '<div class="group">' + shown.map(r => { const line = r.metadata?.line || {}; return `<div class="audio-row" data-engine="${esc(r.metadata?.route?.engine || 'none')}"><span class="disc">${icon('wave')}</span><div><p>${esc(line.translation ? '“' + line.translation + '”' : '早期缓存的音频')}</p><small>${esc(line.role || '未知角色')} · ${size(r.bytes)}</small></div><span class="row-tools">${btn('favorite-cache', icon('heart'), 'text-button', `data-id="${esc(r.key)}" aria-label="收藏"`)}${btn('delete-cache', icon('trash'), 'text-button', `data-id="${esc(r.key)}" aria-label="清理"`)}</span></div>`; }).join('') + '</div>'
+          ? '<div class="group">' + shown.map(r => { const line = r.metadata?.line || {}; return `<div class="audio-row" data-engine="${esc(r.metadata?.route?.engine || 'none')}"><span class="disc">${icon('wave')}</span><div><p>${esc(line.translation ? '“' + line.translation + '”' : '早期缓存的音频')}</p><small>${esc(line.role || '未知角色')} · ${size(r.bytes)}</small></div><span class="row-tools">${btn('download-cache', icon('download'), 'text-button', `data-id="${esc(r.key)}" aria-label="下载到本地"`)}${btn('favorite-cache', icon('heart'), 'text-button', `data-id="${esc(r.key)}" aria-label="收藏"`)}${btn('delete-cache', icon('trash'), 'text-button', `data-id="${esc(r.key)}" aria-label="清理"`)}</span></div>`; }).join('') + '</div>'
           : empty('还没有音频缓存', '点聊天里的声波生成过的台词会暂存在这里。'))
         + `<div class="actions">${btn('clear-cache', icon('trash') + '清理全部缓存', 'danger')}</div><p class="hint">收藏和缓存分开保存，清理缓存不会删掉收藏。</p>`;
     }
@@ -41,6 +44,8 @@ export function libraryApp(ctx) {
       case 'tab': tab = el.dataset.tab; role = ''; await render(); break;
       case 'role': role = el.dataset.role; await render(); break;
       case 'play-favorite': await api.playFavorite(id); break;
+      case 'download-favorite': await v.busy(el, () => saveAs(ctx, api.audioFile({favorite: id}))); break;
+      case 'download-cache': await v.busy(el, () => saveAs(ctx, api.audioFile({key: id}))); break;
       case 'favorite-cache': await v.busy(el, () => api.favoriteAudio(id)); ctx.notify('已加入收藏'); break;
       case 'delete-cache': if (await ctx.confirm('清理这段缓存？')) { await api.deleteAudio(id); await render(); } break;
       case 'delete-favorite': if (await ctx.confirm('删除这段收藏？')) { await api.deleteFavorite(id); await render(); } break;
@@ -58,6 +63,7 @@ export function galleryApp(ctx) {
   let current = null, epoch = 0;
   const clear = () => { for (const url of urls) ctx.win.URL.revokeObjectURL(url); urls.clear(); };
   const urlFor = blob => { const url = ctx.win.URL.createObjectURL(blob); urls.add(url); return url; };
+  const photoFile = async id => { const photo = await api.getPhoto(id); if (!photo) throw Error('这张照片已经不在了'); return {source: photo.blob, name: photo.name}; };
   const importButton = `<label class="chip-button file-button">${icon('import')}导入<input type="file" data-photo-files multiple accept="image/png,image/jpeg,image/webp,image/avif,image/gif" aria-label="导入照片"></label>`;
   async function render() {
     const ticket = ++epoch;
@@ -66,7 +72,7 @@ export function galleryApp(ctx) {
       if (v.disposed || ticket !== epoch) return;
       clear();
       if (!photo) { current = null; return render(); }
-      v.draw(heading('照片', '', 'Photo') + `<button type="button" class="photo-zoom" data-action="zoom" aria-label="放大查看"><img class="photo-full" src="${esc(urlFor(photo.blob))}" alt="${esc(photo.name)}"></button><p class="hint">${esc(photo.name)} · ${size(photo.size)}</p><div class="actions">${btn('wallpaper', icon('image') + '设为壁纸', 'primary')}${btn('delete-photo', icon('trash') + '删除', 'danger')}</div>`);
+      v.draw(heading('照片', '', 'Photo') + `<button type="button" class="photo-zoom" data-action="zoom" aria-label="放大查看"><img class="photo-full" src="${esc(urlFor(photo.blob))}" alt="${esc(photo.name)}"></button><p class="hint">${esc(photo.name)} · ${size(photo.size)}</p><div class="actions">${btn('wallpaper', icon('image') + '设为壁纸', 'primary')}${btn('download-photo', icon('download') + '下载', 'secondary')}${btn('delete-photo', icon('trash') + '删除', 'danger')}</div>`);
       return;
     }
     const rows = await api.listPhotos();
@@ -99,12 +105,14 @@ export function galleryApp(ctx) {
       case 'zoom': {
         const img = el.querySelector('img'), id = current;
         openImageViewer({doc: ctx.doc, src: img.src, alt: img.alt, from: img, actions: [
+          downloadAction(ctx.doc, () => photoFile(id), ctx.notify),
           {label: '设为壁纸', run: async () => { await api.savePhone({wallpaper: {kind: 'photo', photoId: id}}); ctx.notify('已设为壁纸'); }},
           {label: '删除', danger: true, run: async () => { if (!await ctx.confirm('删除这张照片？', '使用它的壁纸和图标会恢复默认。')) return false; await api.deletePhoto(id); current = null; await render(); }}
         ]});
         break;
       }
       case 'wallpaper': await api.savePhone({wallpaper: {kind: 'photo', photoId: current}}); ctx.notify('已设为壁纸'); break;
+      case 'download-photo': { const id = current; await v.busy(el, async () => { const {source, name} = await photoFile(id); await saveAs(ctx, {blob: source, name}); }); break; }
       case 'delete-photo': if (await ctx.confirm('删除这张照片？', '使用它的壁纸和图标会恢复默认。')) { await api.deletePhoto(current); current = null; await render(); } break;
     }
   });
@@ -178,7 +186,7 @@ export function listenApp(ctx) {
       + `<div class="listen-stage"><div class="portrait"><span class="ring"></span><span class="ring"></span>${halo()}<span data-portrait></span></div><span class="chip emotion" data-emotion hidden></span><div class="visualizer" aria-hidden="true">${'<i></i>'.repeat(32)}</div></div>
         <div class="dialogue-box"><span class="plate" data-speaker-plate><span></span></span><span class="dialogue-engine" data-engine-label></span><p class="play-caption" data-playback-line aria-live="polite"></p><div class="dialogue-foot"><span data-playback-message></span><svg viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><path d="M1 3h12L7 12z"/></svg></div></div>
         <div class="actions" data-waiting hidden>${btn('configure', icon('mic') + '去给这个角色选音色', 'primary')}</div>
-        <div class="transport">${btn('favorite', icon('heart'), '', 'aria-label="收藏这一句"')}${btn('prev', icon('prev', true), '', 'aria-label="上一句"')}${btn('main-play', icon('play', true), 'main-play', 'aria-label="播放"')}${btn('next', icon('skip', true), '', 'aria-label="下一句"')}${btn('stop', icon('stop', true), '', 'aria-label="停止"')}</div>
+        <div class="transport">${btn('favorite', icon('heart'), '', 'aria-label="收藏这一句"')}${btn('download', icon('download'), '', 'aria-label="下载这一句"')}${btn('prev', icon('prev', true), '', 'aria-label="上一句"')}${btn('main-play', icon('play', true), 'main-play', 'aria-label="播放"')}${btn('next', icon('skip', true), '', 'aria-label="下一句"')}${btn('stop', icon('stop', true), '', 'aria-label="停止"')}</div>
         ${latest.lines.length
           ? groupTitle('Log · 本条回复', btn('play-all', icon('play', true) + '整条播放', 'chip-button'))
             + `<div class="group">${latest.lines.map((l, i) => `<div class="dialogue-row" data-row="${i}" data-engine="${ctx.engineOf(l.role)}"><div><small>${esc(l.role)}</small><p>${esc(l.translation)}</p></div>${btn('play-line', wave, 'wave-button', `data-index="${i}" data-state="ungenerated" aria-label="朗读 ${esc(l.role)} 的台词"`)}</div>`).join('')}</div>`
@@ -220,6 +228,8 @@ export function listenApp(ctx) {
     if (main) { main.innerHTML = icon(state.phase === 'playing' ? 'pause' : 'play', true); main.setAttribute('aria-label', state.phase === 'playing' ? '暂停' : '播放'); }
     const favorite = q('[data-action=favorite]');
     if (favorite) favorite.disabled = !api.latestAudio();
+    const download = q('[data-action=download]');
+    if (download) download.disabled = !api.latestAudio();
     const stop = q('[data-action=stop]');
     if (stop) stop.disabled = state.phase === 'idle';
     const prev = q('[data-action=prev]'), next = q('[data-action=next]');
@@ -248,6 +258,12 @@ export function listenApp(ctx) {
       case 'next': play(currentIndex + 1); break;
       case 'stop': api.stop(); break;
       case 'configure': { const name = api.pendingRole(); if (name) ctx.openPendingRole(name); break; }
+      case 'download': {
+        const audio = api.latestAudio();
+        if (!audio) throw Error('先生成一句台词再下载');
+        await v.busy(el, () => saveAs(ctx, api.audioFile({key: audio.key})));
+        break;
+      }
       case 'favorite': {
         const audio = api.latestAudio();
         if (!audio) throw Error('先生成一句台词再收藏');
