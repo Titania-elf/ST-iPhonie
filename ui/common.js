@@ -62,10 +62,45 @@ export function createView(ctx, name) {
     }
   };
   view.on('click', '[data-help]', el => ctx.help(el.dataset.help));
+  bindCombos(root, controller.signal);
   return view;
 }
 
+// A browser <datalist> only lists the entries that match what is already typed (with "ja" in the box it shows only
+// 日语), so the language box has its own list: every language as a chip under the box, opened by tapping the box or ▾.
 export function languageField(key, value, inherit = true) {
-  return field('台词语言', input(key, value, 'text', `list="tts-languages" placeholder="${inherit ? '留空跟随默认' : '例如 zh、en、ja'}"`), '可填写语言代码或语言名称；角色留空时使用默认台词语言。');
+  const chip = (v, t) => `<button type="button" class="combo-chip" data-combo-value="${esc(v)}" aria-pressed="${String(value) === v}">${esc(t)}${v ? `<small>${esc(v)}</small>` : ''}</button>`;
+  const control = `<span class="combo">${input(key, value, 'text', `placeholder="${inherit ? '留空跟随默认' : '例如 zh、en、ja'}" autocomplete="off"`)}<button type="button" class="combo-open" data-combo-open aria-expanded="false" aria-label="展开全部语言">${icon('down')}</button></span><span class="combo-menu" role="group" aria-label="全部语言" hidden>${languages.filter(([v]) => v || inherit).map(([v, t]) => chip(v, t)).join('')}</span>`;
+  return field('台词语言', control, '可填写语言代码或语言名称；角色留空时使用默认台词语言。点输入框或右边的箭头可以看到全部语言。');
 }
-export const languageOptions = () => `<datalist id="tts-languages">${languages.filter(([v]) => v).map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</datalist>`;
+function bindCombos(root, signal) {
+  const menuOf = el => el.closest('.field')?.querySelector('.combo-menu');
+  const show = (field, open, filter = '') => {
+    const menu = field.querySelector('.combo-menu'), box = field.querySelector('.combo input');
+    if (!menu || !box) return;
+    menu.hidden = !open;
+    field.querySelector('[data-combo-open]')?.setAttribute('aria-expanded', String(open));
+    const q = filter.trim().toLowerCase();
+    for (const chip of menu.querySelectorAll('[data-combo-value]')) {
+      chip.hidden = !!q && !chip.textContent.toLowerCase().includes(q);
+      chip.setAttribute('aria-pressed', String(chip.dataset.comboValue === box.value.trim()));
+    }
+  };
+  root.addEventListener('focusin', e => { if (e.target.matches('.combo input')) show(e.target.closest('.field'), true); }, {signal});
+  root.addEventListener('click', e => {
+    const opener = e.target.closest('[data-combo-open]'), pick = e.target.closest('[data-combo-value]');
+    if (opener) { const f = opener.closest('.field'); show(f, menuOf(opener).hidden); return; }
+    if (e.target.matches('.combo input')) { show(e.target.closest('.field'), true); return; }
+    if (!pick) return;
+    const f = pick.closest('.field'), box = f.querySelector('.combo input');
+    box.value = pick.dataset.comboValue;
+    for (const type of ['input', 'change']) box.dispatchEvent(new box.ownerDocument.defaultView.Event(type, {bubbles: true}));
+    show(f, false);
+  }, {signal});
+  // Typing narrows the list; a value already chosen (like "ja") still opens the whole list.
+  root.addEventListener('input', e => { if (e.target.matches('.combo input') && e.isTrusted !== false && e.target.ownerDocument.activeElement === e.target) show(e.target.closest('.field'), true, e.target.value); }, {signal});
+  root.addEventListener('keydown', e => { if (e.key === 'Escape' && e.target.closest('.combo')) { const f = e.target.closest('.field'); if (!menuOf(e.target).hidden) { e.stopPropagation(); show(f, false); } } }, {signal});
+  root.ownerDocument.addEventListener('pointerdown', e => {
+    for (const menu of root.querySelectorAll('.combo-menu:not([hidden])')) if (!menu.closest('.field').contains(e.target)) show(menu.closest('.field'), false);
+  }, {signal});
+}
