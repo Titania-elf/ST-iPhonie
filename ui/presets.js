@@ -11,6 +11,12 @@ export function presetsApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'presets'), drafts = new Map();
   let current = null, currentKind = 'tts', kind = 'tts';
   const mark = () => { const el = v.root.querySelector('[data-save-state]'); if (el) el.textContent = '未保存'; };
+  /** A fresh copy of the shipped preset of a kind: new entry ids, no preset id. */
+  const shipped = k => {
+    const base = structuredClone(k === 'chat' ? api.defaultChatPreset : k === 'draw' ? api.defaultDrawPreset : api.defaultVoicePreset);
+    base.entries = base.entries.map(e => ({...e, id: e.id && k !== 'tts' ? e.id : crypto.randomUUID()}));
+    return base;
+  };
   const tile = app => { const [t1, t2, tac] = APPS[app].colors; return `<span class="mini-tile" style="--t1:${t1};--t2:${t2};--tac:${tac}">${glyph(app)}</span>`; };
   // Operations differ only in which backend list they touch.
   const ops = k => k === 'draw'
@@ -36,6 +42,7 @@ export function presetsApp(ctx) {
       const draw = api.getState().draw;
       body = (kind === 'draw' ? `<div class="group">${toggle('drawEnabled', '正文出图', draw.enabled, '开启后，使用中的绘图预设会加进聊天请求，让模型在正文里写出图标签。')}</div>` : '')
         + o.list().map(p => `<button class="preset-card" data-action="edit-preset" data-kind="${kind}" data-id="${esc(p.id)}"${p.id === active ? ' data-active' : ''}>${tile(app)}<span><strong>${esc(p.name || '未命名预设')}</strong><small>${kind === 'chat' ? `读正文 ${p.context} 条 · 聊天记录 ${p.history} 条` : kind === 'draw' ? `每条回复 ${p.count} 张 · ${p.entries.length} 条规则` : `${p.entries.length} 条规则 · ${esc(positions.find(x => x[0] === p.injection.position)?.[1] || '')}`}</small></span>${p.id === active ? plate('使用中') : icon('next')}</button>`).join('')
+        + `<div class="actions">${btn('restore-default', icon('refresh') + '恢复默认预设', 'secondary')}</div>`
         + `<p class="hint">${kind === 'draw'
           ? '绘图预设是给正文模型看的出图规则：什么时候出图、标签怎么写。画师串和固定 tag 在绘图 App 的“画风”里。'
           : kind === 'chat'
@@ -65,7 +72,7 @@ export function presetsApp(ctx) {
         </div></details>`).join('')}
         <div class="actions">${btn('prompt-preview', icon('eye') + '发送预览', 'secondary')}${p.id ? btn('use-preset', used ? '正在使用' : '保存并使用', 'secondary', used ? 'disabled' : '') : ''}</div>
         <div class="savebar"><span class="save-state" data-save-state>草稿</span>${btn('save-preset', '保存预设', 'primary')}</div>
-        ${p.id ? `<div class="actions">${btn('delete-preset', '删除预设', 'danger')}</div>` : ''}`);
+        <div class="actions">${btn('reset-content', icon('refresh') + '恢复成默认内容', 'secondary')}${p.id ? btn('delete-preset', '删除预设', 'danger') : ''}</div>`);
   }
 
   const render = () => current ? renderEditor() : renderList();
@@ -114,15 +121,31 @@ export function presetsApp(ctx) {
       case 'kind': kind = el.dataset.kind; render(); break;
       case 'add-preset':
         currentKind = kind;
-        current = drafts.get(kind + ':new') || (kind === 'chat'
-          ? {...structuredClone(api.defaultChatPreset), name: '新聊天预设', entries: api.defaultChatPreset.entries.map(e => ({...e, id: crypto.randomUUID()}))}
-          : kind === 'draw'
-          ? {name: '新出图规则', count: 1, injection: {position: 'in_chat', depth: 1, role: 'system'}, entries: [{id: crypto.randomUUID(), title: '出图规则', text: api.defaultDrawRule, enabled: true}]}
-          : {name: '新预设', format: api.defaultFormat, injection: {position: 'in_chat', depth: 0, role: 'system'}, entries: [{id: crypto.randomUUID(), title: '台词生成规则', text: api.defaultPrompt, enabled: true}]});
+        current = drafts.get(kind + ':new') || {...shipped(kind), name: kind === 'chat' ? '新聊天预设' : kind === 'draw' ? '新出图规则' : '新预设'};
         drafts.set(kind + ':new', current);
         render();
         break;
       case 'edit-preset': edit(el.dataset.kind || 'tts', el.dataset.id); break;
+      // Adds the shipped preset again, for when it was deleted or edited beyond repair. Nothing else changes.
+      case 'restore-default': {
+        const names = ops(kind).list().map(p => p.name), base = shipped(kind);
+        let name = base.name, n = 2;
+        while (names.includes(name)) name = `${base.name}（${n++}）`;
+        const saved = ops(kind).save({...base, name});
+        ctx.notify(`已添加默认预设「${saved.name}」`);
+        render();
+        break;
+      }
+      // Puts the shipped rules, format and insertion back into this preset; its name stays. Saving makes it stick.
+      case 'reset-content':
+        if (await ctx.confirm('恢复成默认内容？', '这个预设的条目、格式和插入位置会换成默认的，名字不变。保存之后才生效，不保存就不会改动。')) {
+          current = {...shipped(currentKind), id: current.id, name: current.name};
+          drafts.set(currentKind + ':' + (current.id || 'new'), current);
+          render();
+          mark();
+          ctx.notify('已换成默认内容，记得保存');
+        }
+        break;
       case 'save-preset': save(); break;
       case 'use-preset': save(); ops(currentKind).use(current.id); render(); break;
       case 'add-entry':

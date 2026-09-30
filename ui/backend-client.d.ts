@@ -320,6 +320,10 @@ export interface BackendFacade {
     readonly defaultDrawRule: string;
     readonly drawCountMax: number;
     readonly defaultChatPreset: Omit<ChatPreset, 'id'>;
+    /** The shipped voice preset (without id), for 恢复默认. */
+    readonly defaultVoicePreset: Omit<Preset, 'id'>;
+    /** The shipped drawing preset (without id), for 恢复默认. */
+    readonly defaultDrawPreset: Omit<DrawPreset, 'id'>;
     readonly drawCatalog: { readonly models: readonly string[]; readonly modelNames: Readonly<Record<string, string>>; readonly samplers: readonly string[]; readonly schedules: readonly string[] };
     getState(): Settings;
     getSnapshot(): SettingsSnapshot;
