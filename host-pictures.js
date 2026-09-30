@@ -20,8 +20,11 @@ const versionsOf = record => !record ? [] : Array.isArray(record.versions) ? rec
 export function createPictureHost({context, settings, backend, marker, scheduleRender, openDraw, notice}) {
   const jobs = new Map(); // queue key -> {state: 'generating'|'error', message}
   const folds = new Map(); // `${id}:${hash}` -> true/false, this session's fold choice per picture
-  const taps = new Map(); // `${id}:${hash}` -> {at, timer}: a first tap waiting to see whether a second one follows
-  const DOUBLE_TAP = 320;
+  // The latest single tap on a picture: {key, id, message, tag, was, at, rect, timer, done}. It folds or unfolds the
+  // picture after DOUBLE_TAP unless a second tap comes first. A slower second tap lands where the picture was before
+  // it changed size, so one inside the old spot within SLOW_TAP still counts: the fold is put back and the viewer opens.
+  let first = null;
+  const DOUBLE_TAP = 400, SLOW_TAP = 800;
 
   const stored = (message, hash) => message?.extra?.sttts_pics?.[hash] || null;
   /** The version on screen, with its position: {…version, index, count}; null when there is none. */
@@ -236,6 +239,7 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
 
   /** Handles clicks inside picture blocks. Returns true when the click was ours. */
   function click(event) {
+    if (lateSecondTap(event)) return true;
     const button = event.target.closest('[data-sttts-pic-action]');
     const box = button?.closest('[data-sttts-pic]');
     if (!box || box.dataset.stttsToken !== marker) return false;
@@ -249,15 +253,28 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
   }
   /** One tap folds or unfolds; a second tap within DOUBLE_TAP opens the viewer instead. */
   function tap(id, message, tag, source) {
-    const key = id + ':' + tag.hash, first = taps.get(key);
-    if (first && Date.now() - first.at < DOUBLE_TAP) {
+    const key = id + ':' + tag.hash;
+    if (first && !first.done && first.key === key) {
       clearTimeout(first.timer);
-      taps.delete(key);
+      first = null;
       act('zoom', id, message, tag, source.closest('[data-sttts-pic]')?.querySelector('img') ? source : null);
       return;
     }
-    const folded = folds.get(key) ?? settings().draw.fold;
-    taps.set(key, {at: Date.now(), timer: setTimeout(() => { taps.delete(key); act(folded ? 'unfold' : 'fold', id, message, tag); }, DOUBLE_TAP)});
+    if (first && !first.done) { clearTimeout(first.timer); toggle(first); }
+    const t = first = {key, id, message, tag, was: folds.get(key) ?? settings().draw.fold, at: Date.now(), rect: source.getBoundingClientRect?.(), done: false};
+    t.timer = setTimeout(() => toggle(t), DOUBLE_TAP);
+  }
+  function toggle(t) { t.done = true; act(t.was ? 'unfold' : 'fold', t.id, t.message, t.tag); }
+  /** A second tap that came after the picture already folded or unfolded, on the spot where it was tapped first. */
+  function lateSecondTap(event) {
+    const t = first, r = t?.rect, x = event.clientX, y = event.clientY;
+    if (!t?.done || Date.now() - t.at > SLOW_TAP || !r?.width || !(x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)) return false;
+    first = null;
+    event.preventDefault();
+    folds.set(t.key, t.was);
+    scheduleRender();
+    act('zoom', t.id, t.message, t.tag);
+    return true;
   }
   function act(action, id, message, tag, source = null) {
     const pic = shown(message, tag.hash);
