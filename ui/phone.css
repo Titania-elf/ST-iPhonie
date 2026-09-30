@@ -414,10 +414,12 @@ details>div{padding-bottom:10px}
 .dialogue-foot svg{width:14px;height:14px;color:var(--e)}
 [data-phase=idle] .dialogue-foot svg,[data-phase=paused] .dialogue-foot svg{animation:nudge 1s ease-in-out infinite}
 @keyframes nudge{50%{transform:translateY(3px)}}
-.transport{display:flex;align-items:center;justify-content:space-between;padding:20px 10px 4px}
-.transport button{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;color:var(--e-ink,var(--accent-ink));background:var(--card);box-shadow:var(--shadow)}
+/* Buttons keep their height equal to their width, so a narrow screen shrinks them but never squeezes them oval.
+   The play button does not shrink; the others share what is left. */
+.transport{display:flex;align-items:center;justify-content:space-between;gap:4px;padding:20px 6px 4px}
+.transport button{flex:0 1 46px;min-width:32px;width:auto;height:auto;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;color:var(--e-ink,var(--accent-ink));background:var(--card);box-shadow:var(--shadow)}
 .transport button svg{width:21px;height:21px}
-.transport .main-play{width:68px;height:68px;background:var(--e-btn,var(--accent-btn));color:var(--e-on,var(--on-accent));box-shadow:0 5px 0 color-mix(in srgb,var(--e-btn,var(--accent-btn)) 65%,#000),0 14px 24px -8px var(--e,var(--accent))}
+.transport .main-play{flex:0 0 64px;background:var(--e-btn,var(--accent-btn));color:var(--e-on,var(--on-accent));box-shadow:0 5px 0 color-mix(in srgb,var(--e-btn,var(--accent-btn)) 65%,#000),0 14px 24px -8px var(--e,var(--accent))}
 .transport .main-play svg{width:27px;height:27px}
 .transport .main-play:active:not(:disabled){transform:translateY(3px)}
 .dialogue-row{position:relative;display:flex;gap:12px;align-items:center;padding:12px 4px}
