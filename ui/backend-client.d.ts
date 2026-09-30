@@ -477,6 +477,23 @@ export interface BackendAPI extends BackendFacade {
     chatCancelBring(): void;
     /** True while a reply for this chat is being generated. */
     chatTyping(threadId: string): boolean;
+    /** Facts for the self-check report (core/diagnostics.js buildReport). Asks whether keys work; never returns them. */
+    diagnose(): Promise<DiagnosticFacts>;
+    /** Remembers an error shown in the phone, for the self-check. */
+    noteError(text: string): void;
+}
+/** What the self-check found in the tavern page; core/diagnostics.js buildReport turns it into the report. */
+export interface DiagnosticFacts {
+    at: number;
+    plugin: { version: string; copies: string[] };
+    tavern: { version: string; mode: 'hook' | 'legacy' };
+    browser: { secure: boolean; audio: boolean; indexedDB: boolean; storage: { usage: number; quota: number } | null; agent: string };
+    extensions: string[];
+    voice: { enabled: boolean; preset: string; format: string; injection: string; roles: { name: string; voice: boolean }[] };
+    keys: Partial<Record<'fish' | 'mini' | 'eleven' | 'nai', { set: boolean; needed: string; check?: 'ok' | 'error'; detail?: string }>>;
+    reply: { id: number; name: string; lines: number; tags: boolean; problems: { at: number; role: string; reason: string; snippet: string }[];
+        inChat: boolean; waves: number; stale: number; iframes: number; covered: string; streaming: boolean } | null;
+    errors: { at: number; kind: 'notice' | 'error'; message: string }[];
 }
 export interface PanelHostBridge { connect(source: Window): BackendAPI; }
 

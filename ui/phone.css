@@ -672,3 +672,21 @@ details>div{padding-bottom:10px}
 @media (hover:hover) and (pointer:fine){.list-row:hover,.dialogue-row:hover{background:color-mix(in srgb,var(--accent) 5%,transparent)}}
 @media (prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
 html[data-keyboard=true] *{animation:none!important;transition:none!important}
+
+/* Self-check */
+.check-summary{display:flex;flex-direction:column;gap:2px;margin:6px 0 4px;padding:14px 16px;border-radius:18px;background:var(--card);box-shadow:var(--shadow)}
+.check-summary strong{font-size:17px}
+.check-summary[data-level=error] strong{color:var(--danger)}
+.check-summary[data-level=warn] strong{color:#c0851a}
+.check-summary small{color:var(--ink2)}
+.check-row{display:flex;gap:10px;align-items:flex-start;padding:9px 0}
+.check-row+.check-row{border-top:1px solid var(--line)}
+.check-row strong{display:block;font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.check-row small{display:block;margin-top:2px;font-size:12.5px;line-height:1.45;color:var(--ink2);white-space:pre-wrap;overflow-wrap:anywhere}
+.check-mark{flex:none;width:20px;height:20px;margin-top:1px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;background:var(--accent-soft);color:var(--accent-ink)}
+.check-row[data-level=warn] .check-mark{background:color-mix(in srgb,#e0a030 24%,transparent);color:#b07412}
+.check-row[data-level=error] .check-mark{background:var(--danger-soft);color:var(--danger)}
+.check-row[data-level=info] .check-mark{background:transparent;color:var(--ink2)}
+.report-text{margin:10px 0}
+.report-text summary{cursor:pointer;color:var(--ink2);font-size:13px}
+.report-text textarea{width:100%;margin-top:6px;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace}

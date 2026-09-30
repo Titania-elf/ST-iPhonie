@@ -54,6 +54,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   /** A short note at the bottom. Errors stay longer (20 s), can be closed with ×, and can be selected to copy. */
   function notify(text, {error = false} = {}) {
     if (disposed) return;
+    if (error) api.noteError?.(text || '操作未完成');
     const el = $('.toast');
     el.innerHTML = `<span class="toast-text">${esc(text || '操作未完成')}</span>${error ? `<button type="button" class="toast-close" data-toast-close aria-label="关闭提示">${icon('close')}</button>` : ''}`;
     el.classList.toggle('error', error);

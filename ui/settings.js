@@ -1,14 +1,37 @@
-import {createView, btn, field, select, toggle, heading, size, languageField, languageOptions, groupTitle} from './common.js';
+import {createView, esc, btn, field, select, toggle, heading, size, languageField, languageOptions, groupTitle} from './common.js';
+import {buildReport} from '../core/diagnostics.js';
+import {saveFile} from '../download.js';
 import {icon, GLYPH_NAMES} from './icons.js';
 import {APPS} from './apps.js';
 import {wallpapers, skins} from './wallpapers.js';
 
+const MARKS = {ok: '✓', warn: '!', error: '✕', info: '·'};
 const IMAGE_TYPES = 'image/png,image/jpeg,image/webp,image/avif,image/gif';
 
 export function settingsApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'settings');
-  let appearance = null, epoch = 0;
+  let appearance = null, check = null, epoch = 0;
   const glyphName = key => APPS[key]?.name || GLYPH_NAMES[key] || key;
+
+  // The self-check page: what core/diagnostics.js found, grouped, with the plain report to copy, save or send.
+  function renderCheck() {
+    const intro = '<p class="hint">自检会看插件、酒馆、浏览器、密钥和最近一条回复有没有问题。出问题时可以把报告复制给帮你的人，报告里没有密钥。</p>';
+    if (check.loading) { v.draw(heading('自检', '', 'Self-check') + '<div class="group pad"><p class="help-copy">正在检查……</p></div>' + intro); return; }
+    const {sections, counts, text} = check.report, level = counts.error ? 'error' : counts.warn ? 'warn' : 'ok';
+    v.draw(heading('自检', '', 'Self-check')
+      + `<div class="check-summary" data-level="${level}"><strong>${counts.error ? `发现 ${counts.error} 个问题` : counts.warn ? `有 ${counts.warn} 条提醒` : '一切正常'}</strong><small>问题 ${counts.error} · 提醒 ${counts.warn} · 正常 ${counts.ok}</small></div>`
+      + sections.map(s => groupTitle(s.title) + `<div class="group pad">${s.items.map(i => `<div class="check-row" data-level="${i.level}"><span class="check-mark" aria-hidden="true">${MARKS[i.level]}</span><div><strong>${esc(i.label)}</strong>${i.detail ? `<small>${esc(i.detail)}</small>` : ''}</div></div>`).join('')}</div>`).join('')
+      + `<div class="actions">${btn('copy-report', icon('copy') + '复制报告', 'primary')}${btn('save-report', icon('download') + '下载报告', 'secondary')}</div>`
+      + `<div class="actions">${btn('run-check', icon('refresh') + '再查一次', 'secondary')}</div>`
+      + `<details class="report-text"><summary>报告原文（复制不了时长按这里手动复制）</summary><textarea readonly rows="12" aria-label="报告原文">${esc(text)}</textarea></details>` + intro);
+  }
+  async function runCheck() {
+    check = {loading: true};
+    await render();
+    try { const facts = await api.diagnose(); if (check) check = {report: buildReport(facts)}; }
+    catch (error) { check = null; await render(); throw error; }
+    await render();
+  }
 
   function renderAppearance() {
     const d = appearance;
@@ -26,6 +49,7 @@ export function settingsApp(ctx) {
   async function render() {
     const ticket = ++epoch;
     if (appearance) { renderAppearance(); return; }
+    if (check) { renderCheck(); return; }
     const [phone, cache, library, drawn] = await Promise.all([api.getPhone(), api.cacheStats(), api.libraryStats().catch(() => null), api.generatedPhotos().catch(() => null)]);
     const chatPictures = api.chatPictureStats?.() || null;
     if (v.disposed || ticket !== epoch) return;
@@ -58,10 +82,11 @@ export function settingsApp(ctx) {
           ${chatPictures ? `<div class="setting-row"><span>当前聊天的正文图片</span><small>${chatPictures.count} 张 · 存在酒馆</small></div>` : ''}</div>
         <div class="actions">${btn('clear-cache', icon('trash') + '清理语音缓存', 'danger')}</div>
         <div class="actions">${btn('clear-drawn', icon('trash') + '清除相册里的绘图', 'danger', drawn?.count ? '' : 'disabled')}${chatPictures ? btn('clear-chat-pictures', icon('trash') + '清除正文图片', 'danger', chatPictures.count ? '' : 'disabled') : ''}</div>
+        ${groupTitle('帮助')}<div class="group"><button class="list-row" data-action="self-check"><span><strong>自检</strong><small>出问题时看看是哪里不对，可以把报告发给帮你的人</small></span>${icon('next')}</button></div>
         <div class="actions">${btn('about', '关于 ST-iPhonie', 'text-button')}</div>`);
   }
 
-  v.back = () => { if (!appearance) return false; appearance = null; render().catch(e => ctx.notify(e.message)); return true; };
+  v.back = () => { if (!appearance && !check) return false; appearance = check = null; render().catch(e => ctx.notify(e.message)); return true; };
   v.refresh = () => { if (!appearance) return render(); };
   v.on('input', '[data-field=volume]', el => { el.previousElementSibling.querySelector('output').textContent = el.value + '%'; });
   v.on('change', '[data-field]', async el => {
@@ -116,6 +141,18 @@ export function settingsApp(ctx) {
       case 'cancel-appearance': appearance = null; await render(); break;
       case 'save-appearance': await v.busy(el, async () => { await api.savePhone(appearance); appearance = null; await render(); ctx.notify('外观已应用'); }); break;
       case 'lock': ctx.lock(); break;
+      case 'self-check': case 'run-check': await runCheck(); break;
+      case 'copy-report': {
+        const text = check?.report?.text || '';
+        try { await ctx.win.navigator.clipboard.writeText(text); ctx.notify('已复制报告'); }
+        catch { const box = v.root.querySelector('.report-text'); if (box) { box.open = true; box.querySelector('textarea')?.select(); } ctx.notify('没能自动复制，请在下面的报告原文里手动复制'); }
+        break;
+      }
+      case 'save-report': {
+        const text = check?.report?.text || '', stamp = new Date().toLocaleString('zh-CN', {hour12: false}).replace(/[/:]/g, '-');
+        await v.busy(el, async () => ctx.notify('已下载 ' + await saveFile(ctx.doc, new Blob([text], {type: 'text/plain;charset=utf-8'}), `ST-iPhonie 自检 ${stamp}`)));
+        break;
+      }
       case 'clear-drawn':
         if (await ctx.confirm('清除相册里的绘图？', '绘图 App 和正文出图存进相册的图片会被删除，自己导入的照片保留。正文里的图片不受影响。')) { const n = await v.busy(el, () => api.deleteGeneratedPhotos()); await render(); ctx.notify(`已清除 ${n} 张`); }
         break;
