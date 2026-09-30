@@ -32,7 +32,6 @@ function checkedConnection(engine,connection,route,line,references){
 export function buildRequest(engine,connection,route,line,references=new Map()){
  const c=checkedConnection(engine,connection,route,line,references);P.normalize(engine,c);const error=P.validate(engine,c);if(error)throw Error(error);
  if(engine==='fish'&&c.model==='drama-3-preview')throw Error('这个模型尚未列入 Fish 兼容通道，请选择 S2 或 S1');
- if(engine==='eleven'&&c.model==='eleven_v3_conversational')throw Error('此模型用于实时对话通道，请选择 eleven_v4 或 eleven_v3');
  if(!route.voice?.trim()&&!(engine==='fish'&&c.params.references.length)&&!(engine==='mini'&&c.params.timbre_weights.length))throw Error('请先选择角色音色');
  // The 情绪 field becomes the model's own opening tag (Fish, Eleven v3/v4) unless the text already starts with one.
  const request=P.requestPreview(engine,c,route.voice,P.emotionTag(engine,c.model,line.emotion,line.text),c.model);

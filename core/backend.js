@@ -395,7 +395,7 @@ export class TTSBackend {
         engineCheck(engine); modelCheck(engine, connection.model);
         const current = clone(connection); TTSParameters.normalize(engine, current);
         const catalog = clone(TTSParameters.catalogs[engine]);
-        catalog.models = catalog.models.map(id => ({ id, supported: !['drama-3-preview', 'eleven_v3_conversational'].includes(id), reason: id === 'drama-3-preview' ? '尚未接入 Fish 兼容通道' : id === 'eleven_v3_conversational' ? '属于实时对话通道' : '' }));
+        catalog.models = catalog.models.map(id => ({ id, supported: id !== 'drama-3-preview', reason: id === 'drama-3-preview' ? '尚未接入 Fish 兼容通道' : '' }));
         catalog.groups = catalog.groups.map(group => ({ ...group, fields: group.fields.map(field => ({
             ...field, ...(field.type === 'select' ? { options: TTSParameters.allowed(engine, field, current) } : {}),
             unavailable: TTSParameters.unavailable(engine, field, current),
