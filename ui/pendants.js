@@ -29,14 +29,14 @@ const DRAW = {
       const m = v => side < 0 ? v : 100 - v;
       return `<path d="M${m(15)} 34 L${m(19)} 4 L${m(44)} 15 Z" fill="#fbe3ec" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/><path d="M${m(21)} 27 L${m(23)} 12 L${m(36)} 18 Z" fill="#ff9dbb"/>`;
     };
-    return ear(-1) + ear(1);
+    return `${ear(-1)}${ear(1)}<g fill="#ff9dbb" opacity=".85"><ellipse cx="30" cy="66" rx="5" ry="3"/><ellipse cx="70" cy="66" rx="5" ry="3"/></g>`;
   },
   flower: () => {
     const kinds = [['#ffb3cf', '#ffd76a'], ['#fff3f7', '#ff9dbb'], ['#ffc9a8', '#fff3b0']];
-    // A crown on the head: small flowers along the top of the avatar, leaves between them.
-    const angles = [-160, -128, -96, -64, -32];
-    const leaves = angles.slice(0, -1).map(a => { const [x, y] = at(a + 16, R + 2); return `<ellipse cx="${x}" cy="${y}" rx="5" ry="2.3" fill="#8fd69a" stroke="#fff" stroke-width=".6" transform="rotate(${a + 106} ${x} ${y})"/>`; }).join('');
-    return leaves + angles.map((a, i) => { const [x, y] = at(a, R + 2); const [petal, heart] = kinds[i % 3]; return flower(x, y, i === 2 ? 11 : 9, petal, heart); }).join('');
+    // A garland around the chin: flowers along the lower half of the avatar, leaves between them.
+    const angles = [22, 50, 78, 106, 134, 162];
+    const leaves = angles.slice(0, -1).map(a => { const [x, y] = at(a + 14, R + 1); return `<ellipse cx="${x}" cy="${y}" rx="4.6" ry="2.2" fill="#8fd69a" transform="rotate(${a + 104} ${x} ${y})"/>`; }).join('');
+    return leaves + angles.map((a, i) => { const [x, y] = at(a, R + 1); const [petal, heart] = kinds[i % 3]; return flower(x, y, i % 2 ? 9 : 11, petal, heart); }).join('');
   },
   halo: () => `<defs><linearGradient id="pd-halo" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffd86a"/><stop offset=".5" stop-color="#fff6c9"/><stop offset="1" stop-color="#ffc24a"/></linearGradient></defs>
       <ellipse cx="50" cy="7" rx="25" ry="6" fill="none" stroke="#ffd86a" stroke-opacity=".45" stroke-width="7"/>

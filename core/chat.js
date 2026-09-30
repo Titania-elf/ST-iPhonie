@@ -44,7 +44,7 @@ export function normalizeVoiceText(v = {}) {
 }
 
 export function defaultChat() {
-  return {presets: [structuredClone(DEFAULT_PRESET)], activePreset: 'default', contacts: [], voiceText: {...DEFAULT_VOICE_TEXT}, profile: normalizeProfile(), starred: []};
+  return {presets: [structuredClone(DEFAULT_PRESET)], activePreset: 'default', contacts: [], voiceText: {...DEFAULT_VOICE_TEXT}, profile: normalizeProfile(), starred: [], avatars: {}};
 }
 
 const text = (value, max) => String(value ?? '').slice(0, max);
@@ -93,6 +93,22 @@ export function normalizeProfile(p = {}) {
     bubble: pick(p.bubble, BUBBLES, 'default'), frame: pick(p.frame, FRAMES, 'none'), background: pick(p.background, BACKGROUNDS, 'none'), backgroundPhoto: text(p.backgroundPhoto, 512)};
 }
 
+/**
+ * Avatar choices by name ('me' is the user): a photo from the album, or plain text (the first letter). A name that is
+ * not listed shows the tavern's own avatar when there is one (character card, persona), else the first letter.
+ */
+export function normalizeAvatars(value) {
+  const out = {};
+  if (!value || typeof value !== 'object') return out;
+  for (const [name, a] of Object.entries(value).slice(0, CHAT_LIMITS.contacts + 1)) {
+    const key = text(name, 40).trim();
+    if (!key || !a || typeof a !== 'object') continue;
+    if (a.kind === 'photo' && a.photoId) out[key] = {kind: 'photo', photoId: text(a.photoId, 512)};
+    else if (a.kind === 'text') out[key] = {kind: 'text'};
+  }
+  return out;
+}
+
 export function normalizeContact(c = {}) {
   return {id: String(c.id || crypto.randomUUID()), name: text(c.name, 40).trim(), persona: text(c.persona, CHAT_LIMITS.persona)};
 }
@@ -103,7 +119,7 @@ export function normalizeChat(value) {
   const presets = (Array.isArray(value.presets) && value.presets.length ? value.presets : base.presets).map(normalizeChatPreset);
   const contacts = (Array.isArray(value.contacts) ? value.contacts : []).slice(0, CHAT_LIMITS.contacts).map(normalizeContact).filter(c => c.name);
   const starred = [...new Set((Array.isArray(value.starred) ? value.starred : []).map(n => text(n, 40).trim()).filter(Boolean))].slice(0, CHAT_LIMITS.contacts);
-  return {presets, activePreset: presets.some(p => p.id === value.activePreset) ? value.activePreset : presets[0].id, contacts, voiceText: normalizeVoiceText(value.voiceText), profile: normalizeProfile(value.profile), starred};
+  return {presets, activePreset: presets.some(p => p.id === value.activePreset) ? value.activePreset : presets[0].id, contacts, voiceText: normalizeVoiceText(value.voiceText), profile: normalizeProfile(value.profile), starred, avatars: normalizeAvatars(value.avatars)};
 }
 
 export function validateChatPreset(p) {

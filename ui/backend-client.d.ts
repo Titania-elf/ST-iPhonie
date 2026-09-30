@@ -156,7 +156,10 @@ export interface ChatProfile { name: string; status: 'online' | 'qme' | 'busy' |
 export interface MomentComment { id: string; from: string; to?: string; text: string; at: number; }
 /** author and comment names are 'me' for the user. */
 export interface MomentPost { id: string; author: string; text: string; at: number; source: 'manual' | 'auto' | 'me'; photoId?: string; imageTags?: string; imageState?: 'waiting' | 'done' | 'failed'; imageNote?: string; likes: string[]; comments: MomentComment[]; }
-export interface ChatSettings { presets: ChatPreset[]; activePreset: string; contacts: Contact[]; voiceText: VoiceTextOptions; profile: ChatProfile; /** 特别关心 */ starred: string[]; }
+export interface ChatSettings { presets: ChatPreset[]; activePreset: string; contacts: Contact[]; voiceText: VoiceTextOptions; profile: ChatProfile; /** 特别关心 */ starred: string[];
+    /** Avatar choices by name ('me' = the user); names not listed use the tavern's avatar, else the first letter. */
+    avatars: Record<string, AvatarChoice>; }
+export type AvatarChoice = { kind: 'photo'; photoId: string } | { kind: 'text' };
 export interface ChatContact { name: string; source: 'role' | 'manual'; id?: string; voice: boolean; engine: Engine | 'none'; language: string; persona: string; }
 export type ChatKind = 'text' | 'voice' | 'photo' | 'system' | 'redpacket' | 'transfer' | 'location' | 'pat' | 'dice' | 'notice' | 'recall' | 'call';
 export interface CallLine { from: 'me' | string; text: string; translation: string; emotion: string; }
@@ -476,7 +479,7 @@ export interface BackendFacade {
     previewChatPrompt(preset?: ChatPreset): string;
     /** Empty string when the preset is valid. */
     validateChatPreset(preset: ChatPreset): string;
-    saveChatOptions(patch: { voiceText?: Partial<VoiceTextOptions> }): ChatSettings;
+    saveChatOptions(patch: { voiceText?: Partial<VoiceTextOptions>; profile?: Partial<ChatProfile>; starred?: string[]; /** null: back to the tavern's avatar */ avatars?: Record<string, AvatarChoice | null> }): ChatSettings;
     saveContact(contact: Partial<Contact> & { name: string }): Contact;
     deleteContact(id: string): ChatSettings;
     /** Story roles (角色 App) first, then manual contacts. */
@@ -555,6 +558,8 @@ export interface BackendAPI extends BackendFacade {
     callSay(text: string): Promise<void>;
     /** Asks the contact again after a turn failed. */
     callRetry(): Promise<void>;
+    /** The tavern's own avatar pictures: the current persona's, and each character card's by name (URLs). */
+    tavernAvatars(): { me: string; characters: Record<string, string> };
     /** The tavern's persona name ('' outside the tavern). */
     userName(): string;
     /** Facts for the self-check report (core/diagnostics.js buildReport). Asks whether keys work; never returns them. */

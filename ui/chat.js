@@ -1,4 +1,4 @@
-import {createView, esc, btn, field, input, textArea, heading, groupTitle, avatar, empty} from './common.js';
+import {createView, esc, btn, field, input, textArea, heading, groupTitle, avatar, avatarPicture, empty} from './common.js';
 import {icon} from './icons.js';
 import {openImageViewer} from '../image-viewer.js';
 import {saveFile, downloadAction} from '../download.js';
@@ -80,7 +80,7 @@ export function chatApp(ctx) {
   const profile = () => api.getState().chat.profile;
   const myName = () => profile().name || api.userName?.() || '我';
   let switchTimer = 0;
-  const myAvatar = size => `<span class="me-av" data-frame="${esc(profile().frame)}" style="--s:${size}px">${avatar(myName(), 'none', size)}${pendant(profile().frame)}</span>`;
+  const myAvatar = size => `<span class="me-av" data-frame="${esc(profile().frame)}" style="--s:${size}px">${avatar(myName(), 'none', size, 'me')}${pendant(profile().frame)}</span>`;
   const statusLine = () => { const p = profile(); return `<i class="qq-dot" data-status="${p.status}"></i>${esc(PROFILE_STATUS[p.status])}${p.statusText ? ' · ' + esc(p.statusText) : ''}`; };
   const starred = () => api.getState().chat.starred || [];
   /** A contact's one line: a manual contact's persona, or where a role comes from. */
@@ -156,7 +156,7 @@ export function chatApp(ctx) {
     v.draw(`<div class="qq-card" data-engine="${c.engine}"><span class="qq-card-cover" aria-hidden="true"></span>${avatar(c.name, c.engine, 84)}<h2>${esc(c.name)}</h2><p>${esc(signatureOf(c))}</p>
         <div class="qq-card-tags"><span class="chip">${c.source === 'role' ? '角色' : '手动联系人'}</span>${c.voice ? '<span class="chip">能发语音</span>' : ''}${star ? '<span class="chip">★ 特别关心</span>' : ''}</div></div>
       <div class="actions">${btn('profile-chat', icon('chat') + '发消息', 'primary')}${api.callDial ? btn('profile-call', icon('phone') + '打电话', 'secondary') : ''}${btn('profile-moments', icon('moments') + 'TA 的动态', 'secondary')}</div>
-      <div class="group">${btn('star', `<span>${star ? '★ 取消特别关心' : '☆ 设为特别关心'}</span>`, 'list-row')}${manual ? `<button class="list-row" data-action="contact-edit" data-id="${esc(manual.id)}">${icon('edit')}<span><strong>编辑资料和人设</strong></span></button>` : ''}</div>`);
+      <div class="group">${btn('avatar-pick', `${icon('image')}<span><strong>换头像</strong><small>${esc(avatarState(c.name))}</small></span>`, 'list-row', `data-key="${esc(c.name)}"`)}${btn('star', `<span>${star ? '★ 取消特别关心' : '☆ 设为特别关心'}</span>`, 'list-row')}${manual ? `<button class="list-row" data-action="contact-edit" data-id="${esc(manual.id)}">${icon('edit')}<span><strong>编辑资料和人设</strong></span></button>` : ''}</div>`);
   }
   /** 我: name, status, signature, and 个性装扮. */
   function renderMe() {
@@ -164,7 +164,7 @@ export function chatApp(ctx) {
     const chips = (key, list, value) => `<div class="deco-row">${Object.entries(list).map(([k, l]) => `<button type="button" class="deco" data-action="me-set" data-key="${key}" data-value="${k}" data-${key}="${k}" aria-pressed="${value === k}"><span class="deco-sample" aria-hidden="true">${key === 'frame' ? `<span class="me-av" style="--s:36px"><span class="avatar none" style="--s:36px"></span>${pendant(k)}</span>` : ''}</span><span>${l}</span></button>`).join('')}</div>`;
     v.draw(heading('我', '', 'Me')
       + `<div class="qq-card me" data-bubble="${esc(p.bubble)}"><span class="qq-card-cover" aria-hidden="true"></span>${myAvatar(84)}<h2>${esc(myName())}</h2><p>${esc(p.signature || '还没有个性签名')}</p><div class="qq-card-tags"><span class="chip">${statusLine()}</span></div></div>`
-      + `<div class="group pad">${field('名字', input('me-name', p.name, 'text', `maxlength="40" placeholder="${esc(api.userName?.() || '我')}（跟随酒馆里的用户名）"`))}${field('个性签名', input('me-signature', p.signature, 'text', 'maxlength="80" placeholder="写一句话"'))}
+      + `<div class="group pad"><div class="field"><span>头像</span><div class="actions" style="margin:0">${btn('avatar-pick', icon('image') + '换头像', 'secondary', 'data-key="me"')}</div><small class="hint">${esc(avatarState('me'))}</small></div>${field('名字', input('me-name', p.name, 'text', `maxlength="40" placeholder="${esc(api.userName?.() || '我')}（跟随酒馆里的用户名）"`))}${field('个性签名', input('me-signature', p.signature, 'text', 'maxlength="80" placeholder="写一句话"'))}
         <div class="field"><span>状态</span><div class="deco-row">${Object.entries(PROFILE_STATUS).map(([k, l]) => `<button type="button" class="status-chip" data-action="me-set" data-key="status" data-value="${k}" aria-pressed="${p.status === k}"><i class="qq-dot" data-status="${k}"></i>${l}</button>`).join('')}</div></div>
         ${field('自定义状态', input('me-statusText', p.statusText, 'text', 'maxlength="20" placeholder="例如：摸鱼中、在听歌"'))}</div>`
       + groupTitle('个性装扮')
@@ -580,6 +580,36 @@ export function chatApp(ctx) {
       try { api.saveChatOptions({voiceText: {auto: e.target.checked}}); render(); } catch (error) { ctx.notify(error.message); }
     });
   }
+  /** Where an avatar comes from, in words. */
+  function avatarState(key) {
+    const chosen = api.getState().chat.avatars?.[key];
+    if (chosen?.kind === 'photo') return '用的是相册里的照片';
+    if (chosen?.kind === 'text') return '只显示文字';
+    return avatarPicture(key) ? (key === 'me' ? '用的是酒馆里当前人设的头像' : '用的是酒馆角色卡的头像') : '只显示文字（酒馆里没有这个头像）';
+  }
+  /** Picks an avatar for the user ('me') or a contact: an album photo, a new picture, the tavern's avatar, or text. */
+  async function avatarSheet(key) {
+    const rows = (await api.listPhotos()).slice(0, 30), who = key === 'me' ? '我' : key, chosen = api.getState().chat.avatars?.[key];
+    const d = ctx.dialog(`${who}的头像`, `<p class="help-copy">点一张照片当头像，或者上传一张新的。没选的时候，酒馆里有头像就用酒馆的（${key === 'me' ? '当前人设' : '角色卡'}）。</p>
+      <label class="secondary file-button">${icon('import')}上传图片<input type="file" accept="image/*" data-avatar-file hidden></label>
+      ${rows.length ? `<div class="photo-grid pick-photos">${rows.map(r => `<button data-avatar-photo="${esc(r.id)}" aria-label="用 ${esc(r.name)} 当头像"${chosen?.photoId === r.id ? ' aria-pressed="true"' : ''}><img data-chat-photo="${esc(r.id)}" alt=""></button>`).join('')}</div>` : '<p class="hint">相册里还没有照片。</p>'}
+      <div class="actions">${btn('avatar-tavern', '用酒馆的头像', 'secondary')}${btn('avatar-text', '只显示文字', 'text-button')}</div>`);
+    for (const img of d.body.querySelectorAll('img[data-chat-photo]')) photoURL(img.dataset.chatPhoto).then(url => { if (url) img.src = url; });
+    const choose = value => { d.close(); api.saveChatOptions({avatars: {[key]: value}}); ctx.notify('头像已换好'); };
+    d.body.addEventListener('click', e => {
+      const photo = e.target.closest('[data-avatar-photo]')?.dataset.avatarPhoto;
+      if (photo) return choose({kind: 'photo', photoId: photo});
+      const action = e.target.closest('[data-action]')?.dataset.action;
+      if (action === 'avatar-tavern') choose(null);
+      if (action === 'avatar-text') choose({kind: 'text'});
+    });
+    d.body.addEventListener('change', e => {
+      const file = e.target.closest('[data-avatar-file]')?.files?.[0];
+      if (!file) return;
+      if (!/^image\//.test(file.type)) { ctx.notify('请选择图片文件'); return; }
+      api.addPhoto({name: file.name, blob: file}).then(photo => choose({kind: 'photo', photoId: photo.id})).catch(error => ctx.notify(error.message));
+    });
+  }
   /** 来电 options: characters calling by themselves (off by default), and how long a call rings. */
   function callsSheet() {
     const o = () => api.getState().calls;
@@ -761,6 +791,7 @@ export function chatApp(ctx) {
       case 'me-bg-clear': api.saveChatOptions({profile: {backgroundPhoto: ''}}); render(); break;
       case 'me-voice': voiceTextSheet(); break;
       case 'me-calls': callsSheet(); break;
+      case 'avatar-pick': await avatarSheet(el.dataset.key); break;
       case 'call': await api.callDial(thread.members[0]); break;
       case 'profile-call': await api.callDial(profileOf); break;
       case 'call-log': { const m = find(); if (m) callLog(m); break; }
@@ -853,6 +884,7 @@ export function chatApp(ctx) {
     return false;
   };
   v.refresh = () => render();
+  v.onAvatars = () => render();
   v.openThread = open;
   v.onChat = event => {
     if (mode === 'list' && tab !== 'moments') return render();

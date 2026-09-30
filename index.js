@@ -22,6 +22,11 @@ const context=()=>globalThis.SillyTavern?.getContext();
 globalThis.stIphonieInterceptor=function(chat){if(!active||settings?.draw?.strip===false)return;for(let i=0;i<chat.length;i++){const m=chat[i];if(typeof m?.mes==='string'&&/<img\b/i.test(m.mes))chat[i]={...m,mes:withoutPictures(m.mes)};}};
 // A call while the phone is closed: a note that stays until answered, and a tap on it opens the phone on the call.
 function ringing(name){if(panel?.open)return;remember(name+' 来电');const open=()=>openPanel();if(globalThis.toastr)globalThis.toastr.info('点这里打开小手机接听',`📞 ${name} 来电`,{timeOut:settings?.calls?.ring*1000||30000,extendedTimeOut:0,tapToDismiss:true,onclick:open});else console.info('[ST-iPhonie]',name+' 来电');}
+// The tavern's own avatars, for the phone: each character card's picture by name, and the current persona's.
+let personas=null;import(new URL('../../../personas.js',import.meta.url).href).then(m=>{personas=m;}).catch(()=>{});
+function tavernAvatars(){const ctx=context(),thumb=(type,file)=>typeof ctx?.getThumbnailUrl==='function'?ctx.getThumbnailUrl(type,file):`/thumbnail?type=${type}&file=${encodeURIComponent(file)}`,characters={};
+ for(const c of ctx?.characters||[])if(c?.name&&c.avatar&&c.avatar!=='none'&&!characters[c.name])characters[c.name]=thumb('avatar',c.avatar);
+ const persona=personas?.user_avatar;return {me:persona?thumb('persona',persona):'',characters};}
 function notice(message){remember(message);if(globalThis.toastr)globalThis.toastr.info(message,'ST-iPhonie');else console.info('[ST-iPhonie]',message);}
 function formats(){return knownFormats(settings);}
 // What a reply shows: picture tags become placeholders, voice lines become waves (or plain lines when voice is off).
@@ -133,6 +138,7 @@ function connect(source){
   callRetry:()=>{check();return callHost.retry();},
    playFavorite:id=>{check();playbackMessage=null;return api.playFavorite(id);},
   diagnose:()=>{check();return diagnose();},
+  tavernAvatars:()=>{check();return tavernAvatars();},
   userName:()=>{check();return context()?.name1||'';},
   exportBackup:async parts=>{check();const manifest=await fetch(new URL('manifest.json',base)).then(r=>r.ok?r.json():null).catch(()=>null);return api.exportBackup(parts,manifest?.version||'');},
   noteError:text=>{check();remember(text,'error');}

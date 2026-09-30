@@ -1,6 +1,6 @@
 import {connectBackend} from './backend-client.js';
 import {glyph, icon, spark, wave} from './icons.js';
-import {esc, avatar, plate} from './common.js';
+import {esc, avatar, plate, setAvatarPictures} from './common.js';
 import {APPS, HOME, SLOT} from './apps.js';
 import {wallpaperLook, motionLayer} from './wallpapers.js';
 import {rolesApp} from './roles.js';
@@ -375,6 +375,37 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     animate();
   }
 
+  // ---------- Avatars ----------
+  // Pictures for avatars: the user's choice (an album photo, or text), else the tavern's own avatar for that name
+  // (character card, current persona). Loaded once and again when the choices or the tavern's avatars change.
+  const avatarURLs = new Map();
+  let avatarKey = '', avatarRun = 0;
+  async function refreshAvatars() {
+    const run = ++avatarRun, chosen = api.getState().chat?.avatars || {};
+    let tavern = {me: '', characters: {}};
+    try { tavern = api.tavernAvatars?.() || tavern; } catch { /* outside the tavern */ }
+    const map = {...tavern.characters, ...(tavern.me ? {me: tavern.me} : {})}, used = new Set();
+    for (const [name, a] of Object.entries(chosen)) {
+      if (a.kind === 'text') { delete map[name]; continue; }
+      used.add(a.photoId);
+      if (!avatarURLs.has(a.photoId)) {
+        const photo = await api.getPhoto(a.photoId).catch(() => null);
+        if (run !== avatarRun || disposed) return;
+        avatarURLs.set(a.photoId, photo?.blob ? win.URL.createObjectURL(photo.blob) : '');
+      }
+      if (avatarURLs.get(a.photoId)) map[name] = avatarURLs.get(a.photoId);
+    }
+    for (const [id, url] of avatarURLs) if (!used.has(id)) { if (url) win.URL.revokeObjectURL(url); avatarURLs.delete(id); }
+    const key = JSON.stringify(map);
+    if (key === avatarKey || disposed) return;
+    avatarKey = key;
+    setAvatarPictures(map);
+    renderHome();
+    paintPlayback(playback);
+    const v = active && views.get(active);
+    if (v) run === avatarRun && (v.onAvatars ? v.onAvatars() : v.refresh?.());
+  }
+
   // ---------- Device (network and battery) ----------
   const nav = win.navigator;
   let battery = null;
@@ -580,7 +611,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
       lastPhase = event.phase;
       paintPlayback(event);
     }
-    if (event.type === 'settings') { theme(); renderWidgets(); animate(); wallMotion(); }
+    if (event.type === 'settings') { theme(); renderWidgets(); animate(); wallMotion(); run(refreshAvatars); }
     if (event.type === 'phone') run(() => appearance(event.preferences));
     if (event.type === 'library') {
       const key = ({favorites: 'library', cache: 'library', photos: 'gallery', notes: 'notes'})[event.collection];
@@ -629,7 +660,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   win.stTtsOpenDraw = () => run(takeDraw);
   win.stTtsPanelVisibility = visible => {
     panelVisible = visible;
-    if (visible) callState();
+    if (visible) { callState(); run(refreshAvatars); }
     if (!visible) sheet?.close(null);
     else if (takeDraw()) { /* opened from a chat picture */ }
     else if (preferences?.lockOnOpen && !api.pendingRole()) lock();
@@ -644,6 +675,8 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     sheet?.close(null);
     for (const v of views.values()) v.dispose();
     calls.dispose();
+    for (const url of avatarURLs.values()) if (url) win.URL.revokeObjectURL(url);
+    setAvatarPictures({});
     for (const url of assets.values()) win.URL.revokeObjectURL(url);
     assets.clear();
     win.clearInterval(clockTimer);
@@ -663,6 +696,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   countUnread();
   countMoments();
   callState();
+  run(refreshAvatars);
   paintPlayback(playback);
 
   const fallback = {wallpaper: {kind: 'builtin', key: 'sky'}, icons: {}, iconStyle: 'color', lockOnOpen: false, volume: api.getVolume(), theme: api.getState().theme};

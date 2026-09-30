@@ -23,7 +23,15 @@ export const groupTitle = (title, extra = '') => `<div class="group-title"><span
 
 // A skewed name plate; engine colour comes from the nearest data-engine ancestor.
 export const plate = (text, attrs = '') => `<span class="plate" ${attrs}><span>${esc(text)}</span></span>`;
-export const avatar = (name, engine = 'none', size = 48) => `<span class="avatar${engine === 'none' ? ' none' : ''}" data-engine="${engine}" style="--s:${size}px">${esc(String(name || '?').trim().slice(0, 1) || '?')}</span>`;
+// Pictures for avatars, by name ('me' for the user): filled by the phone from the user's choices and the tavern's own
+// avatars (ui/phone.js refreshAvatars). A name without one shows its first letter.
+const avatarPictures = new Map();
+export function setAvatarPictures(map) { avatarPictures.clear(); for (const [k, v] of Object.entries(map || {})) if (v) avatarPictures.set(k, v); }
+export const avatarPicture = key => avatarPictures.get(key) || '';
+export const avatar = (name, engine = 'none', size = 48, key = name) => {
+  const picture = avatarPictures.get(key), letter = esc(String(name || '?').trim().slice(0, 1) || '?');
+  return `<span class="avatar${engine === 'none' ? ' none' : ''}${picture ? ' pic' : ''}" data-engine="${engine}" style="--s:${size}px">${picture ? `<img src="${esc(picture)}" alt="" loading="lazy" decoding="async" draggable="false">` : letter}</span>`;
+};
 
 export function createView(ctx, name) {
   const root = ctx.doc.createElement('section');

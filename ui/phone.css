@@ -759,7 +759,7 @@ details>div{padding-bottom:10px}
 @keyframes star-twinkle{50%{transform:scale(1.14) rotate(10deg)}}
 .me-av[data-frame=cat] .pendant path:nth-child(1),.me-av[data-frame=cat] .pendant path:nth-child(2){transform-box:fill-box;transform-origin:50% 100%;animation:ear-twitch 5s ease-in-out infinite}
 @keyframes ear-twitch{0%,86%,100%{transform:none}90%{transform:rotate(-12deg)}94%{transform:rotate(4deg)}}
-.me-av[data-frame=flower] .pendant{transform-origin:50% 60%;animation:crown-sway 4s ease-in-out infinite}
+.me-av[data-frame=flower] .pendant{transform-origin:50% 40%;animation:crown-sway 4s ease-in-out infinite}
 @keyframes crown-sway{50%{transform:rotate(-3deg)}}
 @media (prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
 html[data-keyboard=true] *{animation:none!important;transition:none!important}
@@ -1050,3 +1050,9 @@ button.moment-note{color:var(--accent-ink);text-decoration:underline;text-underl
 .th-head{container-type:inline-size}
 .th-head .th-title{min-width:4.5em}
 @container (max-width:340px){.th-head .bring-label{display:none}.th-head [data-action=bring]{padding-inline:10px}}
+
+/* Avatars with a picture (album photo, or the tavern's character card and persona) */
+.avatar.pic{padding:0;overflow:hidden;background:var(--card2)}
+.avatar.pic img{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block}
+.file-button{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.pick-photos [aria-pressed=true]{outline:3px solid var(--accent-btn);outline-offset:2px}
