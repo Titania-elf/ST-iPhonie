@@ -21,8 +21,16 @@ const DEFAULT_INJECTION = {position: 'in_chat', depth: 1, role: 'system'};
 const PRESET_REV = 2;
 const DEFAULT_PRESET = {id: 'default', name: '日常短信', rev: PRESET_REV, context: 6, history: 30, bring: DEFAULT_BRING, injection: DEFAULT_INJECTION, entries: DEFAULT_CHAT_ENTRIES.map(e => ({...e, enabled: true}))};
 
+// How voice messages read in the phone: only the voice bar until the user asks for 转文字 (or `auto`),
+// then the translation, the original line, or both.
+export const VOICE_TEXT_MODES = Object.freeze(['translation', 'original', 'both']);
+const DEFAULT_VOICE_TEXT = {mode: 'translation', auto: false};
+export function normalizeVoiceText(v = {}) {
+  return {mode: VOICE_TEXT_MODES.includes(v?.mode) ? v.mode : DEFAULT_VOICE_TEXT.mode, auto: v?.auto === true};
+}
+
 export function defaultChat() {
-  return {presets: [structuredClone(DEFAULT_PRESET)], activePreset: 'default', contacts: []};
+  return {presets: [structuredClone(DEFAULT_PRESET)], activePreset: 'default', contacts: [], voiceText: {...DEFAULT_VOICE_TEXT}};
 }
 
 const text = (value, max) => String(value ?? '').slice(0, max);
@@ -54,7 +62,7 @@ export function normalizeChat(value) {
   if (!value || typeof value !== 'object') return base;
   const presets = (Array.isArray(value.presets) && value.presets.length ? value.presets : base.presets).map(normalizeChatPreset);
   const contacts = (Array.isArray(value.contacts) ? value.contacts : []).slice(0, CHAT_LIMITS.contacts).map(normalizeContact).filter(c => c.name);
-  return {presets, activePreset: presets.some(p => p.id === value.activePreset) ? value.activePreset : presets[0].id, contacts};
+  return {presets, activePreset: presets.some(p => p.id === value.activePreset) ? value.activePreset : presets[0].id, contacts, voiceText: normalizeVoiceText(value.voiceText)};
 }
 
 export function validateChatPreset(p) {

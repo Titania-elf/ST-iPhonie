@@ -2,13 +2,16 @@
 // uploads the result to the tavern's image folder and remembers it on the message (message.extra.sttts_pics),
 // so every device that opens the chat sees the same picture.
 //
+// A finished picture shows only the image. Tapping it opens the viewer, which holds everything else: the versions
+// (‹ ›), the parameters (参数), redraw, open in the drawing app, fold and delete.
+//
 // Each tag keeps every version it was drawn in: {versions: [{url, seed, width, height, …}], index}.
 // Redrawing adds a version (the old ones stay for comparison); deleting removes the shown version and its file.
 // When the last version is deleted the record becomes {removed: true, versions: []}, so it is not drawn again
 // automatically. Older records ({url, seed, …}) read as a single version.
 import {parsePictures, pictureInputs, planRequest, insertPlanned, withoutPictures, sameExact} from './core/draw.js';
 import {openImageViewer} from './image-viewer.js';
-import {TIER_NAMES} from './core/novelai.js';
+import {TIER_NAMES, NAI_MODEL_NAMES} from './core/novelai.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const versionsOf = record => !record ? [] : Array.isArray(record.versions) ? record.versions : record.url ? [{...record}] : [];
@@ -195,15 +198,14 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
     if (state === 'done' && folded) {
       el.innerHTML = `<button type="button" class="sttts-pic-fold" data-sttts-pic-action="unfold" aria-label="展开图片"><img src="${esc(pic.url)}" alt="" loading="lazy"><span>图片已收起${pic.count > 1 ? ` · ${pic.count} 个版本` : ''} · 点开</span></button>`;
     } else if (state === 'done') {
-      const who = pic.characters ? (pic.characters.length ? ' · ' + pic.characters.join('、') : ' · 没有补角色外貌') : '';
-      const pager = pic.count > 1 ? `<span class="sttts-pic-pager"><button type="button" data-sttts-pic-action="prev" aria-label="上一个版本" ${pic.index ? '' : 'disabled'}>‹</button>${pic.index + 1}/${pic.count}<button type="button" data-sttts-pic-action="next" aria-label="下一个版本" ${pic.index < pic.count - 1 ? '' : 'disabled'}>›</button></span>` : '';
-      el.innerHTML = frame(`<button type="button" class="sttts-pic-zoom" data-sttts-pic-action="zoom" aria-label="放大查看"><img src="${esc(pic.url)}" alt="${esc(tag.prompt)}" loading="lazy"></button>`)
-        + `<span class="sttts-pic-bar">${pager}<span>NovelAI · ${pic.width}×${pic.height}${esc(who)}</span><button type="button" data-sttts-pic-action="redo">重画</button><button type="button" data-sttts-pic-action="open">在绘图中打开</button><button type="button" data-sttts-pic-action="delete">删除</button><button type="button" data-sttts-pic-action="fold">收起</button></span>`;
+      el.innerHTML = frame(`<button type="button" class="sttts-pic-zoom" data-sttts-pic-action="zoom" aria-label="查看图片${pic.count > 1 ? `（${pic.count} 个版本）` : ''}、参数和操作"><img src="${esc(pic.url)}" alt="${esc(tag.prompt)}" loading="lazy"></button>`);
     } else if (state === 'removed') {
       el.innerHTML = `<span class="sttts-pic-removed">图片已删除<button type="button" data-sttts-pic-action="draw">重新生成</button></span>`;
     } else if (state === 'generating') {
-      el.innerHTML = `<span class="sttts-pic-removed">${esc(waiting)}<button type="button" data-sttts-pic-action="cancel">取消</button></span>`
-        + frame(pic ? `<button type="button" class="sttts-pic-zoom" data-sttts-pic-action="zoom" aria-label="放大查看"><img src="${esc(pic.url)}" alt="${esc(tag.prompt)}" loading="lazy"></button>` : '<span class="sttts-pic-wait"></span>');
+      // Redrawing keeps the current picture on screen with a small note over it.
+      el.innerHTML = pic
+        ? frame(`<button type="button" class="sttts-pic-zoom" data-sttts-pic-action="zoom" aria-label="查看图片"><img src="${esc(pic.url)}" alt="${esc(tag.prompt)}" loading="lazy"></button><span class="sttts-pic-note">${esc(waiting)}<button type="button" data-sttts-pic-action="cancel">取消</button></span>`)
+        : frame(`<span class="sttts-pic-wait">${esc(waiting)}<br><button type="button" data-sttts-pic-action="cancel">取消</button></span>`);
     } else if (state === 'error') {
       el.innerHTML = frame(`<span class="sttts-pic-wait">${esc(job.message)}<br><button type="button" data-sttts-pic-action="draw">重试</button></span>`);
     } else {
@@ -252,11 +254,32 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
       saveSoon();
       scheduleRender();
     }
-    if (action === 'zoom' && pic) openImageViewer({doc: document, src: pic.url, alt: tag.prompt, from: source?.querySelector?.('img') || source, actions: [
-      {label: '重画', run: () => act('redo', id, message, tag)},
-      {label: '删除这版', danger: true, run: () => remove(id, tag).then(done => done ? undefined : false)}
-    ]});
+    if (action === 'zoom' && pic) {
+      const list = versionsOf(stored(message, tag.hash));
+      // Paging in the viewer also changes which version the chat shows.
+      const pick = i => { if (i !== shown(message, tag.hash)?.index) { keep(message, tag.hash, list, i); saveSoon(); scheduleRender(); } };
+      openImageViewer({doc: document, from: source?.querySelector?.('img') || source,
+        gallery: {items: list.map(v => ({src: v.url, alt: tag.prompt, info: pictureInfo(v, tag)})), index: pic.index, onIndex: pick},
+        actions: [
+          {label: '重画', run: () => act('redo', id, message, tag)},
+          {label: '在绘图中打开', run: () => act('open', id, message, tag)},
+          {label: '收起', run: () => act('fold', id, message, tag)},
+          {label: '删除这版', danger: true, run: i => { pick(i); return remove(id, tag).then(done => done ? undefined : false); }}
+        ]});
+    }
     if (action === 'delete') remove(id, tag).catch(error => notice(error.message));
+  }
+  /** The 参数 panel of the viewer for one version. */
+  function pictureInfo(v, tag) {
+    return [
+      ['模型', NAI_MODEL_NAMES?.[v.model] || v.model],
+      ['尺寸', v.width && v.height ? `${v.width} × ${v.height}` : ''],
+      ['步数', v.steps],
+      ['种子', v.seed],
+      ['角色', v.characters ? (v.characters.length ? v.characters.join('、') : '没有补角色外貌') : ''],
+      ['画于', v.at ? new Date(v.at).toLocaleString('zh-CN', {hour12: false}) : ''],
+      ['出图块', tag.spec ? tag.body || '' : tag.prompt]
+    ];
   }
   /** Deletes the version on screen (file and record). Returns false when the user cancels. */
   async function remove(id, tag) {

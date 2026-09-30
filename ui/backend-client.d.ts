@@ -130,7 +130,9 @@ export interface ChatPreset {
 }
 /** A contact added by hand; story roles come from the 角色 App. */
 export interface Contact { id: string; name: string; persona: string; }
-export interface ChatSettings { presets: ChatPreset[]; activePreset: string; contacts: Contact[]; }
+/** Voice messages show only the voice bar until 转文字 (or `auto`); then the translation, the original line, or both. */
+export interface VoiceTextOptions { mode: 'translation' | 'original' | 'both'; auto: boolean; }
+export interface ChatSettings { presets: ChatPreset[]; activePreset: string; contacts: Contact[]; voiceText: VoiceTextOptions; }
 export interface ChatContact { name: string; source: 'role' | 'manual'; id?: string; voice: boolean; engine: Engine | 'none'; language: string; persona: string; }
 export type ChatKind = 'text' | 'voice' | 'photo' | 'system' | 'redpacket' | 'transfer' | 'location' | 'pat' | 'dice' | 'notice' | 'recall';
 /** notice: `text` says what `from` did, with {对方} standing for `target`. recall: a withdrawn message (no content). */
@@ -404,6 +406,7 @@ export interface BackendFacade {
     previewChatPrompt(preset?: ChatPreset): string;
     /** Empty string when the preset is valid. */
     validateChatPreset(preset: ChatPreset): string;
+    saveChatOptions(patch: { voiceText?: Partial<VoiceTextOptions> }): ChatSettings;
     saveContact(contact: Partial<Contact> & { name: string }): Contact;
     deleteContact(id: string): ChatSettings;
     /** Story roles (角色 App) first, then manual contacts. */

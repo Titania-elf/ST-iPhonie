@@ -28,7 +28,7 @@ const LINE_KINDS = ['system', 'pat', 'notice', 'recall'];
 function preview(m) {
   if (!m) return '还没有消息';
   switch (m.kind) {
-    case 'voice': return '[语音] ' + (m.translation || m.text);
+    case 'voice': return `[语音] ${seconds(m)}″`;
     case 'photo': return '[图片]';
     case 'redpacket': return '[红包] ' + (m.text || BLESSING);
     case 'transfer': return '[转账] ¥' + m.amount;
@@ -55,7 +55,16 @@ export function chatApp(ctx) {
   let mode = 'list', filter = 'all', threadId = null, thread = null, selecting = null, contactDraft = null, epoch = 0, stick = false;
   let panel = null, quote = null;
   const drafts = new Map(), live = typeof api.chatReply === 'function';
-  const photoURLs = new Map(), recalled = new Map();
+  const photoURLs = new Map(), recalled = new Map(), transcribed = new Set();
+  let press = null, pressedAt = 0;
+  const voiceText = () => api.getState().chat.voiceText || {mode: 'translation', auto: false};
+  /** 转文字 for a voice message: the translation, the original line, or both (original first). */
+  function transcriptHTML(m) {
+    const mode = voiceText().mode, original = m.text || '', translation = m.translation || '';
+    if (mode === 'original' || !translation) return `<span class="v-text">${esc(original)}</span>`;
+    if (mode === 'both' && original && original !== translation) return `<span class="v-text both"><span class="v-orig">${esc(original)}</span><span>${esc(translation)}</span></span>`;
+    return `<span class="v-text">${esc(translation)}</span>`;
+  }
 
   const engine = name => ctx.engineOf(name);
   const groupAvatar = (members, size) => `<span class="group-av" style="--s:${size}px">${members.slice(0, 3).map(m => `<i data-engine="${engine(m)}">${esc(m.slice(0, 1))}</i>`).join('')}</span>`;
@@ -85,7 +94,7 @@ export function chatApp(ctx) {
   function bodyHTML(m) {
     const mid = `data-mid="${esc(m.id)}"`;
     switch (m.kind) {
-      case 'voice': return `<button class="voice-msg" data-action="voice" ${mid} data-state="ungenerated" aria-label="播放 ${esc(m.from)} 的语音"><span class="v-ico">${icon('play', true)}</span><span class="v-wave">${WAVE_HEIGHTS.map(h => `<i style="height:${h}px"></i>`).join('')}</span><span class="v-sec">${seconds(m)}″</span></button><span class="v-text">${esc(m.translation || m.text)}</span>`;
+      case 'voice': return `<button class="voice-msg" data-action="voice" ${mid} data-state="ungenerated" aria-label="播放 ${esc(m.from)} 的语音"><span class="v-ico">${icon('play', true)}</span><span class="v-wave">${WAVE_HEIGHTS.map(h => `<i style="height:${h}px"></i>`).join('')}</span><span class="v-sec">${seconds(m)}″</span></button>${voiceText().auto || transcribed.has(m.id) ? transcriptHTML(m) : ''}`;
       case 'photo': return m.photoId
         ? `<button class="chat-photo" data-action="photo" ${mid} aria-label="查看照片"><img data-chat-photo="${esc(m.photoId)}" alt="${esc(m.text || '照片')}"></button>${m.text ? `<span class="v-text">${esc(m.text)}</span>` : ''}`
         : `<button class="chat-photo described" data-action="message" ${mid}><span class="ph-art">${icon('image')}</span><span class="ph-cap">${esc(m.text)}</span></button>`;
@@ -423,10 +432,18 @@ export function chatApp(ctx) {
     const copyable = ['text', 'voice', 'location', 'photo'].includes(m.kind) && quoteText(m);
     const canRecall = !contact && !['redpacket', 'transfer'].includes(m.kind);
     const shown = m.kind === 'voice' ? (m.translation || m.text) : m.kind === 'dice' ? `骰子 ${m.text} 点` : ['redpacket', 'transfer'].includes(m.kind) ? preview(m) : quoteText(m);
-    const d = sheet('消息', `<p class="help-copy">${esc(shown)}</p>
+    const voice = m.kind === 'voice', open = voice && (voiceText().auto || transcribed.has(m.id));
+    const d = sheet('消息', `${voice ? '' : `<p class="help-copy">${esc(shown)}</p>`}
+      ${voice ? `<div class="actions">${btn('transcribe', icon('book') + (open ? '收起文字' : '转文字'), 'primary')}</div>` : ''}
       <div class="actions">${quotable(m) ? btn('quote', icon('reply') + '引用', 'secondary') : ''}${copyable ? btn('copy', icon('copy') + '复制', 'secondary') : ''}</div>
       <div class="actions">${canRecall ? btn('recall', icon('undo') + '撤回', 'secondary') : ''}${btn('delete', icon('trash') + '删除', 'danger')}</div>
       ${last && live ? `<div class="actions">${btn('reroll', icon('refresh') + '重新回复这一轮', 'secondary')}</div>` : ''}`, {
+      transcribe: () => {
+        d.close();
+        if (open && voiceText().auto) { ctx.notify('语音自动转文字开着，可以在右上角「⋯ → 语音消息」里关掉'); return; }
+        if (open) transcribed.delete(m.id); else transcribed.add(m.id);
+        render();
+      },
       quote: () => { d.close(); quote = {from: m.from, text: quoteText(m).slice(0, 200)}; panel = null; render(); },
       copy: async () => { d.close(); await ctx.win.navigator.clipboard?.writeText(m.kind === 'voice' ? m.text : quoteText(m)); ctx.notify('已复制'); },
       recall: async () => {
@@ -471,11 +488,28 @@ export function chatApp(ctx) {
       }).catch(error => ctx.notify(error.message));
     });
   }
+  /** Options for voice messages in every chat: what 转文字 shows, and whether it happens by itself. */
+  function voiceTextSheet() {
+    const draw = () => {
+      const o = voiceText();
+      return `<p class="help-copy">语音消息平时只显示语音条，长按（电脑上右键）选「转文字」才显示文字。</p>
+        <div class="field"><span>转文字显示</span><div class="segmented" style="margin:0">${[['translation', '中文译文'], ['original', '原文'], ['both', '原文和译文']].map(([k, l]) => `<button data-action="vt-mode" data-mode="${k}" aria-pressed="${o.mode === k}">${l}</button>`).join('')}</div></div>
+        <div class="setting-row"><span>新旧语音都自动转文字</span><input class="switch" type="checkbox" data-field="vt-auto" aria-label="语音自动转文字" ${o.auto ? 'checked' : ''}></div>`;
+    };
+    const d = sheet('语音消息', `<div class="vt-body">${draw()}</div>`, {
+      'vt-mode': b => { api.saveChatOptions({voiceText: {mode: b.dataset.mode}}); d.body.querySelector('.vt-body').innerHTML = draw(); render(); }
+    });
+    d.body.addEventListener('change', e => {
+      if (!e.target.matches('[data-field=vt-auto]')) return;
+      try { api.saveChatOptions({voiceText: {auto: e.target.checked}}); render(); } catch (error) { ctx.notify(error.message); }
+    });
+  }
   function threadMenu() {
     const group = thread.type === 'group';
     const d = ctx.dialog(thread.name, `<div class="pick-list">
       ${live ? `<button class="list-row" data-menu="reroll">${icon('refresh')}<span><strong>重新回复最后一轮</strong></span></button>` : ''}
       ${group ? `<button class="list-row" data-menu="rename">${icon('edit')}<span><strong>改群名</strong></span></button>` : ''}
+      <button class="list-row" data-menu="voice-text">${icon('book')}<span><strong>语音消息</strong><small>转文字显示什么、要不要自动转</small></span></button>
       <button class="list-row" data-menu="clear">${icon('trash')}<span><strong>清空聊天记录</strong></span></button>
       <button class="list-row" data-menu="delete">${icon('close')}<span><strong>删除这段聊天</strong></span></button></div>`);
     d.body.addEventListener('click', e => {
@@ -488,6 +522,7 @@ export function chatApp(ctx) {
           const r = ctx.dialog('改群名', `${field('群名', input('rename', thread.name, 'text', 'maxlength="40"'))}<div class="actions">${btn('rename-save', '保存', 'primary')}</div>`);
           r.body.addEventListener('click', ev => { if (ev.target.closest('[data-action=rename-save]')) { const name = r.body.querySelector('[data-field=rename]').value; r.close(); api.updateThread(threadId, {name}).catch(err => ctx.notify(err.message)); } });
         }
+        if (action === 'voice-text') voiceTextSheet();
         if (action === 'clear' && await ctx.confirm('清空聊天记录？', '这段聊天会保留，消息全部删除。')) await api.deleteChatMessages(threadId, thread.messages.map(m => m.id));
         if (action === 'delete' && await ctx.confirm('删除这段聊天？', '聊天记录会一起删除，联系人不受影响。')) { await api.deleteThread(threadId); mode = 'list'; threadId = null; render(); }
       }).catch(error => ctx.notify(error.message));
@@ -506,13 +541,33 @@ export function chatApp(ctx) {
   });
   // Double-tap an avatar to 拍一拍; long-press (or right-click) a message for its menu.
   v.on('dblclick', '[data-pat]', el => { if (!selecting) return pat(el.dataset.pat); });
+  // Long-press works the same on phones that do not send contextmenu (iOS): hold a message for half a second.
+  v.on('pointerdown', '.msg[data-mid] .m-body', (el, e) => {
+    if (selecting || e.button > 0) return;
+    const id = el.closest('.msg').dataset.mid;
+    ctx.win.clearTimeout(press?.timer);
+    press = {x: e.clientX, y: e.clientY, timer: ctx.win.setTimeout(() => {
+      press = null;
+      const m = thread?.messages.find(x => x.id === id);
+      if (m) { pressedAt = Date.now(); messageMenu(m); }
+    }, 480)};
+  });
+  const cancelPress = (el, e) => {
+    if (!press || (e.type === 'pointermove' && Math.hypot(e.clientX - press.x, e.clientY - press.y) < 10)) return;
+    ctx.win.clearTimeout(press.timer);
+    press = null;
+  };
+  for (const type of ['pointermove', 'pointerup', 'pointercancel']) v.on(type, '*', cancelPress);
   v.on('contextmenu', '.msg[data-mid]', (el, e) => {
+    if (Date.now() - pressedAt < 1000) { e.preventDefault(); return; }
     if (selecting) return;
     const m = thread?.messages.find(x => x.id === el.dataset.mid);
     if (m) { e.preventDefault(); messageMenu(m); }
   });
   v.on('click', '[data-action]', async el => {
     const action = el.dataset.action;
+    // The click that ends a long-press only closes the press, it does not play or open anything.
+    if (Date.now() - pressedAt < 700 && el.closest('.msg')) return;
     if (selecting && ['message', 'voice', 'photo', 'packet', 'transfer'].includes(action)) return;
     const find = () => thread.messages.find(x => x.id === el.dataset.mid);
     switch (action) {
