@@ -693,3 +693,42 @@ html[data-keyboard=true] *{animation:none!important;transition:none!important}
 /* A setting row with a title and a line under it (backup parts). */
 .setting-row>.row-text{display:flex;flex-direction:column;align-items:flex-start;gap:2px}
 .setting-row>.row-text small{font-size:12.5px;font-weight:400;color:var(--ink2)}
+
+/* Moving wallpapers (wallpapers.js motionLayer). Transforms and opacity only; off with 动态壁纸, with reduced motion,
+   and while an app covers the wallpaper. A rising or falling item is a full-height column that slides, so its
+   distance is the screen's height whatever the size. */
+.wall-motion{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.wall-motion i,.wall-motion b{position:absolute;display:block;will-change:transform,opacity;animation-delay:var(--delay,0s)}
+.screen[data-wall-motion=off] .wall-motion,.screen[data-view=app] .wall-motion{display:none}
+@media (prefers-reduced-motion:reduce){.wall-motion{display:none}}
+/* 晴空 · 月白: clouds drifting across */
+.wm-cloud{left:0;top:var(--y);width:100%;height:calc(66px*var(--s));opacity:.8;background:radial-gradient(34% 48% at 18% 62%,#fff 0,#fff0 70%),radial-gradient(22% 44% at 27% 40%,#fff 0,#fff0 70%),radial-gradient(26% 38% at 9% 66%,#ffffffd6 0,#fff0 70%);animation:wm-drift var(--d) linear infinite}
+@keyframes wm-drift{from{transform:translateX(-45%)}to{transform:translateX(100%)}}
+/* Night sky: twinkling stars and now and then a shooting star */
+.wm-star{left:var(--x);top:var(--y);width:calc(3px*var(--s));height:calc(3px*var(--s));border-radius:50%;background:#fff;box-shadow:0 0 6px #fff;animation:wm-twinkle var(--d) ease-in-out infinite}
+@keyframes wm-twinkle{0%,100%{opacity:.2;transform:scale(.7)}50%{opacity:1;transform:scale(1.15)}}
+.wm-meteor{top:7%;left:58%;width:96px;height:2px;border-radius:2px;background:linear-gradient(90deg,#fff,#fff0);opacity:0;animation:wm-meteor 13s ease-in 3s infinite}
+@keyframes wm-meteor{0%{opacity:0;transform:rotate(-28deg) translateX(0)}1.5%{opacity:1}7%,100%{opacity:0;transform:rotate(-28deg) translateX(-170px)}}
+/* 水感晴空: soap bubbles rising and swaying */
+.wm-bubble{left:var(--x);top:0;height:100%;width:calc(38px*var(--s));animation:wm-rise var(--d) linear infinite}
+.wm-bubble::before{content:'';position:absolute;top:100%;left:0;width:100%;aspect-ratio:1;border-radius:50%;background:radial-gradient(circle at 34% 30%,#ffffffd0 0 8%,#fff0 18%),radial-gradient(circle,#ffffff12 0 58%,#ffffffb8 76%,#ffffff33 88%,#fff0 100%);animation:wm-sway var(--w) ease-in-out infinite alternate}
+@keyframes wm-rise{from{transform:translateY(0)}to{transform:translateY(calc(-100% - 90px))}}
+@keyframes wm-sway{from{transform:translateX(-10px)}to{transform:translateX(10px)}}
+/* 水感晴空 at night: aurora bands and glowing bubbles */
+.wm-band{left:-20%;top:6%;width:140%;height:34%;background:radial-gradient(60% 50% at 50% 50%,#39f0c488,#39f0c400 70%);filter:blur(6px);animation:wm-aurora 18s ease-in-out infinite alternate}
+.wm-band+.wm-band{top:17%;background:radial-gradient(55% 45% at 50% 50%,#3a8cff78,#3a8cff00 70%);animation-duration:26s;animation-direction:alternate-reverse}
+@keyframes wm-aurora{from{transform:translateX(-8%) skewX(-8deg) scaleY(.9);opacity:.55}to{transform:translateX(8%) skewX(8deg) scaleY(1.15);opacity:1}}
+[data-scene=aurora] .wm-bubble{animation-duration:calc(var(--d) * 1.5)}
+[data-scene=aurora] .wm-bubble::before{background:radial-gradient(circle,#7ff0ff1c 0 55%,#7ff0ffa8 76%,#7ff0ff30 88%,#7ff0ff00 100%);box-shadow:0 0 12px #52d6ff55}
+/* 青草信笺: leaves drifting down · 樱色: petals */
+.wm-leaf,.wm-petal{left:var(--x);top:0;height:100%;width:calc(19px*var(--s));animation:wm-fall var(--d) linear infinite}
+.wm-leaf::before,.wm-petal::before{content:'';position:absolute;bottom:100%;left:0;width:100%;aspect-ratio:1.6;animation:wm-flutter var(--w) ease-in-out infinite alternate}
+.wm-leaf::before{border-radius:0 100% 0 100%;background:linear-gradient(135deg,#a9c79a,#6f9a73);opacity:.78}
+.wm-leaf:nth-child(3n)::before{background:linear-gradient(135deg,#efc6b2,#d99a8a)}
+.wm-petal::before{border-radius:100% 0 100% 55%;background:linear-gradient(135deg,#ffe0ea,#f59ab8);opacity:.85}
+@keyframes wm-fall{from{transform:translateY(0)}to{transform:translateY(calc(100% + 40px))}}
+@keyframes wm-flutter{from{transform:translateX(-14px) rotate(-25deg)}to{transform:translateX(14px) rotate(35deg)}}
+/* 青草信笺 at night: fireflies */
+.wm-firefly{left:var(--x);top:var(--y);width:calc(4px*var(--s));height:calc(4px*var(--s));border-radius:50%;background:#fff3b0;box-shadow:0 0 8px 2px #f7e27a99;animation:wm-wander var(--d) ease-in-out infinite,wm-blink var(--w) ease-in-out infinite}
+@keyframes wm-wander{0%,100%{transform:translate(0,0)}25%{transform:translate(18px,-14px)}50%{transform:translate(-6px,-28px)}75%{transform:translate(-20px,-8px)}}
+@keyframes wm-blink{0%,100%{opacity:.12}50%{opacity:1}}

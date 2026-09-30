@@ -37,6 +37,8 @@ export interface GeneralSettings {
     cacheEnabled: boolean;
     floatingEnabled: boolean;
     waveformEnabled: boolean;
+    /** Built-in wallpapers move slowly (clouds, stars, bubbles, leaves, fireflies). */
+    wallpaperMotion?: boolean;
 }
 export interface Injection {
     position: InjectionPosition;

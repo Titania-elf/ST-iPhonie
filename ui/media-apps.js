@@ -159,7 +159,8 @@ export function notesApp(ctx) {
       }
       case 'save-note':
         await v.busy(el, async () => {
-          const target = current, saved = await api.saveNote(target);
+          // Only what the user edits goes back: a saved note also carries its dates, which saveNote does not take.
+          const target = current, saved = await api.saveNote({...(target.id ? {id: target.id} : {}), title: target.title, text: target.text});
           drafts.delete(target.id || 'new');
           drafts.set(saved.id, saved);
           if (current === target) { current = saved; await render(); v.root.querySelector('[data-save-state]').textContent = '已保存'; }

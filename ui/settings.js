@@ -90,6 +90,7 @@ export function settingsApp(ctx) {
       + `<div class="group pad">
           <div class="field"><span>主题风格</span><div class="skin-options">${Object.entries(skins).map(([key, s]) => `<button class="skin-choice" data-action="skin" data-value="${key}" aria-pressed="${(phone.skin || 'sky') === key}"><span style="background:${s.preview[0]}"><b style="background:${s.preview[3]}"></b><i style="background:${s.preview[1]}"></i><i style="background:${s.preview[2]}"></i></span>${s.name}</button>`).join('')}</div></div>
           <div class="field"><span>日夜</span><div class="segmented" style="margin:0">${[['system', '跟随系统'], ['light', '日间'], ['dark', '夜间']].map(([key, label]) => `<button data-action="theme" data-value="${key}" aria-pressed="${phone.theme === key}">${label}</button>`).join('')}</div></div>
+          ${toggle('wallpaperMotion', '动态壁纸', s.general.wallpaperMotion !== false, '内置壁纸会慢慢动起来：晴空飘云、夜里星星闪烁和流星、水感晴空的泡泡和夜里的极光、青草信笺的落叶和夜里的萤火虫、樱色的花瓣。用自己的照片当壁纸时不动；系统开启「减少动态效果」时也保持静止。')}
           <button class="list-row" data-action="appearance"><span><strong>壁纸与图标</strong><small>${wallName} · ${({color: '彩色', glass: '玻璃', mono: '单色'})[phone.iconStyle]}图标</small></span>${icon('next')}</button>
           ${phone.wallpaper.kind === 'photo' ? `<div class="setting-row"><span>现在用的是自己的照片当壁纸</span>${btn('builtin-wallpaper', '换回主题壁纸', 'chip-button')}</div>` : ''}
         </div>`
@@ -127,7 +128,7 @@ export function settingsApp(ctx) {
       if (key === 'glyph') appearance.icons[el.dataset.iconApp] = el.value === 'default' ? null : {kind: 'glyph', key: el.value};
       return;
     }
-    if (['voiceEnabled', 'floatingEnabled', 'waveformEnabled', 'cacheEnabled'].includes(key)) api.updateGeneral({[key]: el.checked});
+    if (['voiceEnabled', 'floatingEnabled', 'waveformEnabled', 'cacheEnabled', 'wallpaperMotion'].includes(key)) api.updateGeneral({[key]: el.checked});
     else if (key === 'drawEnabled') api.saveDraw({enabled: el.checked});
     else if (key === 'drawAuto') api.saveDraw({auto: el.checked});
     else if (key === 'drawGuard') api.saveDraw({guard: el.checked});

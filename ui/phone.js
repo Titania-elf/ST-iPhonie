@@ -2,7 +2,7 @@ import {connectBackend} from './backend-client.js';
 import {glyph, icon, spark, wave} from './icons.js';
 import {esc, avatar, plate} from './common.js';
 import {APPS, HOME, SLOT} from './apps.js';
-import {wallpaperLook} from './wallpapers.js';
+import {wallpaperLook, motionLayer} from './wallpapers.js';
 import {rolesApp} from './roles.js';
 import {enginesApp} from './engines.js';
 import {presetsApp} from './presets.js';
@@ -279,10 +279,14 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     for (const [name, value] of Object.entries(vars)) screen.style.setProperty(name, value);
     screen.dataset.clockStyle = photo ? 'shade' : look.clock;
     screen.dataset.iconStyle = phone.iconStyle;
-    $('.wallpaper').innerHTML = photo || look.clock === 'glow' ? '' : [['12%', '20%', 14], ['84%', '14%', 22], ['72%', '28%', 10], ['20%', '58%', 12]].map(([x, y, s]) => spark('spark').replace('<svg', `<svg style="left:${x};top:${y};width:${s}px;height:${s}px"`)).join('');
+    $('.wallpaper').innerHTML = (photo || look.clock === 'glow' ? '' : [['12%', '20%', 14], ['84%', '14%', 22], ['72%', '28%', 10], ['20%', '58%', 12]].map(([x, y, s]) => spark('spark').replace('<svg', `<svg style="left:${x};top:${y};width:${s}px;height:${s}px"`)).join('')) + (photo ? '' : motionLayer(look.motion));
+    wallMotion();
     appearanceKey = key;
     renderHome();
   }
+
+  /** 动态壁纸 on or off (settings); the CSS also stops it for reduced motion and while an app is open. */
+  function wallMotion() { screen.dataset.wallMotion = api.getState().general.wallpaperMotion === false ? 'off' : 'on'; }
 
   // ---------- Playback ----------
   function animate() {
@@ -437,7 +441,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
       lastPhase = event.phase;
       paintPlayback(event);
     }
-    if (event.type === 'settings') { theme(); renderWidgets(); animate(); }
+    if (event.type === 'settings') { theme(); renderWidgets(); animate(); wallMotion(); }
     if (event.type === 'phone') run(() => appearance(event.preferences));
     if (event.type === 'library') {
       const key = ({favorites: 'library', cache: 'library', photos: 'gallery', notes: 'notes'})[event.collection];
