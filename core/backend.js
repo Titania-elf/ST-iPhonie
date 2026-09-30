@@ -1,3 +1,5 @@
+import { MomentStore } from './moments-store.js';
+import { defaultMoments, normalizeMoments, normalizeMomentsPreset, validateMomentsPreset, activeMomentsPreset, buildMomentsRequest } from './moments.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup } from './backup.js';
 import { normalizeSettings, validateSettings, modelRules, freshState } from './state.js';
 import { normalizeRoute, switchRouteEngine, removeRoute } from './routes.js';
@@ -44,6 +46,7 @@ export class TTSBackend {
         this.keyStore = keyStore || new LocalKeyStore(this.settings.scope);
         this.novelai = novelai || new NovelAIClient();
         this.chats = chats || new ChatStore(this.settings.scope, { indexedDB });
+        this.moments = new MomentStore(this.settings.scope, { indexedDB });
         this.subscription = null;
         this.drawQueue = new DrawQueue({ gap: () => this.settings.draw.queue.gap * 1000, retries: () => this.settings.draw.queue.retries,
             remote: () => this.cloudQueue(), onChange: (queue, { remoteError }) => this.emit('draw', { queue, cloud: remoteError }) });
@@ -84,8 +87,8 @@ export class TTSBackend {
         const library = stores.length ? await this.library.exportRows(stores) : {};
         let settings = null;
         if (want.includes('settings')) { settings = this.getState(); delete settings.scope; delete settings.floating; }
-        const chats = want.includes('chats') ? await this.chats.exportThreads() : null;
-        const blob = await writeBackup({ version, settings, library, chats });
+        const chats = want.includes('chats') ? await this.chats.exportThreads() : null, moments = want.includes('moments') ? await this.moments.exportPosts() : null;
+        const blob = await writeBackup({ version, settings, library, chats, moments });
         const day = new Date(), pad = n => String(n).padStart(2, '0');
         return { blob, name: `ST-iPhonie 备份 ${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}` };
     }
@@ -116,6 +119,7 @@ export class TTSBackend {
         if (Object.keys(rows).length) Object.assign(done, await this.library.importRows(rows, { replace }));
         if (settings) { this.save(settings); done.settings = true; await this.loadReferences(); }
         if (want.has('chats') && backup.chats) { done.chats = await this.chats.importThreads(backup.chats, { replace }); this.emit('chat', { threadId: '' }); }
+        if (want.has('moments') && backup.moments) { done.moments = await this.moments.importPosts(backup.moments, { replace }); this.emit('moments', {}); }
         for (const collection of ['favorites', 'photos', 'notes']) if (collection in done) this.emit('library', { collection });
         if ('phone' in done || 'photos' in done) this.emit('phone', { preferences: await this.getPhone() });
         return done;
@@ -390,6 +394,46 @@ export class TTSBackend {
         return buildChatRequest({ preset: p, thread, members: [{ ...contact, card: contact.persona ? '' : '（酒馆角色卡里的设定）' }], story: [{ name: '（最近的剧情）', text: '……' }], user: '{{user}}', voiceFormat: this.voiceFormat() })
             .map(m => `【${m.role}】\n${m.content}`).join('\n\n');
     }
+    // ---------- 朋友圈 ----------
+    /** Moments options: {auto, every, dailyMax, images, replyToMe}. */
+    saveMoments(patch) {
+        const next = this.getState(), allowed = ['auto', 'every', 'dailyMax', 'images', 'replyToMe'];
+        next.moments = normalizeMoments({ ...next.moments, ...Object.fromEntries(Object.entries(patch || {}).filter(([key]) => allowed.includes(key))) });
+        return this.save(next).moments;
+    }
+    saveMomentsPreset(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('朋友圈预设格式无效');
+        const next = this.getState(), preset = validateMomentsPreset(normalizeMomentsPreset({ ...clone(value), id: value.id || crypto.randomUUID() }));
+        const index = next.moments.presets.findIndex(p => p.id === preset.id);
+        if (index < 0) next.moments.presets.push(preset); else next.moments.presets[index] = preset;
+        this.save(next);
+        return clone(preset);
+    }
+    deleteMomentsPreset(id) {
+        const next = this.getState();
+        if (next.moments.presets.length === 1) throw Error('请至少保留一个朋友圈预设');
+        next.moments.presets = next.moments.presets.filter(p => p.id !== id);
+        return this.save(next).moments;
+    }
+    selectMomentsPreset(id) {
+        const next = this.getState();
+        if (!next.moments.presets.some(p => p.id === id)) throw Error('朋友圈预设不存在');
+        next.moments.activePreset = id;
+        return this.save(next).moments;
+    }
+    previewMomentsPrompt(preset) {
+        const p = validateMomentsPreset(normalizeMomentsPreset(clone(preset || activeMomentsPreset(this.settings.moments))));
+        const people = chatContacts(this.settings).slice(0, 3).map(c => ({ name: c.name, persona: c.persona, card: c.persona ? '' : '（酒馆角色卡里的设定）' }));
+        return buildMomentsRequest({ preset: p, people: people.length ? people : [{ name: '联系人', card: '（酒馆角色卡里的设定）' }], story: [{ name: '（最近的剧情）', text: '……' }], user: '{{user}}', images: this.settings.moments.images })
+            .map(m => `【${m.role}】\n${m.content}`).join('\n\n');
+    }
+    /** Runs a change to the moments and tells the phone. */
+    async momentsMutate(task) {
+        this.assertOpen();
+        const result = await task();
+        this.emit('moments', {});
+        return result;
+    }
     async chatMutate(threadId, task) {
         this.assertOpen();
         const result = await task();
@@ -585,6 +629,14 @@ export class TTSBackend {
             listNotes: () => this.library.listNotes(), saveNote: value => this.mutateLibrary('notes', 'saveNote', value), deleteNote: id => this.mutateLibrary('notes', 'deleteNote', id),
             getPhone: () => this.getPhone(), savePhone: patch => this.savePhone(patch), libraryStats: () => this.library.stats(),
             generatedPhotos: () => this.generatedPhotos().then(({ count, bytes }) => ({ count, bytes })), deleteGeneratedPhotos: () => this.deleteGeneratedPhotos(),
+            saveMoments: patch => this.saveMoments(clone(patch)), saveMomentsPreset: preset => this.saveMomentsPreset(preset), deleteMomentsPreset: id => this.deleteMomentsPreset(id), selectMomentsPreset: id => this.selectMomentsPreset(id),
+            previewMomentsPrompt: preset => this.previewMomentsPrompt(preset), validateMomentsPreset: preset => { try { validateMomentsPreset(normalizeMomentsPreset(clone(preset))); return ''; } catch (error) { return error.message; } },
+            listMoments: () => this.moments.list(), getMoment: id => this.moments.get(id),
+            postMoment: ({ text, photoId } = {}) => this.momentsMutate(async () => (await this.moments.add([{ author: 'me', source: 'me', text, photoId }]))[0]),
+            likeMoment: (id, on = true) => this.momentsMutate(() => this.moments.like(id, 'me', on)),
+            commentMoment: (id, { text, to } = {}) => this.momentsMutate(() => this.moments.comment(id, { from: 'me', text, to })),
+            deleteMoment: id => this.momentsMutate(() => this.moments.remove(id)), deleteMomentComment: (id, commentId) => this.momentsMutate(() => this.moments.removeComment(id, commentId)),
+            clearMoments: () => this.momentsMutate(() => this.moments.clear()),
             saveChatPreset: preset => this.saveChatPreset(preset), deleteChatPreset: id => this.deleteChatPreset(id), selectChatPreset: id => this.selectChatPreset(id),
             previewChatPrompt: preset => this.previewChatPrompt(preset), validateChatPreset: preset => { try { validateChatPreset(normalizeChatPreset(clone(preset))); return ''; } catch (error) { return message(error); } },
             saveChatOptions: patch => this.saveChatOptions(clone(patch)), saveContact: contact => this.saveContact(contact), deleteContact: id => this.deleteContact(id), chatContacts: () => clone(chatContacts(this.settings)),
@@ -599,7 +651,7 @@ export class TTSBackend {
             speak: line => this.speak(clone(line)), voiceFormat: () => this.voiceFormat(),
         };
         return Object.freeze({ apiVersion: BACKEND_API_VERSION, defaultPrompt: DEFAULT_PROMPT, defaultFormat: DEFAULT_FORMAT,
-            picTagFormat: PIC_TAG_FORMAT, defaultDrawRule: DEFAULT_DRAW_RULE, drawCountMax: DRAW_COUNT_MAX, defaultChatPreset: Object.freeze((({ id, ...rest }) => rest)(defaultChat().presets[0])),
+            picTagFormat: PIC_TAG_FORMAT, defaultDrawRule: DEFAULT_DRAW_RULE, drawCountMax: DRAW_COUNT_MAX, defaultChatPreset: Object.freeze((({ id, ...rest }) => rest)(defaultChat().presets[0])), defaultMomentsPreset: Object.freeze((({ id, ...rest }) => rest)(defaultMoments().presets[0])),
             // The shipped presets of each kind, without ids: for 恢复默认 in the preset app.
             defaultVoicePreset: Object.freeze((({ id, ...rest }) => rest)(freshState().presets[0])), defaultDrawPreset: Object.freeze((({ id, ...rest }) => rest)(defaultDraw().presets[0])),
             drawCatalog: Object.freeze({ models: NAI_MODELS, modelNames: NAI_MODEL_NAMES, samplers: NAI_SAMPLERS, schedules: NAI_SCHEDULES }),
@@ -611,6 +663,7 @@ export class TTSBackend {
         if (this.closing) return this.closing;
         this.closed = true; this.prepared = null; this.listeners.clear(); this.providers.clear();
         this.chats.close();
+        this.moments.close();
         this.drawQueue.cancelAll();
         this.closing = Promise.all([this.player.close(), this.cache.close(), this.library.close()]);
         await this.closing;

@@ -7,7 +7,14 @@ const gear = (() => {
   return `<circle cx="32" cy="32" r="15"/>${teeth}<circle cx="32" cy="32" r="6" fill="var(--tac)"/>`;
 })();
 
+const aperture = (() => {
+  let blades = '';
+  for (let k = 0; k < 6; k++) blades += `<path d="M32 10a22 22 0 0 1 19 11L36.5 29.5z" transform="rotate(${k * 60} 32 32)" fill="${k % 2 ? 'var(--tac)' : 'currentColor'}"/>`;
+  return `<circle cx="32" cy="32" r="23" fill="var(--t2)"/>${blades}<circle cx="32" cy="32" r="7.5" fill="var(--t2)"/>`;
+})();
+
 const GLYPHS = {
+  moments: aperture,
   roles: '<path d="M14 57c1-10 8-15 18-15s17 5 18 15z"/><circle cx="32" cy="28" r="13"/><path d="M31 15c-1-5 2-9 7-9-3 2-4 5-3 9" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M25 29q2.5-3 5 0M34 29q2.5-3 5 0" fill="none" stroke="var(--t2)" stroke-width="2.2" stroke-linecap="round"/><ellipse cx="24" cy="34" rx="3" ry="1.8" fill="var(--tac)"/><ellipse cx="40" cy="34" rx="3" ry="1.8" fill="var(--tac)"/>',
   engines: '<rect x="23" y="8" width="18" height="30" rx="9"/><path d="M16 30a16 16 0 0 0 32 0M32 46v9M24 55h16" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><path d="M52 15q4 5 0 10M57 11q7 9 0 18" fill="none" stroke="var(--tac)" stroke-width="3" stroke-linecap="round"/>',
   presets: '<rect x="14" y="9" width="36" height="46" rx="6"/><path d="M21 25h22M21 33h22M21 41h14" stroke="var(--t2)" stroke-width="3" stroke-linecap="round"/><path d="M39 9h8v16l-4-3-4 3z" fill="var(--tac)"/>',

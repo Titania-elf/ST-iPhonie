@@ -2,6 +2,7 @@ import {createView, esc, engines, btn, heading, empty, size, field, input, textA
 import {icon, wave, halo} from './icons.js';
 import {openImageViewer} from '../image-viewer.js';
 import {saveFile, downloadAction} from '../download.js';
+import {decodeMono, joinClips, encodeWav, JOIN_RATE} from '../core/audio-join.js';
 
 const NOTE_COLORS = ['#fff4b0', '#ffd9e6', '#d9ecff', '#e3f5d9', '#efe0ff', '#ffe6cc'];
 const hash = text => [...String(text)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7);
@@ -189,7 +190,7 @@ export function listenApp(ctx) {
         <div class="actions" data-waiting hidden>${btn('configure', icon('mic') + '去给这个角色选音色', 'primary')}</div>
         <div class="transport">${btn('favorite', icon('heart'), '', 'aria-label="收藏这一句"')}${btn('download', icon('download'), '', 'aria-label="下载这一句"')}${btn('prev', icon('prev', true), '', 'aria-label="上一句"')}${btn('main-play', icon('play', true), 'main-play', 'aria-label="播放"')}${btn('next', icon('skip', true), '', 'aria-label="下一句"')}${btn('stop', icon('stop', true), '', 'aria-label="停止"')}</div>
         ${latest.lines.length
-          ? groupTitle('Log · 本条回复', btn('play-all', icon('play', true) + '整条播放', 'chip-button'))
+          ? groupTitle('Log · 本条回复', btn('export-all', icon('download') + '导出整条', 'chip-button', 'aria-label="把这条回复的台词拼成一个音频文件"') + btn('play-all', icon('play', true) + '整条播放', 'chip-button'))
             + `<div class="group">${latest.lines.map((l, i) => `<div class="dialogue-row" data-row="${i}" data-engine="${ctx.engineOf(l.role)}"><div><small>${esc(l.role)}</small><p>${esc(l.translation)}</p></div>${btn('play-line', wave, 'wave-button', `data-index="${i}" data-state="ungenerated" aria-label="朗读 ${esc(l.role)} 的台词"`)}</div>`).join('')}</div>`
           : empty('等一句真正说出口的话', '回到聊天，点台词旁的声波；最新一条回复的台词会出现在这里。')}`);
     v.onPlayback(api.status());
@@ -239,6 +240,23 @@ export function listenApp(ctx) {
   };
   v.refresh = render;
 
+  // The latest reply as one audio file, from the lines already generated (no new requests, no quota).
+  async function exportReply() {
+    const now = api.latest();
+    if (!now.lines.length) throw Error('最新的回复里没有台词');
+    const found = [], missing = [];
+    for (const line of now.lines) {
+      try { found.push((await api.audioFile({line})).blob); }
+      catch (error) { if (/还没有生成/.test(error.message)) missing.push(line); else throw error; }
+    }
+    if (!found.length) throw Error('这条回复的台词都还没生成语音：先点「整条播放」，生成完再导出');
+    if (missing.length && !await ctx.confirm(`有 ${missing.length} 句还没生成`, `只导出已经生成的 ${found.length} 句？想要完整的话，先点「整条播放」把每句都生成一遍，再导出。`)) return;
+    const clips = [];
+    for (const blob of found) clips.push(await decodeMono(ctx.win, blob));
+    const roles = [...new Set(now.lines.map(l => l.role))].join('、');
+    const name = await saveFile(ctx.doc, encodeWav(joinClips(clips), JOIN_RATE), `回复 #${now.id} · ${roles}`);
+    ctx.notify(`已下载 ${name}（${found.length} 句）`);
+  }
   function play(index) {
     const now = api.latest();
     if (JSON.stringify(now) !== JSON.stringify(latest)) { render().catch(e => ctx.notify(e.message)); ctx.notify('聊天内容已变化，请重新选择台词'); return; }
@@ -248,6 +266,7 @@ export function listenApp(ctx) {
     switch (el.dataset.action) {
       case 'refresh': await render(); break;
       case 'play-all': play(); break;
+      case 'export-all': await v.busy(el, exportReply); break;
       case 'play-line': play(Number(el.dataset.index)); break;
       case 'main-play': {
         const phase = api.status().phase;

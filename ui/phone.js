@@ -10,9 +10,10 @@ import {libraryApp, galleryApp, notesApp, listenApp} from './media-apps.js';
 import {settingsApp} from './settings.js';
 import {drawApp} from './draw.js';
 import {chatApp} from './chat.js';
+import {momentsApp, momentsNew, momentsSeen} from './moments.js';
 
 // App factories, keyed by the ids in apps.js.
-const FACTORIES = {roles: rolesApp, engines: enginesApp, presets: presetsApp, library: libraryApp, gallery: galleryApp, notes: notesApp, listen: listenApp, settings: settingsApp, draw: drawApp, chat: chatApp};
+const FACTORIES = {roles: rolesApp, engines: enginesApp, presets: presetsApp, library: libraryApp, gallery: galleryApp, notes: notesApp, listen: listenApp, settings: settingsApp, draw: drawApp, chat: chatApp, moments: momentsApp};
 const ACTIVE_PHASES = ['playing', 'paused', 'generating', 'waiting'];
 
 const SIGNAL = '<svg viewBox="0 0 18 12" fill="currentColor" aria-hidden="true"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>';
@@ -23,7 +24,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   const views = new Map(), assets = new Map();
   const media = win.matchMedia('(prefers-color-scheme: dark)'), motion = win.matchMedia('(prefers-reduced-motion: reduce)');
   let panelVisible = true, active = null, locked = false, sheet = null, disposed = false;
-  let lastPhase = '', preferences = null, appearanceKey = '', appearanceEpoch = 0, toastTimer, animation, openTimer, unread = 0, unreadTimer;
+  let lastPhase = '', preferences = null, appearanceKey = '', appearanceEpoch = 0, toastTimer, animation, openTimer, unread = 0, unreadTimer, fresh = 0, freshTimer;
   let playback = api.status();
 
   mount.innerHTML = `
@@ -136,7 +137,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   const routeFor = name => api.getState().routes.find(r => r.name === name);
   const engineOf = name => { const r = routeFor(name); return r?.voice ? r.engine : 'none'; };
   const ctx = {api, doc, win, notify, dialog, confirm, help, lock, open, routeFor, engineOf, openPendingRole: name => openPendingRole(name), visible: name => active === name && !locked,
-    editEngine: id => views.get('engines')?.edit?.(id), showPresetKind: kind => views.get('presets')?.showKind?.(kind)};
+    editEngine: id => views.get('engines')?.edit?.(id), showPresetKind: kind => views.get('presets')?.showKind?.(kind), momentsSeen: () => { if (fresh) { fresh = 0; renderHome(); } }};
 
   // ---------- Navigation ----------
   function open(name, roleId) {
@@ -221,8 +222,9 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     const meta = APPS[id], custom = preferences?.icons?.[id], [t1, t2, tac] = meta.colors;
     const image = custom?.kind === 'photo' ? assets.get(custom.photoId) : null;
     const art = image ? `<img src="${esc(image)}" alt="">` : glyph(custom?.kind === 'glyph' && custom.key !== 'default' ? custom.key : id);
-    const badge = id === 'chat' && unread ? `<span class="badge app-badge">${unread > 99 ? '99+' : unread}</span>` : '';
-    return `<button class="app-icon" data-app="${id}" aria-label="${esc(meta.name)}${badge ? `，${unread} 条未读` : ''}"><span class="icon-tile" style="--t1:${t1};--t2:${t2};--tac:${tac}">${art}</span>${badge}<span class="app-label">${esc(meta.name)}</span></button>`;
+    const count = id === 'chat' ? unread : id === 'moments' ? fresh : 0;
+    const badge = count ? `<span class="badge app-badge">${count > 99 ? '99+' : count}</span>` : '';
+    return `<button class="app-icon" data-app="${id}" aria-label="${esc(meta.name)}${badge ? `，${count} 条${id === 'moments' ? '新动态和评论' : '未读'}` : ''}"><span class="icon-tile" style="--t1:${t1};--t2:${t2};--tac:${tac}">${art}</span>${badge}<span class="app-label">${esc(meta.name)}</span></button>`;
   }
   function renderHome() {
     const pages = HOME.pages.map((ids, index) => `<div class="home-page">${index === 0
@@ -451,10 +453,21 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     if (event.type === 'draw') views.get('draw')?.onDraw?.(event);
     if (event.type === 'balance') run(() => views.get('engines')?.onBalance?.(event));
     if (event.type === 'chat') { run(() => views.get('chat')?.onChat?.(event)); countUnread(); }
+    if (event.type === 'moments') { views.get('moments')?.onMoments?.(event); countMoments(); }
     if (event.type === 'settings') run(() => views.get('chat')?.onChat?.({}));
   });
 
   // Unread chat messages, shown as a badge on the chat icon.
+  // New 朋友圈 posts and comments by others since the user last opened it.
+  function countMoments() {
+    win.clearTimeout(freshTimer);
+    freshTimer = win.setTimeout(() => run(async () => {
+      const n = active === 'moments' && !locked ? 0 : momentsNew(await api.listMoments(), momentsSeen(win));
+      if (disposed || n === fresh) return;
+      fresh = n;
+      renderHome();
+    }), 150);
+  }
   function countUnread() {
     win.clearTimeout(unreadTimer);
     unreadTimer = win.setTimeout(() => run(async () => {
@@ -496,7 +509,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     win.clearInterval(clockTimer);
     win.clearTimeout(toastTimer);
     win.clearTimeout(openTimer);
-    win.clearTimeout(unreadTimer);
+    win.clearTimeout(unreadTimer); win.clearTimeout(freshTimer);
     win.cancelAnimationFrame(animation);
     win.stTtsOpenRole = previousOpenRole;
     win.stTtsPanelVisibility = previousVisibility;
@@ -507,6 +520,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   renderHome();
   const clockTimer = win.setInterval(clock, 15000);
   countUnread();
+  countMoments();
   paintPlayback(playback);
 
   const fallback = {wallpaper: {kind: 'builtin', key: 'sky'}, icons: {}, iconStyle: 'color', lockOnOpen: false, volume: api.getVolume(), theme: api.getState().theme};

@@ -6,12 +6,13 @@ export const BACKUP_FORMAT = 1;
 export const BACKUP_PARTS = Object.freeze({
   settings: '设置、预设和角色音色',
   chats: '聊天记录',
+  moments: '朋友圈',
   notes: '备忘录',
   photos: '相册',
   favorites: '收藏的语音'
 });
 /** Which library stores each part covers. */
-export const PART_STORES = Object.freeze({settings: ['references', 'phone'], notes: ['notes'], photos: ['photos'], favorites: ['favorites'], chats: []});
+export const PART_STORES = Object.freeze({settings: ['references', 'phone'], notes: ['notes'], photos: ['photos'], favorites: ['favorites'], chats: [], moments: []});
 
 const fail = message => Object.assign(new Error(message), {code: 'BACKUP'});
 
@@ -37,13 +38,14 @@ async function rowJSON(row) {
 
 /**
  * Builds the backup file.
- * data: {version, settings?: object, library?: {store: rows[]}, chats?: threads[]}
+ * data: {version, settings?: object, library?: {store: rows[]}, chats?: threads[], moments?: posts[]}
  */
-export async function writeBackup({version = '', settings = null, library = {}, chats = null}) {
+export async function writeBackup({version = '', settings = null, library = {}, chats = null, moments = null}) {
   const pieces = [JSON.stringify({app: 'ST-iPhonie', kind: 'backup', format: BACKUP_FORMAT, version, createdAt: Date.now()}).slice(0, -1), ',"data":{'];
   const fields = [];
   if (settings) fields.push(['settings', JSON.stringify(settings)]);
   if (chats) fields.push(['chats', JSON.stringify(chats)]);
+  if (moments) fields.push(['moments', JSON.stringify(moments)]);
   for (const [store, rows] of Object.entries(library)) {
     const parts = ['['];
     for (let i = 0; i < rows.length; i++) parts.push(i ? ',' : '', await rowJSON(rows[i]));
@@ -71,13 +73,14 @@ export async function readBackup(file) {
     library[store] = rows.map(row => row?.blob?.$blob ? {...row, blob: fromBase64(row.blob.$blob.data, row.blob.$blob.type)} : row);
   }
   const settings = parsed.data.settings && typeof parsed.data.settings === 'object' ? parsed.data.settings : null;
-  const chats = Array.isArray(parsed.data.chats) ? parsed.data.chats : null;
+  const chats = Array.isArray(parsed.data.chats) ? parsed.data.chats : null, moments = Array.isArray(parsed.data.moments) ? parsed.data.moments : null;
   const summary = {
     settings: settings ? {roles: settings.routes?.length || 0, presets: settings.presets?.length || 0} : null,
     chats: chats ? chats.length : null,
+    moments: moments ? moments.length : null,
     notes: library.notes ? library.notes.length : null,
     photos: library.photos ? library.photos.length : null,
     favorites: library.favorites ? library.favorites.length : null
   };
-  return {version: String(parsed.version || ''), createdAt: Number(parsed.createdAt) || 0, settings, chats, library, summary};
+  return {version: String(parsed.version || ''), createdAt: Number(parsed.createdAt) || 0, settings, chats, moments, library, summary};
 }

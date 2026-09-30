@@ -75,6 +75,7 @@ export interface Settings {
     floating?: { side: 'left' | 'right'; y: number };
     draw: DrawSettings;
     chat: ChatSettings;
+    moments: MomentsSettings;
 }
 export interface DrawParams {
     model: string; width: number; height: number; steps: number; scale: number;
@@ -134,6 +135,12 @@ export interface ChatPreset {
 export interface Contact { id: string; name: string; persona: string; }
 /** Voice messages show only the voice bar until 转文字 (or `auto`); then the translation, the original line, or both. */
 export interface VoiceTextOptions { mode: 'translation' | 'original' | 'both'; auto: boolean; }
+/** 朋友圈 preset: rules for posts and reactions, how much story the model reads, and posts per refresh. */
+export interface MomentsPreset { id: string; name: string; rev: number; context: number; posts: number; entries: { id: string; title: string; enabled: boolean; text: string }[]; }
+export interface MomentsSettings { presets: MomentsPreset[]; activePreset: string; auto: boolean; every: number; dailyMax: number; images: boolean; replyToMe: boolean; }
+export interface MomentComment { id: string; from: string; to?: string; text: string; at: number; }
+/** author and comment names are 'me' for the user. */
+export interface MomentPost { id: string; author: string; text: string; at: number; source: 'manual' | 'auto' | 'me'; photoId?: string; imageTags?: string; imageState?: 'waiting' | 'done' | 'failed'; imageNote?: string; likes: string[]; comments: MomentComment[]; }
 export interface ChatSettings { presets: ChatPreset[]; activePreset: string; contacts: Contact[]; voiceText: VoiceTextOptions; }
 export interface ChatContact { name: string; source: 'role' | 'manual'; id?: string; voice: boolean; engine: Engine | 'none'; language: string; persona: string; }
 export type ChatKind = 'text' | 'voice' | 'photo' | 'system' | 'redpacket' | 'transfer' | 'location' | 'pat' | 'dice' | 'notice' | 'recall';
@@ -322,6 +329,7 @@ export interface BackendFacade {
     readonly defaultDrawRule: string;
     readonly drawCountMax: number;
     readonly defaultChatPreset: Omit<ChatPreset, 'id'>;
+    readonly defaultMomentsPreset: Omit<MomentsPreset, 'id'>;
     /** The shipped voice preset (without id), for 恢复默认. */
     readonly defaultVoicePreset: Omit<Preset, 'id'>;
     /** The shipped drawing preset (without id), for 恢复默认. */
@@ -397,13 +405,13 @@ export interface BackendFacade {
     latestAudio(): ReadyAudio | null;
     favoriteAudio(key: string): Promise<Favorite>;
     /** The parts a backup can hold, key -> label. */
-    backupParts(): Record<'settings' | 'chats' | 'notes' | 'photos' | 'favorites', string>;
+    backupParts(): Record<'settings' | 'chats' | 'moments' | 'notes' | 'photos' | 'favorites', string>;
     /** A backup file of the chosen parts, named for saving. Never contains keys. */
     exportBackup(parts: string[], version?: string): Promise<{ blob: Blob; name: string }>;
     /** What a backup file holds; rejects when it is not an ST-iPhonie backup. */
-    inspectBackup(file: Blob): Promise<{ version: string; createdAt: number; summary: { settings: { roles: number; presets: number } | null; chats: number | null; notes: number | null; photos: number | null; favorites: number | null } }>;
+    inspectBackup(file: Blob): Promise<{ version: string; createdAt: number; summary: { settings: { roles: number; presets: number } | null; chats: number | null; moments: number | null; notes: number | null; photos: number | null; favorites: number | null } }>;
     /** Restores the chosen parts; replace empties those kinds of data first. Returns how many of each came back. */
-    importBackup(file: Blob, options: { parts: string[]; replace?: boolean }): Promise<{ settings?: boolean; chats?: number; notes?: number; photos?: number; favorites?: number; references?: number; phone?: number }>;
+    importBackup(file: Blob, options: { parts: string[]; replace?: boolean }): Promise<{ settings?: boolean; chats?: number; moments?: number; notes?: number; photos?: number; favorites?: number; references?: number; phone?: number }>;
     /** The audio of a favorite, a cached line, or a line with its speaker's current voice, named for saving.
      *  Rejects when that line has not been generated yet. */
     audioFile(ref: { favorite: string } | { key: string } | { line: { role: string; text: string; emotion?: string; translation?: string } }): Promise<{ blob: Blob; name: string }>;
@@ -427,6 +435,24 @@ export interface BackendFacade {
     /** Deletes those photos from the album; returns how many were deleted. Imported photos stay. */
     deleteGeneratedPhotos(): Promise<number>;
     saveChatPreset(preset: Partial<ChatPreset> & { name: string }): ChatPreset;
+    /** 朋友圈 options. */
+    saveMoments(patch: Partial<Pick<MomentsSettings, 'auto' | 'every' | 'dailyMax' | 'images' | 'replyToMe'>>): MomentsSettings;
+    saveMomentsPreset(preset: Partial<MomentsPreset> & { name: string }): MomentsPreset;
+    deleteMomentsPreset(id: string): MomentsSettings;
+    selectMomentsPreset(id: string): MomentsSettings;
+    previewMomentsPrompt(preset?: Partial<MomentsPreset>): string;
+    /** '' when the preset is valid, otherwise why not. */
+    validateMomentsPreset(preset: Partial<MomentsPreset>): string;
+    /** Newest first. */
+    listMoments(): Promise<MomentPost[]>;
+    getMoment(id: string): Promise<MomentPost | null>;
+    /** A post by the user. */
+    postMoment(post: { text: string; photoId?: string }): Promise<MomentPost>;
+    likeMoment(id: string, on?: boolean): Promise<MomentPost>;
+    commentMoment(id: string, comment: { text: string; to?: string }): Promise<{ post: MomentPost; comment: MomentComment }>;
+    deleteMoment(id: string): Promise<boolean>;
+    deleteMomentComment(id: string, commentId: string): Promise<MomentPost>;
+    clearMoments(): Promise<number>;
     deleteChatPreset(id: string): ChatSettings;
     selectChatPreset(id: string): ChatSettings;
     /** Reply prompt with sample chat content, for the preset editor. */
@@ -487,6 +513,16 @@ export interface BackendAPI extends BackendFacade {
     chatCancelBring(): void;
     /** True while a reply for this chat is being generated. */
     chatTyping(threadId: string): boolean;
+    /** New 朋友圈 posts from the characters (one model request). */
+    momentsRefresh(): Promise<MomentPost[]>;
+    /** Friends react to the user's post. */
+    momentsReact(id: string): Promise<MomentPost>;
+    /** Answers to the user's comment. */
+    momentsReply(id: string, commentId: string): Promise<MomentPost>;
+    /** Draws a post's picture; allowPaid lets it spend Anlas. */
+    momentsDrawImage(id: string, allowPaid?: boolean): Promise<string | null>;
+    /** True while a 朋友圈 request is running. */
+    momentsBusy(): boolean;
     /** Facts for the self-check report (core/diagnostics.js buildReport). Asks whether keys work; never returns them. */
     diagnose(): Promise<DiagnosticFacts>;
     /** Remembers an error shown in the phone, for the self-check. */

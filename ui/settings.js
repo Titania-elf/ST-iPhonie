@@ -27,10 +27,10 @@ export function settingsApp(ctx) {
   }
   // Backup: pick the parts, see how much each holds, and save one file.
   async function renderBackup(ticket) {
-    const [library, threads] = await Promise.all([api.libraryStats().catch(() => null), api.listThreads().catch(() => null)]);
+    const [library, threads, moments] = await Promise.all([api.libraryStats().catch(() => null), api.listThreads().catch(() => null), api.listMoments().catch(() => null)]);
     if (v.disposed || ticket !== epoch) return;
     const s = api.getState(), n = (value, unit) => value === null || value === undefined ? '读不到' : `${value} ${unit}`;
-    const counts = {settings: `${s.routes.length} 个角色 · ${s.presets.length} 个配音预设`, chats: n(threads?.length, '段'), notes: n(library?.notes, '条'), photos: n(library?.photos, '张'), favorites: n(library?.favorites, '段')};
+    const counts = {settings: `${s.routes.length} 个角色 · ${s.presets.length} 个配音预设`, chats: n(threads?.length, '段'), moments: n(moments?.length, '条'), notes: n(library?.notes, '条'), photos: n(library?.photos, '张'), favorites: n(library?.favorites, '段')};
     v.draw(heading('备份', '', 'Backup')
       + `<div class="group">${Object.entries(api.backupParts()).map(([key, label]) => partRow(key, label, counts[key], backup.parts.has(key))).join('')}</div>`
       + '<p class="hint">备份是一个 .json 文件，可以存在电脑、手机或网盘里。密钥不会放进去，恢复后要重新填写；语音缓存也不备份，需要时会重新生成。相册和收藏多的话，文件会比较大。</p>'
@@ -39,7 +39,7 @@ export function settingsApp(ctx) {
   // Restore: what the chosen file holds, which parts to take, and whether to merge or replace.
   function renderRestore() {
     const {info, parts, replace} = restore, sum = info.summary, labels = api.backupParts();
-    const counts = {settings: sum.settings && `${sum.settings.roles} 个角色 · ${sum.settings.presets} 个配音预设`, chats: sum.chats !== null && `${sum.chats} 段`, notes: sum.notes !== null && `${sum.notes} 条`, photos: sum.photos !== null && `${sum.photos} 张`, favorites: sum.favorites !== null && `${sum.favorites} 段`};
+    const counts = {settings: sum.settings && `${sum.settings.roles} 个角色 · ${sum.settings.presets} 个配音预设`, chats: sum.chats !== null && `${sum.chats} 段`, moments: sum.moments != null && `${sum.moments} 条`, notes: sum.notes !== null && `${sum.notes} 条`, photos: sum.photos !== null && `${sum.photos} 张`, favorites: sum.favorites !== null && `${sum.favorites} 段`};
     const when = info.createdAt ? new Date(info.createdAt).toLocaleString('zh-CN', {hour12: false}) : '未知';
     v.draw(heading('恢复', '', 'Restore')
       + `<div class="group pad"><p class="help-copy">备份时间：${esc(when)}${info.version ? ` · 插件 ${esc(info.version)}` : ''}</p></div>`
@@ -51,7 +51,7 @@ export function settingsApp(ctx) {
       + `<div class="actions">${btn('do-restore', icon('refresh') + '开始恢复', 'primary', parts.size ? '' : 'disabled')}</div>`);
   }
   const partRow = (key, label, detail, on) => `<div class="setting-row"><span class="row-text"><strong>${esc(label)}</strong><small>${esc(detail)}</small></span><input class="switch" type="checkbox" data-part="${key}" aria-label="${esc(label)}" ${on ? 'checked' : ''}></div>`;
-  const restored = done => [done.settings && '设置和预设', done.chats && `${done.chats} 段聊天`, done.notes && `${done.notes} 条备忘录`, done.photos && `${done.photos} 张照片`, done.favorites && `${done.favorites} 段收藏`].filter(Boolean).join('、');
+  const restored = done => [done.settings && '设置和预设', done.chats && `${done.chats} 段聊天`, done.moments && `${done.moments} 条朋友圈`, done.notes && `${done.notes} 条备忘录`, done.photos && `${done.photos} 张照片`, done.favorites && `${done.favorites} 段收藏`].filter(Boolean).join('、');
 
   async function runCheck() {
     check = {loading: true};
@@ -150,7 +150,7 @@ export function settingsApp(ctx) {
     el.disabled = true;
     try {
       const info = await api.inspectBackup(file), sum = info.summary;
-      const parts = new Set(Object.keys(api.backupParts()).filter(key => key === 'settings' ? sum.settings : sum[key] !== null));
+      const parts = new Set(Object.keys(api.backupParts()).filter(key => key === 'settings' ? sum.settings : sum[key] != null));
       restore = {file, info, parts, replace: false};
       await render();
     } finally { if (el.isConnected) { el.value = ''; el.disabled = false; } }
