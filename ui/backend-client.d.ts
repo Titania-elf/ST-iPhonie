@@ -433,11 +433,12 @@ export interface BackendFacade {
     /** The parts a backup can hold, key -> label. */
     backupParts(): Record<'settings' | 'chats' | 'moments' | 'notes' | 'photos' | 'favorites', string>;
     /** A backup file of the chosen parts, named for saving. Never contains keys. */
-    exportBackup(parts: string[], version?: string): Promise<{ blob: Blob; name: string }>;
+    /** parts may include 'keys', which needs `password` (at least 6 characters): the keys are sealed with it. */
+    exportBackup(parts: string[], version?: string, options?: { password?: string }): Promise<{ blob: Blob; name: string }>;
     /** What a backup file holds; rejects when it is not an ST-iPhonie backup. */
     inspectBackup(file: Blob): Promise<{ version: string; createdAt: number; summary: { settings: { roles: number; presets: number } | null; chats: number | null; moments: number | null; notes: number | null; photos: number | null; favorites: number | null } }>;
     /** Restores the chosen parts; replace empties those kinds of data first. Returns how many of each came back. */
-    importBackup(file: Blob, options: { parts: string[]; replace?: boolean }): Promise<{ settings?: boolean; chats?: number; moments?: number; notes?: number; photos?: number; favorites?: number; references?: number; phone?: number }>;
+    importBackup(file: Blob, options: { parts: string[]; replace?: boolean; password?: string }): Promise<{ settings?: boolean; chats?: number; moments?: number; notes?: number; photos?: number; favorites?: number; references?: number; phone?: number; keys?: number }>;
     /** The audio of a favorite, a cached line, or a line with its speaker's current voice, named for saving.
      *  Rejects when that line has not been generated yet. */
     audioFile(ref: { favorite: string } | { key: string } | { line: { role: string; text: string; emotion?: string; translation?: string } }): Promise<{ blob: Blob; name: string }>;

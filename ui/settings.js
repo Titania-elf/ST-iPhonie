@@ -1,4 +1,4 @@
-import {createView, esc, btn, field, select, toggle, heading, size, languageField, groupTitle} from './common.js';
+import {createView, esc, btn, field, input, select, toggle, heading, size, languageField, groupTitle} from './common.js';
 import {buildReport} from '../core/diagnostics.js';
 import {saveFile} from '../download.js';
 import {icon, GLYPH_NAMES} from './icons.js';
@@ -30,28 +30,38 @@ export function settingsApp(ctx) {
     const [library, threads, moments] = await Promise.all([api.libraryStats().catch(() => null), api.listThreads().catch(() => null), api.listMoments().catch(() => null)]);
     if (v.disposed || ticket !== epoch) return;
     const s = api.getState(), n = (value, unit) => value === null || value === undefined ? '读不到' : `${value} ${unit}`;
-    const counts = {settings: `${s.routes.length} 个角色 · ${s.presets.length} 个配音预设`, chats: n(threads?.length, '段'), moments: n(moments?.length, '条'), notes: n(library?.notes, '条'), photos: n(library?.photos, '张'), favorites: n(library?.favorites, '段')};
+    const counts = {settings: `${s.routes.length} 个角色 · ${s.presets.length} 个配音预设`, chats: n(threads?.length, '段'), moments: n(moments?.length, '条'), notes: n(library?.notes, '条'), photos: n(library?.photos, '张'), favorites: n(library?.favorites, '段'), keys: savedKeys() ? `这台浏览器里的 ${savedKeys()} 个密钥` : '这台浏览器里还没有密钥'};
     v.draw(heading('备份', '', 'Backup')
-      + `<div class="group">${Object.entries(api.backupParts()).map(([key, label]) => partRow(key, label, counts[key], backup.parts.has(key))).join('')}</div>`
-      + '<p class="hint">备份是一个 .json 文件，可以存在电脑、手机或网盘里。密钥不会放进去，恢复后要重新填写；语音缓存也不备份，需要时会重新生成。相册和收藏多的话，文件会比较大。</p>'
-      + `<div class="actions">${btn('make-backup', icon('download') + '生成备份文件', 'primary', backup.parts.size ? '' : 'disabled')}</div>`);
+      + `<div class="group">${Object.entries(api.backupParts()).map(([key, label]) => key === 'keys' && !savedKeys() ? `<div class="setting-row"><span class="row-text"><strong>${esc(label)}</strong><small>这台浏览器里还没有密钥</small></span></div>` : partRow(key, label, counts[key], backup.parts.has(key))).join('')}</div>`
+      + (backup.parts.has('keys') ? keyPasswordFields() : '')
+      + `<p class="hint">备份是一个 .json 文件，可以存在电脑、手机或网盘里。密钥默认不放进去；打开「密钥」后会用你设的密码加密，恢复时输入同一个密码才能取出来，没有密码的人拿到文件也看不到密钥。语音缓存不备份，需要时会重新生成。相册和收藏多的话，文件会比较大。</p>`
+      + `<div class="actions">${btn('make-backup', icon('download') + '生成备份文件', 'primary', canBackup() ? '' : 'disabled')}</div>`);
   }
+  const savedKeys = () => ['fish', 'mini', 'eleven', 'nai', 'llm'].filter(engine => { try { return api.keyStatus(engine); } catch { return false; } }).length;
+  const passwordOk = () => !backup.parts.has('keys') || backup.password.length >= 6 && backup.password === backup.again;
+  const canBackup = () => backup.parts.size > 0 && passwordOk();
+  function keyPasswordFields() {
+    return `<div class="group pad">${field('备份密码', input('backup-password', backup.password, 'password', 'autocomplete="new-password" minlength="6"'), '至少 6 位。恢复时要输入这个密码才能取出密钥；密码忘了，密钥就取不出来（备份里的其他内容不受影响）。')}
+      ${field('再输一次', input('backup-again', backup.again, 'password', 'autocomplete="new-password"'))}<p class="hint" data-password-note>${esc(passwordNote())}</p></div>`;
+  }
+  const passwordNote = () => !backup.password ? '' : backup.password.length < 6 ? '密码至少 6 位' : backup.again && backup.again !== backup.password ? '两次输入的不一样' : backup.again ? '可以了' : '';
   // Restore: what the chosen file holds, which parts to take, and whether to merge or replace.
   function renderRestore() {
     const {info, parts, replace} = restore, sum = info.summary, labels = api.backupParts();
-    const counts = {settings: sum.settings && `${sum.settings.roles} 个角色 · ${sum.settings.presets} 个配音预设`, chats: sum.chats !== null && `${sum.chats} 段`, moments: sum.moments != null && `${sum.moments} 条`, notes: sum.notes !== null && `${sum.notes} 条`, photos: sum.photos !== null && `${sum.photos} 张`, favorites: sum.favorites !== null && `${sum.favorites} 段`};
+    const counts = {settings: sum.settings && `${sum.settings.roles} 个角色 · ${sum.settings.presets} 个配音预设`, chats: sum.chats !== null && `${sum.chats} 段`, moments: sum.moments != null && `${sum.moments} 条`, notes: sum.notes !== null && `${sum.notes} 条`, photos: sum.photos !== null && `${sum.photos} 张`, favorites: sum.favorites !== null && `${sum.favorites} 段`, keys: sum.keys != null && `${sum.keys} 个密钥（要输入备份时的密码）`};
     const when = info.createdAt ? new Date(info.createdAt).toLocaleString('zh-CN', {hour12: false}) : '未知';
     v.draw(heading('恢复', '', 'Restore')
       + `<div class="group pad"><p class="help-copy">备份时间：${esc(when)}${info.version ? ` · 插件 ${esc(info.version)}` : ''}</p></div>`
       + groupTitle('要恢复的内容')
       + `<div class="group">${Object.entries(labels).map(([key, label]) => counts[key] ? partRow(key, label, counts[key], parts.has(key)) : `<div class="setting-row"><span class="row-text"><strong>${esc(label)}</strong><small>备份里没有</small></span></div>`).join('')}</div>`
+      + (parts.has('keys') ? `<div class="group pad">${field('备份密码', input('restore-password', restore.password || '', 'password', 'autocomplete="current-password"'), '输入备份时设的密码，才能取出里面的密钥。')}</div>` : '')
       + groupTitle('方式')
       + `<div class="segmented"><button data-action="restore-mode" data-value="merge" aria-pressed="${!replace}">合并</button><button data-action="restore-mode" data-value="replace" aria-pressed="${replace}">替换</button></div>`
       + `<p class="hint">${replace ? '替换：选中的内容会先清空，再换成备份里的。' : '合并：现在的内容都保留，备份里同一条（同一张照片、同一段聊天）会覆盖现在的。'}设置和预设总是整体换成备份里的；密钥不受影响。</p>`
       + `<div class="actions">${btn('do-restore', icon('refresh') + '开始恢复', 'primary', parts.size ? '' : 'disabled')}</div>`);
   }
   const partRow = (key, label, detail, on) => `<div class="setting-row"><span class="row-text"><strong>${esc(label)}</strong><small>${esc(detail)}</small></span><input class="switch" type="checkbox" data-part="${key}" aria-label="${esc(label)}" ${on ? 'checked' : ''}></div>`;
-  const restored = done => [done.settings && '设置和预设', done.chats && `${done.chats} 段聊天`, done.moments && `${done.moments} 条朋友圈`, done.notes && `${done.notes} 条备忘录`, done.photos && `${done.photos} 张照片`, done.favorites && `${done.favorites} 段收藏`].filter(Boolean).join('、');
+  const restored = done => [done.keys && `${done.keys} 个密钥`, done.settings && '设置和预设', done.chats && `${done.chats} 段聊天`, done.moments && `${done.moments} 条朋友圈`, done.notes && `${done.notes} 条备忘录`, done.photos && `${done.photos} 张照片`, done.favorites && `${done.favorites} 段收藏`].filter(Boolean).join('、');
 
   /** 保存到酒馆: the switch, and when it is on, when it last synced and what the tavern holds. */
   function syncGroup() {
@@ -156,12 +166,23 @@ export function settingsApp(ctx) {
     else if (key === 'volume') await api.setVolume(Number(el.value) / 100);
     else if (key === 'lockOnOpen') await api.savePhone({lockOnOpen: el.checked});
   });
+  v.on('input', '[data-field=backup-password],[data-field=backup-again],[data-field=restore-password]', el => {
+    if (el.dataset.field === 'restore-password') { if (restore) restore.password = el.value; return; }
+    if (!backup) return;
+    backup[el.dataset.field === 'backup-password' ? 'password' : 'again'] = el.value;
+    const note = v.root.querySelector('[data-password-note]');
+    if (note) note.textContent = passwordNote();
+    const go = v.root.querySelector('[data-action=make-backup]');
+    if (go) go.disabled = !canBackup();
+  });
   v.on('change', '[data-part]', async el => {
     const parts = backup?.parts || restore?.parts;
     if (!parts) return;
     if (el.checked) parts.add(el.dataset.part); else parts.delete(el.dataset.part);
+    // The key part brings its password fields in or out.
+    if (el.dataset.part === 'keys') { await render(); return; }
     const go = v.root.querySelector('[data-action=make-backup],[data-action=do-restore]');
-    if (go) go.disabled = !parts.size;
+    if (go) go.disabled = backup ? !canBackup() : !parts.size;
   });
   v.on('change', '[data-backup-file]', async el => {
     const file = el.files?.[0];
@@ -211,20 +232,22 @@ export function settingsApp(ctx) {
       case 'save-appearance': await v.busy(el, async () => { await api.savePhone(appearance); appearance = null; await render(); ctx.notify('外观已应用'); }); break;
       case 'lock': ctx.lock(); break;
       case 'self-check': case 'run-check': await runCheck(); break;
-      case 'backup': backup = {parts: new Set(Object.keys(api.backupParts()))}; await render(); break;
+      case 'backup': backup = {parts: new Set(Object.keys(api.backupParts()).filter(part => part !== 'keys')), password: '', again: ''}; await render(); break;
       case 'sync-now': { const st = await api.syncNow(); const r = st.lastResult || {}; ctx.notify(r.pulled?.length || r.merged?.length ? '已读取别的设备的新内容' + (r.pushed?.length ? '，也保存了这里的改动' : '') : r.pushed?.length ? '已保存到酒馆' : '已经是最新的了'); await render(); break; }
       case 'make-backup':
         await v.busy(el, async () => {
-          const {blob, name} = await api.exportBackup([...backup.parts]);
+          if (!passwordOk()) throw Error(backup.password.length < 6 ? '密码至少 6 位' : '两次输入的密码不一样');
+          const {blob, name} = await api.exportBackup([...backup.parts], {password: backup.parts.has('keys') ? backup.password : ''});
           ctx.notify(`已下载 ${await saveFile(ctx.doc, blob, name)}（${size(blob.size)}）`);
         });
         break;
       case 'restore-mode': restore.replace = el.dataset.value === 'replace'; await render(); break;
       case 'do-restore': {
         const {replace, parts, file} = restore;
+        if (parts.has('keys') && !restore.password) { ctx.notify('要取出密钥，先输入备份时设的密码（不需要密钥的话，把「密钥」关掉）'); break; }
         const sure = await ctx.confirm(replace ? '替换成备份里的内容？' : '恢复备份？', replace ? '选中的内容会先被清空，再换成备份里的。这一步不能撤销，想留着现在的内容可以先备份一次。' : '现在的内容会保留，备份里同一条会覆盖现在的；设置和预设会整体换成备份里的。');
         if (!sure) break;
-        const done = await v.busy(el, () => api.importBackup(file, {parts: [...parts], replace}));
+        const done = await v.busy(el, () => api.importBackup(file, {parts: [...parts], replace, password: restore.password || ''}));
         restore = null;
         await render();
         ctx.notify('已恢复：' + (restored(done) || '没有内容'));

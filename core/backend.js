@@ -3,7 +3,7 @@ import { normalizeMoments, buildMomentsRequest } from './moments.js';
 import { normalizeCalls, buildCallRequest } from './call.js';
 import { normalizeText, customRequest, listModels } from './llm.js';
 import { normalizeSync, runSync, SYNC_PARTS } from './sync.js';
-import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup } from './backup.js';
+import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup, sealKeys, openKeys } from './backup.js';
 import { normalizeSettings, validateSettings, modelRules, freshState } from './state.js';
 import { normalizeRoute, switchRouteEngine, removeRoute } from './routes.js';
 import { DEFAULT_PROMPT, DEFAULT_FORMAT, promptPlan, validatePreset, parseDialogue, isPlaceholderRole, knownFormats } from './protocol.js';
@@ -88,7 +88,7 @@ export class TTSBackend {
         }
     }
     /** A backup file of the chosen parts (core/backup.js BACKUP_PARTS). Keys and the account scope are never written. */
-    async exportBackup(parts = Object.keys(BACKUP_PARTS), version = '') {
+    async exportBackup(parts = Object.keys(BACKUP_PARTS), version = '', { password = '' } = {}) {
         this.assertOpen();
         const want = [...new Set(parts)].filter(part => BACKUP_PARTS[part]);
         if (!want.length) throw Error('请至少选一项要备份的内容');
@@ -97,7 +97,10 @@ export class TTSBackend {
         let settings = null;
         if (want.includes('settings')) { settings = this.getState(); delete settings.scope; delete settings.floating; }
         const chats = want.includes('chats') ? await this.chats.exportThreads() : null, moments = want.includes('moments') ? await this.moments.exportPosts() : null;
-        const blob = await writeBackup({ version, settings, library, chats, moments });
+        // Keys only with a password: sealed here, never written as they are.
+        let keys = null;
+        if (want.includes('keys')) { const all = Object.fromEntries(this.keyStore.load()); if (!Object.keys(all).length) throw Error('这台浏览器里还没有保存密钥，备份里不用带'); keys = await sealKeys(all, password); }
+        const blob = await writeBackup({ version, settings, library, chats, moments, keys });
         const day = new Date(), pad = n => String(n).padStart(2, '0');
         return { blob, name: `ST-iPhonie 备份 ${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}` };
     }
@@ -112,10 +115,13 @@ export class TTSBackend {
      * same id are overwritten and the rest kept. Settings are taken whole from the backup; keys, the account scope and
      * the floating ball's place stay. Everything is checked before anything is written.
      */
-    async importBackup(file, { parts = [], replace = false } = {}) {
+    async importBackup(file, { parts = [], replace = false, password = '' } = {}) {
         this.assertOpen();
         const backup = await readBackup(file), want = new Set(parts.filter(part => BACKUP_PARTS[part])), done = {};
         if (!want.size) throw Error('请至少选一项要恢复的内容');
+        // Keys first: a wrong password stops the restore before anything else changes.
+        let keys = null;
+        if (want.has('keys') && backup.keys) keys = await openKeys(backup.keys, password);
         let settings = null;
         if (want.has('settings') && backup.settings) {
             settings = normalizeSettings({ ...backup.settings, scope: this.settings.scope, floating: this.settings.floating });
@@ -129,6 +135,7 @@ export class TTSBackend {
         if (settings) { this.save(settings); done.settings = true; await this.loadReferences(); }
         if (want.has('chats') && backup.chats) { done.chats = await this.chats.importThreads(backup.chats, { replace }); this.emit('chat', { threadId: '' }); }
         if (want.has('moments') && backup.moments) { done.moments = await this.moments.importPosts(backup.moments, { replace }); this.emit('moments', {}); }
+        if (keys) { let count = 0; for (const [engine, key] of Object.entries(keys)) { try { this.setKey(engine, key); count++; } catch { /* an engine this version does not know */ } } done.keys = count; }
         for (const collection of ['favorites', 'photos', 'notes']) if (collection in done) this.emit('library', { collection });
         if ('phone' in done || 'photos' in done) this.emit('phone', { preferences: await this.getPhone() });
         return done;
@@ -721,7 +728,7 @@ export class TTSBackend {
             deleteAudio: async key => { if (this.player.requestKey === key) this.player.stop('音频已删除'); if (this.prepared?.key === key) this.prepared = null; await this.cache.remove(key); this.emit('library', { collection: 'cache' }); },
             latestAudio: () => this.prepared ? this.audioInfo(this.prepared) : null,
             favoriteAudio: key => this.favoriteAudio(key), audioFile: ref => this.audioFile(ref),
-            backupParts: () => ({ ...BACKUP_PARTS }), exportBackup: (parts, version) => this.exportBackup(parts, version), inspectBackup: file => this.inspectBackup(file), importBackup: (file, options) => this.importBackup(file, options), listFavorites: query => this.library.listFavorites(query),
+            backupParts: () => ({ ...BACKUP_PARTS }), exportBackup: (parts, version, options) => typeof version === 'object' && version ? this.exportBackup(parts, '', version) : this.exportBackup(parts, version, options || {}), inspectBackup: file => this.inspectBackup(file), importBackup: (file, options) => this.importBackup(file, options), listFavorites: query => this.library.listFavorites(query),
             getFavorite: id => this.library.getFavorite(id), playFavorite: id => this.playFavorite(id),
             deleteFavorite: id => this.mutateLibrary('favorites', 'deleteFavorite', id),
             listPhotos: () => this.library.listPhotos(), addPhoto: value => this.mutateLibrary('photos', 'addPhoto', value),
