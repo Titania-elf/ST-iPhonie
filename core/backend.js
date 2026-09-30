@@ -401,7 +401,7 @@ export class TTSBackend {
             unavailable: TTSParameters.unavailable(engine, field, current),
             ...(field.key === 'references' ? { help: '参考音频保存在当前浏览器，按酒馆账户隔离。' } : {}),
         })) }));
-        return { engine, ...catalog, connection: current, tags: TTSParameters.tags(engine, current.model), sourceDate: '2026-09-25' };
+        return { engine, ...catalog, connection: current, tags: TTSParameters.tags(engine, current.model), tagNote: TTSParameters.tagNote(engine, current.model), sounds: current.model === 's1' && engine === 'fish' ? [...TTSParameters.vocab.FISH_S1_TONES, ...TTSParameters.vocab.FISH_S1_SOUNDS] : [], sourceDate: '2026-09-30' };
     }
     audioInfo(audio) {
         return { key: audio.key, line: clone(audio.line), route: clone(audio.route), bytes: audio.blob.size, fromCache: audio.fromCache };

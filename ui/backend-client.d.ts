@@ -218,6 +218,10 @@ export interface EngineSchema {
     groups: Array<{ id: string; title: string; fields: ParameterField[] }>;
     connection: Connection;
     tags: string[];
+    /** How this model reads emotion and tags, for the engine card. */
+    tagNote: string;
+    /** Fish S1 tone and sound tags (empty for other models). */
+    sounds: string[];
 }
 export interface VoiceQuery { search?: string; page?: number; token?: string; }
 export interface VoiceList {

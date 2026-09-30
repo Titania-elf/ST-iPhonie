@@ -1,5 +1,5 @@
 'use strict';
-// Official TTS parameter snapshot: 2026-09-25. See research/engine-parameters/README.md.
+// Official TTS parameter snapshot: 2026-09-30 (Eleven v4 added 2026-09-28). See research/engine-parameters/README.md.
 
 const n=(key,label,value,min,max,step=.01,help='')=>({key,label,type:'number',value,min,max,step,help});
 const s=(key,label,value,options,help='')=>({key,label,type:'select',value,options:options.map(o=>Array.isArray(o)?o:[o,o]),help});
@@ -25,7 +25,7 @@ const mini={model:'speech-2.8-hd',models:['speech-2.8-hd','speech-2.8-turbo','sp
  group('mix','混合音色',[rows('timbre_weights','音色权重',[t('voice_id','音色 ID'),n('weight','权重',50,1,100,1)],4,'官网标为旧版字段；设置混合音色时，voice_id 留空。最多四个音色。')])
 ]};
 const formats=['mp3_44100_128','alaw_8000','mp3_22050_32','mp3_24000_48','mp3_44100_192','mp3_44100_32','mp3_44100_64','mp3_44100_96','opus_48000_128','opus_48000_192','opus_48000_32','opus_48000_64','opus_48000_96','pcm_16000','pcm_22050','pcm_24000','pcm_32000','pcm_44100','pcm_48000','pcm_8000','ulaw_8000','wav_16000','wav_22050','wav_24000','wav_32000','wav_44100','wav_48000','wav_8000'];
-const eleven={model:'eleven_v3',models:['eleven_v3','eleven_multilingual_v2','eleven_flash_v2_5','eleven_flash_v2','eleven_turbo_v2_5','eleven_turbo_v2','eleven_v3_conversational'],source:'https://elevenlabs.io/docs/api-reference/text-to-speech/convert',groups:[
+const eleven={model:'eleven_v4',models:['eleven_v4','eleven_v3','eleven_multilingual_v2','eleven_flash_v2_5','eleven_flash_v2','eleven_turbo_v2_5','eleven_turbo_v2','eleven_v3_conversational'],source:'https://elevenlabs.io/docs/api-reference/text-to-speech/convert',groups:[
  group('common','常用设置',[n('voice_settings.stability','稳定性',.5,0,1,.05),n('voice_settings.speed','语速',1,.7,1.2,.05,'官网产品页建议 0.7–1.2；通用 REST 结构未给范围，官方技能另列 0.25–4。当前按产品页范围提供。v3 产品页标为不支持。'),n('voice_settings.similarity_boost','音色相似度',.75,0,1,.05),n('voice_settings.style','风格强度',0,0,1,.05),b('voice_settings.use_speaker_boost','增强原声特征',true)]),
  group('audio','音频输出',[s('output_format','音频格式','mp3_44100_128',formats,'MP3 192 kbps 需要 Creator 或更高；PCM/WAV 44.1 kHz 需要 Pro 或更高，仍以账户可用能力为准。')]),
  group('language','语言与文字',[t('language_code','语言代码','留空跟随角色语言。使用 ISO 639-1 代码，如 zh、en、ja；Multilingual v2 不支持。'),s('apply_text_normalization','文字规范化','auto',[['auto','自动'],['on','开启'],['off','关闭']]),b('apply_language_text_normalization','日语读法规范化',false,'当前仅日语；会增加生成延迟。')]),
@@ -61,6 +61,7 @@ function unavailable(key,f,c){const p=c.params,k=f.key;
   if(k.startsWith('voice_modify.')&&!(p.stream?p['audio_setting.format']==='mp3':['mp3','wav','flac'].includes(p['audio_setting.format'])))return '音效支持非流式 MP3/WAV/FLAC，或流式 MP3。';
  }
  if(key==='eleven'){
+  if(k.startsWith('voice_settings.')&&!['voice_settings.stability','voice_settings.similarity_boost'].includes(k)&&c.model==='eleven_v4')return 'v4 只支持稳定性和音色相似度，风格、语速和 SSML 不起作用。';
   if(k.startsWith('voice_settings.')&&k!=='voice_settings.stability'&&c.model.startsWith('eleven_v3'))return '按 v3 产品页与专用参数结构，此项不作为已支持参数发送。';
   if(['voice_settings.style','voice_settings.use_speaker_boost'].includes(k)&&c.model.includes('flash'))return 'Flash 专用声音结构未列此项，需账户能力核验。';
   if(k==='language_code'&&c.model==='eleven_multilingual_v2')return 'Multilingual v2 不支持强制语言代码。';
@@ -77,5 +78,32 @@ function requestPreview(key,c,voice='角色音色 ID',text='雨还没停。再�
  body.model_id=model;body.text=text;return {url:'https://api.elevenlabs.io/v1/text-to-speech/'+encodeURIComponent(voice),query,body};
 }
 function validate(key,c){for(const f of catalogs[key].groups.flatMap(g=>g.fields)){if(unavailable(key,f,c))continue;const v=c.params[f.key];if(f.type==='number'&&v!==''){if(!Number.isFinite(v)||f.min!==undefined&&v<f.min||f.max!==undefined&&v>f.max||f.step===1&&!Number.isInteger(v))return f.label+'数值无效';}if(f.type==='rows'){if(v.length>f.max)return f.label+'条目过多';for(const row of v)for(const col of f.columns){const x=row[col.key];if(!col.optional&&col.type!=='boolean'&&(x===undefined||String(x).trim()===''))return f.label+'：请填写'+col.label;if(col.type==='number'&&(!Number.isFinite(x)||x<col.min||x>col.max||!Number.isInteger(x)))return f.label+'：'+col.label+'数值无效';}}if(['previous_request_ids','next_request_ids'].includes(f.key)&&String(v).split('\n').filter(x=>x.trim()).length>3)return f.label+'最多三个';}return '';}
-function tags(key,model){return key==='mini'?['happy','sad','angry','fearful','disgusted','surprised','calm',...(model.startsWith('speech-2.6')?['fluent','whisper']:[])]:key==='eleven'?(model.startsWith('eleven_v3')?['whispers','laughs','sighs']:['通过文本表达情绪']):['情绪标签','声音标签'];}
-export const TTSParameters={catalogs,defaults,allowed,unavailable,normalize,activeParameters,requestPreview,validate,tags};
+// Official tag vocabularies (2026-09-30). Fish S1 and MiniMax take a fixed list; Fish S2 and Eleven v3/v4 read
+// free-form English in square brackets, so the lists there are the documented examples.
+const FISH_S1_EMOTIONS=['happy','sad','angry','excited','calm','nervous','confident','surprised','satisfied','delighted','scared','worried','upset','frustrated','depressed','empathetic','embarrassed','disgusted','moved','proud','relaxed','grateful','curious','sarcastic','disdainful','unhappy','anxious','hysterical','indifferent','uncertain','doubtful','confused','disappointed','regretful','guilty','ashamed','jealous','envious','hopeful','optimistic','pessimistic','nostalgic','lonely','bored','contemptuous','sympathetic','compassionate','determined','resigned'];
+const FISH_S1_TONES=['in a hurry tone','shouting','screaming','whispering','soft tone'];
+const FISH_S1_SOUNDS=['laughing','chuckling','sobbing','crying loudly','sighing','groaning','panting','gasping','yawning','snoring','break','long-break'];
+const MINI_SOUNDS=['laughs','chuckle','coughs','clear-throat','groans','breath','pant','inhale','exhale','gasps','sniffs','sighs','snorts','burps','lip-smacking','humming','hissing','emm','sneezes'];
+const ELEVEN_TAGS=['laughs','laughs harder','starts laughing','whispers','sighs','exhales','sarcastic','curious','excited','crying','mischievously','shouting','nervous','sad','angry'];
+const fishS1=model=>model==='s1';
+const elevenTagged=model=>/^eleven_v[34]/.test(model);
+function tags(key,model){return key==='mini'?['happy','sad','angry','fearful','disgusted','surprised','calm',...(model.startsWith('speech-2.6')?['fluent','whisper']:[])]:key==='eleven'?(elevenTagged(model)?ELEVEN_TAGS:['通过文字和标点表达情绪']):fishS1(model)?FISH_S1_EMOTIONS:['自然语言描述，如 happy、whispers sweetly、slightly sad'];}
+// What the 情绪 field of a line may say, in Chinese or English, and the MiniMax emotion it means.
+const MINI_EMOTION_WORDS={happy:['happy','joyful','excited','cheerful','delighted','开心','高兴','快乐','喜悦','兴奋','愉快','欣喜','得意','雀跃','幸福','激动'],sad:['sad','upset','depressed','sorrowful','crying','难过','伤心','悲伤','沮丧','失落','委屈','哭泣','哽咽','低落','心疼'],angry:['angry','furious','annoyed','mad','生气','愤怒','恼火','不满','暴怒','气愤','不耐烦','烦躁'],fearful:['fearful','scared','afraid','nervous','anxious','害怕','恐惧','紧张','担心','不安','惊恐','慌张','焦虑'],disgusted:['disgusted','contemptuous','disdainful','厌恶','嫌弃','恶心','鄙视','轻蔑','不屑'],surprised:['surprised','shocked','astonished','惊讶','吃惊','震惊','意外','诧异','惊喜'],calm:['calm','gentle','neutral','soft','relaxed','平静','冷静','温柔','淡然','冷淡','平淡','轻声','温和','沉稳','认真','严肃'],fluent:['fluent','流畅','生动'],whisper:['whisper','whispering','whispers','低语','耳语','悄悄','小声']};
+/** One line for the engine card: how this model reads emotion and tags. */
+function tagNote(key,model){
+ if(key==='mini')return '台词里的情绪会自动对应到下面这几个（中文也行）；对应不上时由模型自己判断。'+(model.startsWith('speech-2.8')?'原文里还能插下面这些圆括号语气声。':'');
+ if(key==='eleven')return elevenTagged(model)?'原文里用方括号英文标签控制语气，如 [whispers]、[sarcastic]；台词的情绪会自动放在开头。'+(model==='eleven_v4'?'v4 只用稳定性和音色相似度两项设置。':''):'这个模型不读语气标签，情绪靠措辞和标点表达。';
+ return fishS1(model)?'圆括号固定标签：情绪放句首，如 (sad)；语气和声音可以放在句中，如 (whispering)、(laughing)。台词的情绪会自动写成句首标签。':'方括号里写英文自然语言描述，放在任意位置都行，如 [whispers sweetly]、[slightly sad]，一句最多三个。台词的情绪会自动放在开头。';
+}
+/** The MiniMax emotion for a line's 情绪, or '' to let the model choose (unknown words, or not supported by the model). */
+function miniEmotion(model,emotion){const word=String(emotion||'').trim().toLowerCase();if(!word)return '';const found=Object.entries(MINI_EMOTION_WORDS).find(([,words])=>words.some(w=>word===w||word.includes(w)))?.[0]||'';return tags('mini',model).includes(found)?found:'';}
+/** Puts a line's 情绪 at the start of the text as the model's own tag, when the model reads tags and the text has none there. */
+const ENGLISH={fearful:'scared',whisper:'whispering',fluent:''};
+function emotionTag(key,model,emotion,text){let word=String(emotion||'').trim();if(!word||/^\s*[[(]/.test(text))return text;
+ // A Chinese 情绪 becomes the nearest English word, which both engines read best.
+ if(!/^[a-z]/i.test(word)){const found=Object.entries(MINI_EMOTION_WORDS).find(([,words])=>words.some(w=>word.includes(w)))?.[0];word=found?ENGLISH[found]??found:'';if(!word)return text;}
+ if(key==='fish'&&fishS1(model)){const w=word.toLowerCase();return FISH_S1_EMOTIONS.includes(w)||FISH_S1_TONES.includes(w)?`(${w}) ${text}`:text;}
+ if(key==='fish'||key==='eleven'&&elevenTagged(model))return /^[a-z][a-z ,'-]{1,40}$/i.test(word)?`[${word.toLowerCase()}] ${text}`:text;
+ return text;}
+export const TTSParameters={catalogs,defaults,allowed,unavailable,normalize,activeParameters,requestPreview,validate,tags,tagNote,miniEmotion,emotionTag,vocab:{FISH_S1_EMOTIONS,FISH_S1_TONES,FISH_S1_SOUNDS,MINI_SOUNDS,ELEVEN_TAGS}};

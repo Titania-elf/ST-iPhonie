@@ -32,11 +32,13 @@ function checkedConnection(engine,connection,route,line,references){
 export function buildRequest(engine,connection,route,line,references=new Map()){
  const c=checkedConnection(engine,connection,route,line,references);P.normalize(engine,c);const error=P.validate(engine,c);if(error)throw Error(error);
  if(engine==='fish'&&c.model==='drama-3-preview')throw Error('这个模型尚未列入 Fish 兼容通道，请选择 S2 或 S1');
- if(engine==='eleven'&&c.model==='eleven_v3_conversational')throw Error('此模型用于实时对话通道，请选择 eleven_v3');
+ if(engine==='eleven'&&c.model==='eleven_v3_conversational')throw Error('此模型用于实时对话通道，请选择 eleven_v4 或 eleven_v3');
  if(!route.voice?.trim()&&!(engine==='fish'&&c.params.references.length)&&!(engine==='mini'&&c.params.timbre_weights.length))throw Error('请先选择角色音色');
- const request=P.requestPreview(engine,c,route.voice,line.text,c.model);
+ // The 情绪 field becomes the model's own opening tag (Fish, Eleven v3/v4) unless the text already starts with one.
+ const request=P.requestPreview(engine,c,route.voice,P.emotionTag(engine,c.model,line.emotion,line.text),c.model);
  if(engine==='fish'&&c.params.references.length){request.body.provider.options['fish-audio'].references=c.params.references.map(r=>{const audio=references.get(r.audio);if(typeof audio!=='string'||!audio)throw Error('请在引擎设置重新选择参考音频：'+r.audio);return {audio,text:r.text};});}
- if(engine==='mini'&&!request.body.voice_setting.emotion){if(!P.tags('mini',c.model).includes(line.emotion))throw Error('MiniMax '+c.model+' 不支持情绪 '+line.emotion+'，请修改台词或在引擎设置选择固定情绪');request.body.voice_setting.emotion=line.emotion;}
+ // MiniMax takes a fixed emotion list: Chinese or English words map onto it; anything else lets the model choose.
+ if(engine==='mini'&&!request.body.voice_setting.emotion){const emotion=P.miniEmotion(c.model,line.emotion);if(emotion)request.body.voice_setting.emotion=emotion;else delete request.body.voice_setting.emotion;}
  if(engine==='eleven'&&!request.body.language_code&&c.model!=='eleven_multilingual_v2'&&route.language)request.body.language_code=route.language;
  const url=new URL(request.url);for(const [k,v] of Object.entries(request.query||{}))url.searchParams.set(k,String(v));
  return {engine,url:url.href,body:request.body,format:engine==='fish'?c.params.format:engine==='mini'?c.params['audio_setting.format']:c.params.output_format,sampleRate:engine==='fish'?c.params.sample_rate:engine==='mini'?c.params['audio_setting.sample_rate']:Number(c.params.output_format.split('_')[1]),channels:engine==='mini'?c.params['audio_setting.channel']:1};

@@ -16,7 +16,9 @@ const CSS = `
 .sttts-viewer-bar::-webkit-scrollbar{display:none}
 .sttts-viewer-top,.sttts-viewer-bar,.sttts-viewer-info{transition:opacity .2s}
 .sttts-viewer[data-chrome=off] .sttts-viewer-top,.sttts-viewer[data-chrome=off] .sttts-viewer-bar,.sttts-viewer[data-chrome=off] .sttts-viewer-info{opacity:0;pointer-events:none}
-.sttts-viewer button{all:unset;box-sizing:border-box;flex-shrink:0;min-width:40px;height:44px;padding:0 12px;border-radius:999px;display:inline-grid;place-items:center;cursor:pointer;color:#fff;font-weight:700;white-space:nowrap}
+/* all:unset makes pointer-events inherit (none from the top bar): buttons say auto themselves, and none while hidden. */
+.sttts-viewer[data-chrome=off] button{pointer-events:none}
+.sttts-viewer button{all:unset;pointer-events:auto;box-sizing:border-box;flex-shrink:0;min-width:40px;height:44px;padding:0 12px;border-radius:999px;display:inline-grid;place-items:center;cursor:pointer;color:#fff;font-weight:700;white-space:nowrap}
 .sttts-viewer button:hover{background:rgba(255,255,255,.12)}
 .sttts-viewer button:focus-visible{outline:2px solid #7cc4ff;outline-offset:2px}
 .sttts-viewer button:disabled{opacity:.35;cursor:default}
