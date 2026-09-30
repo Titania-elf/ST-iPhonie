@@ -107,7 +107,7 @@ export class TTSBackend {
     updateGeneral(patch) {
         if (!patch || typeof patch !== 'object') throw Error('设置格式无效');
         const next = this.getState();
-        for (const key of ['cacheEnabled', 'floatingEnabled', 'waveformEnabled']) if (key in patch) {
+        for (const key of ['voiceEnabled', 'cacheEnabled', 'floatingEnabled', 'waveformEnabled']) if (key in patch) {
             if (typeof patch[key] !== 'boolean') throw Error('开关设置无效'); next.general[key] = patch[key];
         }
         if ('defaultLanguage' in patch) {
@@ -503,6 +503,7 @@ export class TTSBackend {
             deleteThread: id => this.chatMutate(id, () => this.chats.remove(id)),
             appendChat: (id, messages, options) => this.chatMutate(id, () => this.chats.append(id, clone(messages), clone(options || {}))),
             deleteChatMessages: (id, ids) => this.chatMutate(id, () => this.chats.removeMessages(id, clone(ids))),
+            updateChatMessage: (id, messageId, patch) => this.chatMutate(id, () => this.chats.updateMessage(id, messageId, clone(patch || {}))),
             markThreadRead: id => this.chatMutate(id, () => this.chats.markRead(id)),
             speak: line => this.speak(clone(line)), voiceFormat: () => this.voiceFormat(),
         };

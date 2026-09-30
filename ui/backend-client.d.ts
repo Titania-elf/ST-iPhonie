@@ -32,6 +32,8 @@ export interface Connection {
 export type ConnectionPatch = Partial<Connection>;
 export interface GeneralSettings {
     defaultLanguage: string;
+    /** Voice lines in the story and voice messages in the phone chat. Off: no voice rules are sent, tagged lines show only their translation. */
+    voiceEnabled: boolean;
     cacheEnabled: boolean;
     floatingEnabled: boolean;
     waveformEnabled: boolean;
@@ -130,7 +132,9 @@ export interface ChatPreset {
 export interface Contact { id: string; name: string; persona: string; }
 export interface ChatSettings { presets: ChatPreset[]; activePreset: string; contacts: Contact[]; }
 export interface ChatContact { name: string; source: 'role' | 'manual'; id?: string; voice: boolean; engine: Engine | 'none'; language: string; persona: string; }
-export interface ChatMessage { id: string; from: 'me' | string; kind: 'text' | 'voice' | 'photo' | 'system'; text: string; translation?: string; emotion?: string; photoId?: string; at: number; }
+export type ChatKind = 'text' | 'voice' | 'photo' | 'system' | 'redpacket' | 'transfer' | 'location' | 'pat' | 'dice' | 'notice' | 'recall';
+/** notice: `text` says what `from` did, with {对方} standing for `target`. recall: a withdrawn message (no content). */
+export interface ChatMessage { id: string; from: 'me' | string; kind: ChatKind; text: string; translation?: string; emotion?: string; photoId?: string; amount?: string; state?: 'sent' | 'opened' | 'accepted' | 'returned'; openedBy?: string; detail?: string; target?: string; quote?: { from: string; text: string }; at: number; }
 export interface ChatThread { id: string; type: 'dm' | 'group'; name: string; members: string[]; unread: number; createdAt: number; updatedAt: number; messages: ChatMessage[]; }
 export interface ChatThreadSummary extends Omit<ChatThread, 'messages'> { count: number; last: ChatMessage | null; }
 export type ChatMessageInput = Omit<ChatMessage, 'id' | 'at'>;
@@ -413,6 +417,8 @@ export interface BackendFacade {
     /** read: the chat is on screen, so new replies do not count as unread. */
     appendChat(id: string, messages: ChatMessageInput[], options?: { read?: boolean }): Promise<ChatThread>;
     deleteChatMessages(id: string, ids: string[]): Promise<ChatThread>;
+    /** {state, openedBy} for a red packet or transfer, or {recall: true} to withdraw a message. */
+    updateChatMessage(id: string, messageId: string, patch: { state?: string; openedBy?: string; recall?: boolean }): Promise<ChatThread>;
     markThreadRead(id: string): Promise<ChatThread>;
     /** Plays a voice message through the normal player. */
     speak(line: { role: string; text: string; emotion?: string; translation?: string }): Promise<void> | void;

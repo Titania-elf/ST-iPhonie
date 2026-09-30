@@ -45,15 +45,37 @@ export function createChatHost({context, settings, backend, notice}) {
       const thread = await backend.chats.get(threadId);
       if (!thread) throw Error('这段聊天已不存在');
       const s = settings(), preset = activeChatPreset(s.chat), people = members(thread), voiceFormat = backend.voiceFormat(), user = userName();
+      // Voice switched off: nobody sends voice messages.
+      if (s.general.voiceEnabled === false) for (const p of people) p.voice = false;
       backend.emit('chat', {threadId, typing: true});
       const prompt = buildChatRequest({preset, thread, members: people, story: story(preset.context), user, userPersona: userPersona(), voiceFormat});
       const text = await ctx.generateRaw({prompt, trimNames: false});
-      const messages = parseChatReply(text, {members: people, user, voiceFormat, voiceNames: people.filter(p => p.voice).map(p => p.name)});
-      if (!messages.length) throw Error('这次没有收到消息，可以再试一次');
-      return backend.chatMutate(threadId, () => backend.chats.append(threadId, messages));
+      const items = parseChatReply(text, {members: people, user, voiceFormat, voiceNames: people.filter(p => p.voice).map(p => p.name)});
+      if (!items.length) throw Error('这次没有收到消息，可以再试一次');
+      return backend.chatMutate(threadId, () => settle(threadId, items));
     })().finally(() => { busy.delete(threadId); backend.emit('chat', {threadId, typing: false}); });
     busy.set(threadId, job);
     return job;
+  }
+
+  /**
+   * Stores a reply. A claim takes (or returns) the user's latest red packet or transfer that is still waiting,
+   * and leaves a notice where it happened.
+   */
+  async function settle(threadId, items) {
+    const thread = await backend.chats.get(threadId), taken = new Set(), out = [];
+    let latest = thread;
+    for (const item of items) {
+      if (item.kind !== 'claim') { out.push(item); continue; }
+      const kinds = item.action === 'return' ? ['transfer'] : item.what ? [item.what] : ['redpacket', 'transfer'];
+      const target = thread.messages.findLast(m => m.from === 'me' && kinds.includes(m.kind) && m.state === 'sent' && !taken.has(m.id));
+      if (!target) continue;
+      taken.add(target.id);
+      const state = target.kind === 'redpacket' ? 'opened' : item.action === 'return' ? 'returned' : 'accepted';
+      latest = await backend.chats.updateMessage(threadId, target.id, {state, openedBy: item.from});
+      out.push({from: item.from, kind: 'notice', target: 'me', text: {opened: '领取了{对方}的红包', accepted: '收下了{对方}的转账', returned: '退还了{对方}的转账'}[state]});
+    }
+    return out.length ? backend.chats.append(threadId, out) : latest;
   }
 
   /** Prepares chat messages to be carried into the next story reply. */

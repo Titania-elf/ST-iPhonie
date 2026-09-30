@@ -41,6 +41,16 @@ export const wallpapers = {
       ink: '#e6fbff', clock: 'glow', stroke: '#52d6ff', halo: '#021a26',
       background: `${bubbles},radial-gradient(80% 26% at 30% 34%,#39f0c455 0,#39f0c400 70%),radial-gradient(70% 20% at 75% 26%,#3a8cff44 0,#3a8cff00 70%),radial-gradient(120% 34% at 22% 104%,#0f5a3a 0 48%,#0f5a3a00 49.5%),radial-gradient(95% 30% at 88% 104%,#0b4630 0 48%,#0b463000 49.5%),linear-gradient(180deg,#021526 0%,#063a5c 45%,#0a6178 75%,#0d4a45 100%)`
     }
+  },
+  // Watercolour hills under a pale sun; at night a crescent moon over dark meadows. Soft edges read as washes.
+  fresh: {
+    name: '青草信笺', ink: '#3b4740', clock: 'glow', stroke: '#ffffff', halo: '#fff',
+    background: `radial-gradient(circle 21px at 84% 10%,#f8c9b4 0 90%,#f8c9b400 100%),radial-gradient(circle 46px at 84% 10%,#fff4e4 0 40%,#fff4e400 100%),radial-gradient(150% 44% at 8% 112%,#93b894 0 50%,#93b89400 64%),radial-gradient(120% 38% at 96% 106%,#b3cfaa 0 48%,#b3cfaa00 64%),radial-gradient(100% 30% at 52% 96%,#d0e2c4 0 46%,#d0e2c400 64%),radial-gradient(60% 18% at 22% 30%,#ffffffaa 0,#fff0 70%),radial-gradient(70% 22% at 82% 46%,#f3d6cc66 0,#fff0 70%),linear-gradient(180deg,#cde1e4 0%,#e1ece4 38%,#f4f0e2 68%,#e9eed8 100%)`,
+    night: {
+      ink: '#f1ecdc', clock: 'glow', stroke: '#9fc0a2', halo: '#101816',
+      background: `${stars},radial-gradient(circle 17px at 86.6% 8.4%,#253941 0 94%,#25394100 100%),radial-gradient(circle 18px at 84% 10%,#f4eed2 0 92%,#f4eed200 100%),radial-gradient(circle 60px at 84% 10%,#f4eed22e 0,#f4eed200 100%),radial-gradient(150% 44% at 8% 112%,#1d3a2d 0 50%,#1d3a2d00 64%),radial-gradient(120% 38% at 96% 106%,#26463a 0 48%,#26463a00 64%),radial-gradient(40% 10% at 30% 96%,#e8c27a22 0,#e8c27a00 70%),linear-gradient(180deg,#18262e 0%,#233841 42%,#2b433f 72%,#2f4436 100%)`,
+      size: `${starSize},auto,auto,auto,auto,auto,auto,auto`
+    }
   }
 };
 
@@ -53,5 +63,6 @@ export function wallpaperLook(key, dark) {
 // Phone skins (see skins.css). preview: [page, card, accent, second colour] for the picker in Settings.
 export const skins = {
   sky: {name: '晴空贴纸', preview: ['#8fd0ff', '#ffffff', '#1f74cc', '#ff7eaa']},
-  aero: {name: 'Frutiger Aero', preview: ['#4cc3f6', '#f4fdff', '#1494d2', '#5cc93a']}
+  aero: {name: 'Frutiger Aero', preview: ['#4cc3f6', '#f4fdff', '#1494d2', '#5cc93a']},
+  fresh: {name: '文艺小清新', preview: ['#dfe9dc', '#fffdf8', '#6d977f', '#dfa39b']}
 };

@@ -1,10 +1,20 @@
 // Phone chat history, kept in this browser (IndexedDB) and scoped to the tavern account like the other local data.
 // Thread: {id, type:'dm'|'group', name, members:[name], unread, createdAt, updatedAt, messages:[Message]}
-// Message: {id, from:'me'|name, kind:'text'|'voice'|'photo'|'system', text, translation?, emotion?, photoId?, at}
+// Message: {id, from:'me'|name, kind, text, at, quote?:{from,text}} plus, by kind:
+//   voice: translation, emotion · photo: photoId? (none when a contact describes a photo in words)
+//   redpacket: amount, state:'sent'|'opened', openedBy? · transfer: amount, state:'sent'|'accepted'|'returned'
+//   location: text = place, detail = address · pat: target (who was patted) · dice: text = 1..6
+//   notice: text = what `from` did, with {对方} standing for `target` · recall: a withdrawn message · system: app notes
 // list() returns threads without their messages, plus the last message for previews.
 
 export const CHAT_STORE_LIMITS = Object.freeze({messages: 1000, text: 4000, members: 20});
-const KINDS = ['text', 'voice', 'photo', 'system'];
+const KINDS = ['text', 'voice', 'photo', 'system', 'redpacket', 'transfer', 'location', 'pat', 'dice', 'notice', 'recall'];
+const STATES = {redpacket: ['sent', 'opened'], transfer: ['sent', 'accepted', 'returned']};
+/** Money as a string with two decimals, 0.01 to 200000; null when the value is not an amount. */
+export function money(value) {
+  const n = Math.round(Number(String(value ?? '').replace(/[¥￥,，\s元]/g, '')) * 100) / 100;
+  return Number.isFinite(n) && n >= 0.01 && n <= 200000 ? n.toFixed(2) : null;
+}
 const fail = (message, code = 'INVALID') => Object.assign(new Error(message), {code});
 const clip = (value, max) => String(value ?? '').slice(0, max);
 
@@ -15,8 +25,20 @@ function cleanMessage(m, id, at) {
   if (!from) throw fail('消息缺少发送人');
   const out = {id, from, kind, text: clip(m.text, CHAT_STORE_LIMITS.text), at};
   if (kind === 'voice') { out.translation = clip(m.translation, CHAT_STORE_LIMITS.text); out.emotion = clip(m.emotion, 100); }
-  if (kind === 'photo') out.photoId = clip(m.photoId, 512);
-  if (kind !== 'photo' && kind !== 'system' && !out.text.trim()) throw fail('消息内容为空');
+  if (kind === 'photo' && m.photoId) out.photoId = clip(m.photoId, 512);
+  if (STATES[kind]) {
+    out.amount = money(m.amount);
+    if (!out.amount) throw fail('金额无效');
+    out.state = STATES[kind].includes(m.state) ? m.state : 'sent';
+    if (m.openedBy) out.openedBy = clip(m.openedBy, 40);
+  }
+  if (kind === 'location') out.detail = clip(m.detail, 200);
+  if (kind === 'pat' || kind === 'notice') out.target = clip(m.target, 40).trim() || 'me';
+  if (kind === 'dice') out.text = String(Math.min(6, Math.max(1, Math.round(Number(m.text)) || 1)));
+  if (kind === 'recall') out.text = '';
+  if (m.quote?.text && ['text', 'voice'].includes(kind)) out.quote = {from: clip(m.quote.from, 40), text: clip(m.quote.text, 200)};
+  const textless = ['photo', 'system', 'redpacket', 'transfer', 'pat', 'dice', 'recall'];
+  if (!textless.includes(kind) && !out.text.trim()) throw fail('消息内容为空');
   return out;
 }
 
@@ -106,8 +128,29 @@ export class ChatStore {
       const now = this.#now();
       const added = messages.map((m, i) => cleanMessage(m, this.#id(), now + i));
       row.messages.push(...added);
-      if (!read) row.unread += added.filter(m => m.from !== 'me' && m.kind !== 'system').length;
+      if (!read) row.unread += added.filter(m => m.from !== 'me' && !['system', 'notice', 'recall'].includes(m.kind)).length;
       row.updatedAt = now;
+    });
+  }
+  /**
+   * Changes one message: {state, openedBy} for a red packet or transfer, or {recall: true} to withdraw it
+   * (the message keeps its place and sender and loses its content).
+   */
+  async updateMessage(id, messageId, patch = {}) {
+    return this.#change(id, row => {
+      const m = row.messages.find(x => x.id === messageId);
+      if (!m) throw fail('这条消息已不存在', 'MISSING');
+      if (patch.recall) {
+        for (const key of Object.keys(m)) if (!['id', 'from', 'at'].includes(key)) delete m[key];
+        Object.assign(m, {kind: 'recall', text: ''});
+        return;
+      }
+      if (!STATES[m.kind]) throw fail('这条消息不能修改');
+      if (patch.state !== undefined) {
+        if (!STATES[m.kind].includes(patch.state)) throw fail('状态无效');
+        m.state = patch.state;
+      }
+      if (patch.openedBy !== undefined) m.openedBy = clip(patch.openedBy, 40);
     });
   }
   async removeMessages(id, ids) {

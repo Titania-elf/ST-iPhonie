@@ -5,7 +5,8 @@
 //   presets - "绘图预设" edited in the preset app: the rules the model follows when it plans pictures.
 //
 // A picture block is a plain paired tag (other plugins can exclude <img></img>) holding one line per field:
-//   画幅 portrait/landscape/square · 场景 base tags · 描述 base sentence · 角色 name｜tags｜sentence (one per person)
+//   画幅 portrait/landscape/square · 场景 base tags · 角色 name｜tags｜negative tags｜position (one per person)
+//   描述 optional base sentence. Blocks written before 0.6 have 角色 name｜tags｜sentence; both forms are read.
 //   新外貌 name｜fixed appearance (first appearance of a named character; the plugin saves it to the 角色 App)
 //   位置 Pn (only when pictures are planned after the reply: which paragraph the picture follows)
 // Two ways to get blocks (draw.mode): 'separate' asks the model in its own request after the reply is written and
@@ -13,13 +14,58 @@
 import {defaultDrawParams, normalizeDrawParams, guardParams} from './novelai.js';
 import {escapeHTML, isPlaceholderRole} from './protocol.js';
 
-const BLOCK = ['<img>', '画幅：竖 / 横 / 方', '场景：英文 tag', '描述：一两句英文', '角色：名字｜英文 tag｜一句英文（画面里每个人一行）', '新外貌：名字｜固定外貌 tag（只在名单外的新角色第一次出现时写）', '</img>'];
+const BLOCK = ['<img>', '画幅：竖 / 横 / 方', '场景：英文 tag', '角色：名字｜这一刻的 tag｜不要出现的 tag｜站位（画面里每个人一行）', '新外貌：名字｜固定外貌 tag（只在名单外的新角色第一次出现时写）', '描述：一句英文（可以不写）', '</img>'];
 export const PIC_TAG_FORMAT = BLOCK.join('\n');
 export const PLAN_TAG_FORMAT = [BLOCK[0], '位置：P几（这张图放在哪一段后面）', ...BLOCK.slice(1)].join('\n');
 export const DRAW_COUNT_MAX = 10;
 
 // Default drawing rules. Written for this plugin; each entry can be edited or switched off in the preset app.
 export const DEFAULT_DRAW_ENTRIES = Object.freeze([
+  {id: 'pick', title: '挑画面', text: [
+    '从正文里挑出 {{出图数量}} 个最值得画的瞬间：换场景、关键动作、角色登场、情绪到顶点、两个人之间有明显互动的时刻。几张图挑不同的瞬间，不要把同一个画面画两遍。',
+    '每个瞬间写成一个出图块：',
+    '{{出图格式}}',
+    '一律用英文 danbooru tag，逗号分隔，越具体越好——画图模型认得的是 tag，不是句子。只有角色名保持剧情里的原文写法。不要写画师、质量词和通用负面词，插件会自己加。'
+  ].join('\n')},
+  {id: 'scene', title: '场景与镜头', text: [
+    '「场景」写整张图共用的东西，按这个顺序：',
+    '1. 分级：正文没有露骨内容写 sfw，有就写 nsfw。',
+    '2. 人数：只数镜头里看得见的人，写 1girl、1boy、2girls、1girl 1boy 这类；只有一个人时再加 solo。',
+    '3. 时代和类型：一两个就够，如 modern、school、victorian、fantasy、sci-fi、chinese clothes。',
+    '4. 地点具体到房间或街景，再写镜头里看得见的家具和道具：不写 room、outside，写 ornate study、classroom、cafe interior、rainy street；再加 armchair、fireplace、bookshelf、window、teacup on saucer 这样的东西。角色手里拿着、正在用的东西一定要写进来。',
+    '5. 动态和特效：正文里有才写，如 splashing tea、falling petals、steam、wind、sparks、motion lines。',
+    '6. 镜头：景别只选一个（close-up、portrait、upper body、cowboy shot、full body、wide shot），可以再加一个角度（from above、from below、from side、dutch angle、pov）和 depth of field。关键动作必须在镜头里：腿、脚、坐姿、躺着这些下半身的事，不要选 close-up 或 upper body。',
+    '7. 光线和色调：正文一般不写，由你补全，如 soft sunlight、golden hour、moonlight、candlelight、fireplace light、backlighting；warm colors、cold colors、muted colors、high contrast。',
+    '某一个人的长相、衣服、表情和单独的动作不放场景里。',
+    '「描述」可以不写；要写就一句短英文，讲清几个人的相对位置和正在发生的事。'
+  ].join('\n')},
+  {id: 'cast', title: '角色', text: [
+    '画面里每个看得见、能单独认出来的人写一行「角色」，按从左到右排，四段用｜隔开：名字｜这一刻的 tag｜不要出现的 tag｜站位。',
+    '名字：已登记的角色必须和名单一字不差。名单和固定外貌：{{角色列表}}。插件会把固定外貌补在最前面，你不用再写发色瞳色，只写这一张图里会变的东西。',
+    '这一刻的 tag 按这个顺序写：girl、boy 或 other（数字人数只放在场景里）→ 衣服和配饰 → 姿势（standing、sitting、kneeling、lying、leaning forward）→ 动作，连同动作的对象一起写（holding teacup、reaching towards another、hand on own chest）→ 表情 → 视线。',
+    '每个人都要有表情和视线，用真实存在的 tag，情绪可以叠两三个写足，比如 angry, surprised, open mouth, blush。表情如 smile、grin、laughing、blush、embarrassed、pout、frown、surprised、crying、tears、angry、glaring、serious、sad、worried、scared、smug、expressionless、half-closed eyes、open mouth；视线从 looking at viewer、looking at another、looking away、looking down、looking up、looking back、closed eyes 里挑一个。正文没写表情就推断一个，不要自造“温柔的笑”这类短语。',
+    '加重：这张图最要紧的一两个 tag（通常是情绪，或者一定要画对的特征）写成 1.2::tag::，比如 1.2::furious::、1.2::deep blue eyes::。数字在 1.1 到 1.4 之间，一张图最多三处，不要给整串加。',
+    '不要出现的 tag：写这个人最容易被画错的方向，三到六个——和这一刻相反的表情（在发火就写 smile, calm），错的性别或年龄（男孩写 female，女孩写 male），多人同框时写 fused bodies, extra arms。没有就留空。',
+    '站位：A 到 E 是从左到右，1 到 5 是从上到下，C3 是正中间。一个人写 C3；两个人并排常用 B3 和 D3；照画面里的左右和高低来写，拿不准就留空。',
+    '镜头之外的身体部位不写：选了 upper body 或 close-up，就别再写鞋、袜、裙长和腿，否则模型会硬把它们画进来。',
+    '两个人以上、动作有明确方向时，用 source#、target#、mutual# 标出谁对谁做，比如一人写 source#hug，另一人写 target#hug。露骨场景写清画面里真正露出的部位和动作，不要用 nsfw 这类笼统的词代替；被遮住或出画的部位不写。',
+    '正文里没有名字、但作为一个具体的人出现的（店员、对手、抱着孩子的路人），也给他一行，名字就用正文对他的称呼，外貌在这一张图里写全；不要替他编名字，也不要登记。成群的人（人群、士兵、围观的学生）不单独写角色，画面需要时在场景里写成一群人。'
+  ].join('\n')},
+  {id: 'truth', title: '忠于正文', text: [
+    '怎么拍可以由你补全，画面里有什么必须来自正文和设定：',
+    '- 在场的人、动作、事件、关键道具严格照正文，不加人、不加剧情。没入镜的人不写。',
+    '- 角色固定的长相照名单和设定，不自己发明。',
+    '- 先定下时代和世界观再具体化：优先看世界书和角色设定，其次看称呼、身份、物件；选一个统一的风格，衣服、建筑、器物前后一致，不混搭互相冲突的年代。',
+    '- 地面、天气、环境也是事实：正文没说下雨就不写 rain、puddles、wet，没说泥路就不写 muddy，只知道在户外就写 outdoors。'
+  ].join('\n')},
+  {id: 'identity', title: '作品角色与新角色', text: [
+    '明确来自已有动画、游戏、小说的角色，tag 第一个写模型认得的英文识别 tag，格式「角色名 (作品名)」，比如 hatsune miku (vocaloid)；括号不转义，作品名不缩写。拿不准是哪部作品就当原创角色，不写。',
+    '名单里没有、但有名字的新角色第一次入画时，在这个出图块里加一行「新外貌」：名字｜固定外貌 tag。只写不会随场景变的特征：1girl 或 1boy、发型发色、瞳色、体型、显眼的特征，作品角色把识别 tag 放最前；不写衣服、表情、动作。名字照正文原文，中文名不要翻译或改成拼音。'
+  ].join('\n')},
+  {id: 'size', title: '画幅', text: '「画幅」写 竖、横、方 之一：单人、站姿、特写、贴得很近的两个人用竖；多人铺开、远景、全景用横。先想好镜头再定画幅，拿不准用竖。'}
+]);
+// Rules shipped in 0.5. An entry that still holds its 0.5 text word for word gets the current text.
+export const V05_DRAW_ENTRIES = [
   {id: 'pick', title: '挑画面', text: [
     '从正文里挑出 {{出图数量}} 个最值得画的瞬间：换场景、关键动作、角色登场、情绪到顶点、两个人之间有明显互动的时刻。几张图挑不同的瞬间，不要把同一个画面画两遍。',
     '每个瞬间写成一个出图块：',
@@ -53,7 +99,8 @@ export const DEFAULT_DRAW_ENTRIES = Object.freeze([
     '名单里没有、但有名字的新角色第一次入画时，在这个出图块里加一行「新外貌」：名字｜固定外貌 tag。只写不会随场景变的特征：1girl 或 1boy、发型发色、瞳色、体型、显眼的特征，作品角色把识别 tag 放最前；不写衣服、表情、动作。名字照正文原文，中文名不要翻译或改成拼音。'
   ].join('\n')},
   {id: 'size', title: '画幅', text: '「画幅」写 竖、横、方 之一：单人、站姿、特写、贴得很近的两个人用竖；多人铺开、远景、全景用横。先想好镜头再定画幅，拿不准用竖。'}
-]);
+];
+
 export const DEFAULT_DRAW_RULE = DEFAULT_DRAW_ENTRIES.map(e => e.text).join('\n\n');
 
 /** Appended to the rules in 'inline' mode: the reply itself carries exactly `count` blocks. */
@@ -112,8 +159,12 @@ export function normalizeDraw(value) {
   d.activeStyle = d.styles.some(s => s.id === d.activeStyle) ? d.activeStyle : d.styles[0].id;
   d.presets = (Array.isArray(d.presets) && d.presets.length ? d.presets : base.presets).map(p => {
     let entries = Array.isArray(p.entries) ? p.entries : [];
-    // A preset that is just an old default rule gets the current default rules.
+    // A preset that is just an old default rule gets the current default rules; untouched 0.5 entries get their new text.
     if (entries.length === 1 && OLD_DEFAULT_RULES.includes(entries[0].text)) entries = DEFAULT_PRESET.entries;
+    entries = entries.map(e => {
+      const was = V05_DRAW_ENTRIES.find(x => x.id === e.id), now = DEFAULT_DRAW_ENTRIES.find(x => x.id === e.id);
+      return was && now && e.text === was.text ? {...e, text: now.text} : e;
+    });
     return {
       id: String(p.id || crypto.randomUUID()), name: text(p.name, 60) || '出图规则',
       count: Math.min(DRAW_COUNT_MAX, Math.max(1, Math.round(Number(p.count)) || 1)),
@@ -242,7 +293,15 @@ export function parseBlock(body) {
     if (!key) continue;
     found = true;
     const value = m[2].trim();
-    if (key === 'cast') { const [name, tags = '', nl = ''] = split(value); if (name) spec.cast.push({name, tags, nl}); }
+    if (key === 'cast') {
+      const [name, tags = '', ...rest] = split(value), c = {name, tags, nl: '', negative: '', position: ''};
+      for (const part of rest.filter(Boolean)) {
+        if (/^[A-Ea-e][1-5]$/.test(part)) c.position = part.toUpperCase();
+        else if (/[.!?]["']?$/.test(part) || (!part.includes(',') && part.split(/\s+/).length >= 5)) c.nl = part;
+        else c.negative = c.negative ? c.negative + ', ' + part : part;
+      }
+      if (name) spec.cast.push(c);
+    }
     else if (key === 'register') { const [name, ...rest] = split(value); if (name && rest.join(', ').trim()) spec.register.push({name, appearance: rest.join(', ').trim()}); }
     else if (key !== 'at') spec[key] = spec[key] ? spec[key] + ', ' + value : value;
   }
@@ -323,6 +382,8 @@ export function pictureRoles(settings, tag, text = '') {
   return seen.slice(0, peopleCount(tag.prompt) || 1);
 }
 
+/** 站位 A1–E5 (column A–E left to right, row 1–5 top to bottom) as NovelAI's 5×5 grid index; -1 when not given. */
+export const gridIndex = at => /^[A-E][1-5]$/.test(at || '') ? (Number(at[1]) - 1) * 5 + (at.charCodeAt(0) - 65) : -1;
 /** Character prompts count nobody: 1girl/1boy/1other in a fixed appearance become girl/boy/other. */
 const soloTags = tags => String(tags).replace(/\b1\s*(girl|boy|other)\b/gi, '$1');
 function mergeTags(...lists) {
@@ -361,7 +422,7 @@ export function pictureInputs(settings, tag, text = '') {
   const roles = drawable(settings);
   const characters = spec.cast.map(c => {
     const fixed = roles.find(r => sameName(r.name, c.name))?.appearance || spec.register.find(x => sameName(x.name, c.name))?.appearance || '';
-    return {prompt: [mergeTags(soloTags(fixed), c.tags), c.nl].filter(Boolean).join(', '), negative: '', position: -1};
+    return {prompt: [mergeTags(soloTags(fixed), c.tags), c.nl].filter(Boolean).join(', '), negative: c.negative || '', position: gridIndex(c.position)};
   });
   return {prompt: [...head, spec.tags, spec.nl].filter(Boolean).join(', '), negative: style.negative.trim(), characters, names: spec.cast.map(c => c.name), params};
 }

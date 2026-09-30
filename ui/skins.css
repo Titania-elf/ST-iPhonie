@@ -54,6 +54,65 @@
 :root[data-skin=aero] .chip-button,:root[data-skin=aero] .chip{box-shadow:inset 0 1px 0 rgba(255,255,255,.7),inset 0 0 0 1px color-mix(in srgb,var(--e-btn,var(--accent-btn)) 30%,transparent)}
 :root[data-skin=aero] .field input,:root[data-skin=aero] .field textarea,:root[data-skin=aero] .select select,:root[data-skin=aero] input.search{box-shadow:inset 0 1px 3px rgba(0,70,110,.18)}
 
+/* =====================================================================
+   文艺小清新 · 青草信笺: cream paper, sage green and dusty rose, serif titles, a pressed leaf in the corner
+   ===================================================================== */
+:root[data-skin=fresh]{
+  color-scheme:light;
+  --page:#eceee4;--bg:#f7f5ee;--card:#fffdf8;--card2:#f2f0e7;--ink:#3b4740;--ink2:#7b857d;--line:#e3e0d4;
+  --accent:#8fb09a;--accent-ink:#4c7660;--accent-soft:#e2ece2;--accent-btn:#6d977f;--on-accent:#fff;
+  --pink:#dfa39b;--dot:#dcd8c8;--shadow:0 10px 22px -16px rgba(70,80,60,.5);
+  --danger:#bb5a52;--danger-soft:#f7e4e0;
+  --serif:"Noto Serif SC","Source Han Serif SC","Songti SC","STSong",serif;
+  --leaf:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 140 120'%3E%3Cg stroke='%239db8a2' stroke-width='1.3' fill='%23d9e7d4'%3E%3Cpath d='M138 4C110 22 88 52 64 116' fill='none'/%3E%3Cellipse cx='121' cy='24' rx='12' ry='5' transform='rotate(-20 121 24)'/%3E%3Cellipse cx='113' cy='12' rx='10' ry='4.5' transform='rotate(-70 113 12)'/%3E%3Cellipse cx='102' cy='47' rx='13' ry='5' transform='rotate(-35 102 47)'/%3E%3Cellipse cx='89' cy='38' rx='11' ry='4.5' transform='rotate(-80 89 38)'/%3E%3Cellipse cx='86' cy='74' rx='13' ry='5' transform='rotate(-45 86 74)'/%3E%3Cellipse cx='72' cy='64' rx='11' ry='4.5' transform='rotate(-95 72 64)'/%3E%3C/g%3E%3Cg fill='%23f0d0c8'%3E%3Ccircle cx='40' cy='30' r='4'/%3E%3Ccircle cx='46' cy='34' r='4'/%3E%3Ccircle cx='44' cy='41' r='4'/%3E%3Ccircle cx='36' cy='41' r='4'/%3E%3Ccircle cx='34' cy='34' r='4'/%3E%3C/g%3E%3Ccircle cx='40' cy='36' r='2.6' fill='%23f1d98f'/%3E%3C/svg%3E");
+  font-family:"PingFang SC","HarmonyOS Sans SC","MiSans","Microsoft YaHei",system-ui,sans-serif;
+}
+:root[data-skin=fresh][data-theme=dark]{
+  color-scheme:dark;
+  --page:#141a17;--bg:#1b211e;--card:#232a26;--card2:#2a322d;--ink:#e9e5d9;--ink2:#a3aa9f;--line:#343d37;
+  --accent:#a6c4a6;--accent-ink:#bfd9bd;--accent-soft:#2d3b31;--accent-btn:#98b99b;--on-accent:#16201a;
+  --pink:#dfb1a6;--dot:#2e3731;--shadow:0 10px 22px -14px rgba(0,0,0,.8);
+  --danger:#eba096;--danger-soft:#3e2724;
+  --leaf:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 140 120'%3E%3Cg stroke='%236f8c76' stroke-width='1.3' fill='%232f3e33'%3E%3Cpath d='M138 4C110 22 88 52 64 116' fill='none'/%3E%3Cellipse cx='121' cy='24' rx='12' ry='5' transform='rotate(-20 121 24)'/%3E%3Cellipse cx='113' cy='12' rx='10' ry='4.5' transform='rotate(-70 113 12)'/%3E%3Cellipse cx='102' cy='47' rx='13' ry='5' transform='rotate(-35 102 47)'/%3E%3Cellipse cx='89' cy='38' rx='11' ry='4.5' transform='rotate(-80 89 38)'/%3E%3Cellipse cx='86' cy='74' rx='13' ry='5' transform='rotate(-45 86 74)'/%3E%3Cellipse cx='72' cy='64' rx='11' ry='4.5' transform='rotate(-95 72 64)'/%3E%3C/g%3E%3Cg fill='%23806660'%3E%3Ccircle cx='40' cy='30' r='4'/%3E%3Ccircle cx='46' cy='34' r='4'/%3E%3Ccircle cx='44' cy='41' r='4'/%3E%3Ccircle cx='36' cy='41' r='4'/%3E%3Ccircle cx='34' cy='34' r='4'/%3E%3C/g%3E%3Ccircle cx='40' cy='36' r='2.6' fill='%23c9b56e'/%3E%3C/svg%3E");
+}
+:root[data-skin=fresh] .device{background:linear-gradient(135deg,#fbf9f2,#e3ddcc 34%,#f6f2e7 56%,#d7d0bd 80%,#f1ece0);box-shadow:0 0 0 1px #c9c1ab,0 24px 50px -22px rgba(70,70,50,.45)}
+:root[data-skin=fresh][data-theme=dark] .device{background:linear-gradient(135deg,#3a342d,#1c1915 36%,#2d2822 60%,#141210);box-shadow:0 0 0 1px #3d372f,0 24px 50px -20px #000}
+:root[data-skin=fresh] .app-frame{background:radial-gradient(80% 36% at 100% 0,color-mix(in srgb,var(--accent) 16%,transparent) 0,transparent 70%),radial-gradient(70% 30% at 0 100%,color-mix(in srgb,var(--pink) 14%,transparent) 0,transparent 70%),var(--bg)}
+:root[data-skin=fresh] .view:before{top:-44px;width:150px;height:130px;background:var(--leaf) no-repeat right top/140px 120px;-webkit-mask-image:none;mask-image:none;opacity:.85}
+:root[data-skin=fresh] .eyebrow{font-family:Georgia,"Times New Roman",var(--serif);font-style:italic;font-weight:400;font-size:13px;letter-spacing:.06em;text-transform:none;color:var(--ink2)}
+:root[data-skin=fresh] .page-heading h1{font-family:var(--serif);font-weight:700;letter-spacing:.12em}
+:root[data-skin=fresh] .page-heading h1 span{background:none;padding:0;text-decoration:underline wavy color-mix(in srgb,var(--accent) 70%,transparent) 1.5px;text-underline-offset:9px}
+:root[data-skin=fresh] .page-heading h1 .spark{color:var(--pink);width:13px;height:13px}
+:root[data-skin=fresh] .group-title{font-family:var(--serif);font-weight:700;letter-spacing:.14em}
+:root[data-skin=fresh] .group,:root[data-skin=fresh] details,:root[data-skin=fresh] .role-card,:root[data-skin=fresh] .code-preview{border-radius:16px;box-shadow:inset 0 0 0 1px var(--line),var(--shadow)}
+:root[data-skin=fresh] .primary,:root[data-skin=fresh] .secondary,:root[data-skin=fresh] .danger{font-weight:700;letter-spacing:.06em}
+:root[data-skin=fresh] .primary{box-shadow:0 8px 16px -10px color-mix(in srgb,var(--e-btn,var(--accent-btn)) 90%,#000)}
+:root[data-skin=fresh] .primary:active:not(:disabled){transform:scale(.97);box-shadow:none}
+:root[data-skin=fresh] .secondary{background:transparent;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--e-ink,var(--accent-ink)) 45%,transparent)}
+:root[data-skin=fresh] .danger{background:transparent;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--danger) 45%,transparent)}
+:root[data-skin=fresh] .secondary:active:not(:disabled),:root[data-skin=fresh] .danger:active:not(:disabled){transform:scale(.97);box-shadow:inset 0 0 0 1px var(--line)}
+:root[data-skin=fresh] .round-button{box-shadow:inset 0 0 0 1px var(--line),0 6px 14px -10px rgba(60,70,50,.6)}
+:root[data-skin=fresh] .segmented{background:var(--card2);box-shadow:none}
+:root[data-skin=fresh] .segmented button[aria-pressed=true]{background:var(--card);color:var(--e-ink,var(--accent-ink));box-shadow:inset 0 0 0 1px var(--line),0 3px 8px -5px rgba(60,70,50,.5)}
+:root[data-skin=fresh] .switch{width:46px;height:26px}
+:root[data-skin=fresh] .switch:after{width:20px;height:20px;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+:root[data-skin=fresh] .field input,:root[data-skin=fresh] .field textarea,:root[data-skin=fresh] .select select,:root[data-skin=fresh] input.search{background:var(--card);border-width:1px;border-radius:12px}
+:root[data-skin=fresh] .icon-tile{border-radius:17px;filter:saturate(.55) brightness(1.04);box-shadow:inset 0 0 0 2px rgba(255,255,255,.6),0 8px 14px -9px rgba(60,60,40,.6)}
+:root[data-skin=fresh][data-theme=dark] .icon-tile{filter:saturate(.5) brightness(.9)}
+:root[data-skin=fresh] .icon-tile:after{display:none}
+:root[data-skin=fresh] .phone-dock{background:rgba(255,253,246,.5);box-shadow:inset 0 0 0 1px rgba(255,255,255,.75),0 10px 24px -14px rgba(60,70,50,.5)}
+:root[data-skin=fresh][data-theme=dark] .phone-dock{background:rgba(30,36,32,.5);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
+:root[data-skin=fresh] .widget,:root[data-skin=fresh] .control-tile{border-radius:20px;background:color-mix(in srgb,var(--card) 80%,transparent);box-shadow:inset 0 0 0 1px rgba(255,255,255,.6),0 10px 24px -14px rgba(60,70,50,.55)}
+:root[data-skin=fresh] .home-clock{font-family:var(--serif);font-weight:500;letter-spacing:.02em}
+:root[data-skin=fresh] .home-date{font-family:var(--serif);letter-spacing:.2em}
+:root[data-skin=fresh] .msgs{background-image:none}
+:root[data-skin=fresh] .chat-bubble{border-radius:18px 18px 18px 6px;box-shadow:inset 0 0 0 1px var(--line),0 4px 10px -8px rgba(60,70,50,.5)}
+:root[data-skin=fresh] .msg.me .chat-bubble{border-radius:18px 18px 6px 18px;box-shadow:0 6px 12px -9px color-mix(in srgb,var(--accent-btn) 90%,#000)}
+:root[data-skin=fresh] .composer .send{box-shadow:none}
+:root[data-skin=fresh] .th-title strong{font-family:var(--serif);letter-spacing:.06em}
+:root[data-skin=fresh] .tool-ico{border-radius:16px}
+:root[data-skin=fresh] .tool-ico:not([data-tool=redpacket]):not([data-tool=transfer]){background:var(--card);box-shadow:inset 0 0 0 1px var(--line)}
+
 /* ---------- Skin picker (settings) ---------- */
 .skin-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px 0 6px}
 .skin-choice{display:flex;flex-direction:column;align-items:stretch;gap:6px;font-size:12px;font-weight:800;color:var(--ink);text-align:center;min-height:44px}

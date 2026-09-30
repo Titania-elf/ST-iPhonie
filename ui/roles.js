@@ -47,7 +47,7 @@ export function rolesApp(ctx) {
         ${groupTitle('引擎', help('每个角色在三家引擎里各自记住一套音色和模型，切过去再切回来不会丢。'))}
         <div class="engine-tabs">${Object.entries(engines).map(([k, label]) => {
           const bound = k === r.engine ? r.voice : r.bindings?.[k]?.voice;
-          return `<button class="engine-tab" data-action="route-engine" data-engine="${k}" aria-pressed="${r.engine === k}">${label}<small>${esc(bound ? voiceLabel(bound) : '未选音色')}</small></button>`;
+          return `<button class="engine-tab" data-action="route-engine" data-engine="${k}" aria-pressed="${r.engine === k}" title="${esc(label + '：' + (bound ? voiceLabel(bound) : '未选音色'))}">${label}<small>${esc(bound ? voiceLabel(bound) : '未选音色')}</small></button>`;
         }).join('')}</div>
         ${groupTitle('声音')}
         <div class="group pad" data-engine="${r.engine}">
