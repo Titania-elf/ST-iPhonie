@@ -10,7 +10,9 @@ export function validateSettings(s){if(JSON.stringify(s).length>2_000_000)throw 
 // Reading rules for the story model, one line per speaker, following each engine's official tag syntax (2026-09-30).
 // The 情绪 field is used by the plugin: MiniMax gets it as its emotion setting, Fish and Eleven v3/v4 as an opening tag.
 const ENGINE_NAMES={fish:'Fish Audio',mini:'MiniMax',eleven:'ElevenLabs'};
-export function modelRules(s){const {FISH_S1_EMOTIONS,FISH_S1_TONES,FISH_S1_SOUNDS,MINI_SOUNDS,ELEVEN_TAGS}=TTSParameters.vocab;const output=[];const configured=s.routes.filter(r=>!isPlaceholderRole(r.name));const routes=configured.length?configured:[{name:'未配置角色',engine:'fish',model:s.connections.fish.model}];
+/** Roles to write rules for: those named in `only` (the speakers of this chat) when any of them is known, else all. */
+export function speakingRoutes(s,only=null){const configured=s.routes.filter(r=>!isPlaceholderRole(r.name));if(!only?.length)return configured;const wanted=new Set(only.map(n=>String(n).trim()));const picked=configured.filter(r=>wanted.has(r.name));return picked.length?picked:configured;}
+export function modelRules(s,only=null){const {FISH_S1_EMOTIONS,FISH_S1_TONES,FISH_S1_SOUNDS,MINI_SOUNDS,ELEVEN_TAGS}=TTSParameters.vocab;const output=[];const configured=speakingRoutes(s,only);const routes=configured.length?configured:[{name:'未配置角色',engine:'fish',model:s.connections.fish.model}];
  for(const r of routes){const model=r.model||s.connections[r.engine]?.model||TTSParameters.catalogs[r.engine]?.model||'';let rule;
   if(r.engine==='mini'){
    rule='情绪字段只写这几个英文词之一：'+TTSParameters.tags('mini',model).join('、')+'（写中文也行，插件会对应过去；对应不上就由语音模型自己判断）。';
