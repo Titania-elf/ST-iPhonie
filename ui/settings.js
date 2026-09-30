@@ -10,7 +10,7 @@ const IMAGE_TYPES = 'image/png,image/jpeg,image/webp,image/avif,image/gif';
 
 export function settingsApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'settings');
-  let appearance = null, check = null, epoch = 0;
+  let appearance = null, check = null, backup = null, restore = null, epoch = 0;
   const glyphName = key => APPS[key]?.name || GLYPH_NAMES[key] || key;
 
   // The self-check page: what core/diagnostics.js found, grouped, with the plain report to copy, save or send.
@@ -25,6 +25,34 @@ export function settingsApp(ctx) {
       + `<div class="actions">${btn('run-check', icon('refresh') + '再查一次', 'secondary')}</div>`
       + `<details class="report-text"><summary>报告原文（复制不了时长按这里手动复制）</summary><textarea readonly rows="12" aria-label="报告原文">${esc(text)}</textarea></details>` + intro);
   }
+  // Backup: pick the parts, see how much each holds, and save one file.
+  async function renderBackup(ticket) {
+    const [library, threads] = await Promise.all([api.libraryStats().catch(() => null), api.listThreads().catch(() => null)]);
+    if (v.disposed || ticket !== epoch) return;
+    const s = api.getState(), n = (value, unit) => value === null || value === undefined ? '读不到' : `${value} ${unit}`;
+    const counts = {settings: `${s.routes.length} 个角色 · ${s.presets.length} 个配音预设`, chats: n(threads?.length, '段'), notes: n(library?.notes, '条'), photos: n(library?.photos, '张'), favorites: n(library?.favorites, '段')};
+    v.draw(heading('备份', '', 'Backup')
+      + `<div class="group">${Object.entries(api.backupParts()).map(([key, label]) => partRow(key, label, counts[key], backup.parts.has(key))).join('')}</div>`
+      + '<p class="hint">备份是一个 .json 文件，可以存在电脑、手机或网盘里。密钥不会放进去，恢复后要重新填写；语音缓存也不备份，需要时会重新生成。相册和收藏多的话，文件会比较大。</p>'
+      + `<div class="actions">${btn('make-backup', icon('download') + '生成备份文件', 'primary', backup.parts.size ? '' : 'disabled')}</div>`);
+  }
+  // Restore: what the chosen file holds, which parts to take, and whether to merge or replace.
+  function renderRestore() {
+    const {info, parts, replace} = restore, sum = info.summary, labels = api.backupParts();
+    const counts = {settings: sum.settings && `${sum.settings.roles} 个角色 · ${sum.settings.presets} 个配音预设`, chats: sum.chats !== null && `${sum.chats} 段`, notes: sum.notes !== null && `${sum.notes} 条`, photos: sum.photos !== null && `${sum.photos} 张`, favorites: sum.favorites !== null && `${sum.favorites} 段`};
+    const when = info.createdAt ? new Date(info.createdAt).toLocaleString('zh-CN', {hour12: false}) : '未知';
+    v.draw(heading('恢复', '', 'Restore')
+      + `<div class="group pad"><p class="help-copy">备份时间：${esc(when)}${info.version ? ` · 插件 ${esc(info.version)}` : ''}</p></div>`
+      + groupTitle('要恢复的内容')
+      + `<div class="group">${Object.entries(labels).map(([key, label]) => counts[key] ? partRow(key, label, counts[key], parts.has(key)) : `<div class="setting-row"><span class="row-text"><strong>${esc(label)}</strong><small>备份里没有</small></span></div>`).join('')}</div>`
+      + groupTitle('方式')
+      + `<div class="segmented"><button data-action="restore-mode" data-value="merge" aria-pressed="${!replace}">合并</button><button data-action="restore-mode" data-value="replace" aria-pressed="${replace}">替换</button></div>`
+      + `<p class="hint">${replace ? '替换：选中的内容会先清空，再换成备份里的。' : '合并：现在的内容都保留，备份里同一条（同一张照片、同一段聊天）会覆盖现在的。'}设置和预设总是整体换成备份里的；密钥不受影响。</p>`
+      + `<div class="actions">${btn('do-restore', icon('refresh') + '开始恢复', 'primary', parts.size ? '' : 'disabled')}</div>`);
+  }
+  const partRow = (key, label, detail, on) => `<div class="setting-row"><span class="row-text"><strong>${esc(label)}</strong><small>${esc(detail)}</small></span><input class="switch" type="checkbox" data-part="${key}" aria-label="${esc(label)}" ${on ? 'checked' : ''}></div>`;
+  const restored = done => [done.settings && '设置和预设', done.chats && `${done.chats} 段聊天`, done.notes && `${done.notes} 条备忘录`, done.photos && `${done.photos} 张照片`, done.favorites && `${done.favorites} 段收藏`].filter(Boolean).join('、');
+
   async function runCheck() {
     check = {loading: true};
     await render();
@@ -50,6 +78,8 @@ export function settingsApp(ctx) {
     const ticket = ++epoch;
     if (appearance) { renderAppearance(); return; }
     if (check) { renderCheck(); return; }
+    if (backup) { await renderBackup(ticket); return; }
+    if (restore) { renderRestore(); return; }
     const [phone, cache, library, drawn] = await Promise.all([api.getPhone(), api.cacheStats(), api.libraryStats().catch(() => null), api.generatedPhotos().catch(() => null)]);
     const chatPictures = api.chatPictureStats?.() || null;
     if (v.disposed || ticket !== epoch) return;
@@ -82,11 +112,12 @@ export function settingsApp(ctx) {
           ${chatPictures ? `<div class="setting-row"><span>当前聊天的正文图片</span><small>${chatPictures.count} 张 · 存在酒馆</small></div>` : ''}</div>
         <div class="actions">${btn('clear-cache', icon('trash') + '清理语音缓存', 'danger')}</div>
         <div class="actions">${btn('clear-drawn', icon('trash') + '清除相册里的绘图', 'danger', drawn?.count ? '' : 'disabled')}${chatPictures ? btn('clear-chat-pictures', icon('trash') + '清除正文图片', 'danger', chatPictures.count ? '' : 'disabled') : ''}</div>
+        ${groupTitle('备份与恢复')}<div class="group"><button class="list-row" data-action="backup"><span><strong>备份到文件</strong><small>设置、角色音色、聊天记录、相册和收藏存成一个文件，换设备或误删时能找回</small></span>${icon('next')}</button><label class="list-row file-button"><span><strong>从文件恢复</strong><small>选一个 ST-iPhonie 备份文件</small></span>${icon('next')}<input type="file" data-backup-file accept=".json,application/json" aria-label="选择备份文件"></label></div>
         ${groupTitle('帮助')}<div class="group"><button class="list-row" data-action="self-check"><span><strong>自检</strong><small>出问题时看看是哪里不对，可以把报告发给帮你的人</small></span>${icon('next')}</button></div>
         <div class="actions">${btn('about', '关于 ST-iPhonie', 'text-button')}</div>`);
   }
 
-  v.back = () => { if (!appearance && !check) return false; appearance = check = null; render().catch(e => ctx.notify(e.message)); return true; };
+  v.back = () => { if (!appearance && !check && !backup && !restore) return false; appearance = check = backup = restore = null; render().catch(e => ctx.notify(e.message)); return true; };
   v.refresh = () => { if (!appearance) return render(); };
   v.on('input', '[data-field=volume]', el => { el.previousElementSibling.querySelector('output').textContent = el.value + '%'; });
   v.on('change', '[data-field]', async el => {
@@ -104,6 +135,24 @@ export function settingsApp(ctx) {
     else if (key === 'defaultLanguage') api.updateGeneral({defaultLanguage: el.value});
     else if (key === 'volume') await api.setVolume(Number(el.value) / 100);
     else if (key === 'lockOnOpen') await api.savePhone({lockOnOpen: el.checked});
+  });
+  v.on('change', '[data-part]', async el => {
+    const parts = backup?.parts || restore?.parts;
+    if (!parts) return;
+    if (el.checked) parts.add(el.dataset.part); else parts.delete(el.dataset.part);
+    const go = v.root.querySelector('[data-action=make-backup],[data-action=do-restore]');
+    if (go) go.disabled = !parts.size;
+  });
+  v.on('change', '[data-backup-file]', async el => {
+    const file = el.files?.[0];
+    if (!file) return;
+    el.disabled = true;
+    try {
+      const info = await api.inspectBackup(file), sum = info.summary;
+      const parts = new Set(Object.keys(api.backupParts()).filter(key => key === 'settings' ? sum.settings : sum[key] !== null));
+      restore = {file, info, parts, replace: false};
+      await render();
+    } finally { if (el.isConnected) { el.value = ''; el.disabled = false; } }
   });
   v.on('change', '[data-personal-file]', async el => {
     const file = el.files?.[0], target = appearance;
@@ -142,6 +191,24 @@ export function settingsApp(ctx) {
       case 'save-appearance': await v.busy(el, async () => { await api.savePhone(appearance); appearance = null; await render(); ctx.notify('外观已应用'); }); break;
       case 'lock': ctx.lock(); break;
       case 'self-check': case 'run-check': await runCheck(); break;
+      case 'backup': backup = {parts: new Set(Object.keys(api.backupParts()))}; await render(); break;
+      case 'make-backup':
+        await v.busy(el, async () => {
+          const {blob, name} = await api.exportBackup([...backup.parts]);
+          ctx.notify(`已下载 ${await saveFile(ctx.doc, blob, name)}（${size(blob.size)}）`);
+        });
+        break;
+      case 'restore-mode': restore.replace = el.dataset.value === 'replace'; await render(); break;
+      case 'do-restore': {
+        const {replace, parts, file} = restore;
+        const sure = await ctx.confirm(replace ? '替换成备份里的内容？' : '恢复备份？', replace ? '选中的内容会先被清空，再换成备份里的。这一步不能撤销，想留着现在的内容可以先备份一次。' : '现在的内容会保留，备份里同一条会覆盖现在的；设置和预设会整体换成备份里的。');
+        if (!sure) break;
+        const done = await v.busy(el, () => api.importBackup(file, {parts: [...parts], replace}));
+        restore = null;
+        await render();
+        ctx.notify('已恢复：' + (restored(done) || '没有内容'));
+        break;
+      }
       case 'copy-report': {
         const text = check?.report?.text || '';
         try { await ctx.win.navigator.clipboard.writeText(text); ctx.notify('已复制报告'); }

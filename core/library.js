@@ -192,6 +192,31 @@ export class LocalLibrary {
   return this.#saveMedia('references',{id,name,blob});
  }
  async deleteReference(id){return this.#remove('references',id);}
+ /** Every row of the given stores with its blob, for a backup. */
+ async exportRows(names=STORES){const out={};for(const name of names){if(!STORES.includes(name))throw fail('未知的资料类型：'+name);out[name]=(await this.#read(name)).map(row=>publicRow(row));}return out;}
+ /** Puts backup rows back with their ids and dates, checked like new ones, in one transaction (all or nothing).
+  *  replace: the given stores are emptied first. A phone appearance pointing at a photo that is not there falls back
+  *  to the default. Returns how many rows each store received. */
+ async importRows(data,{replace=false}={}){
+  const clean={};for(const [name,list] of Object.entries(data||{})){if(!STORES.includes(name))throw fail('备份里有未知的资料类型：'+name);if(!Array.isArray(list))throw fail('备份内容无效：'+name);clean[name]=list.map(row=>this.#backupRow(name,row));}
+  return this.#mutate(({rows,put,remove})=>{
+   const counts={};
+   for(const [name,list] of Object.entries(clean)){if(name==='phone')continue;if(replace)for(const id of [...rows[name].keys()])remove(name,id);for(const row of list)put(name,row);counts[name]=list.length;}
+   const phone=clean.phone?.at(-1)||(replace&&clean.photos&&rows.phone.get('preferences'));
+   if(phone){const next={...publicRow(phone)};delete next.id;if(next.wallpaper.kind==='photo'&&!rows.photos.has(next.wallpaper.photoId))next.wallpaper=defaults().wallpaper;next.icons={...next.icons};for(const [app,icon] of Object.entries(next.icons))if(icon.kind==='photo'&&!rows.photos.has(icon.photoId))delete next.icons[app];put('phone',{...next,id:'preferences'});if(clean.phone)counts.phone=1;}
+   return counts;
+  });
+ }
+ #backupRow(name,row){
+  if(!row||typeof row!=='object')throw fail('备份内容无效：'+name);
+  const now=this.#time(),time=v=>Number.isFinite(v)&&v>0?v:now,dates={createdAt:time(row.createdAt),updatedAt:time(row.updatedAt)};
+  if(name==='notes')return {id:identifier(row.id),title:string(row.title??'','标题',200),text:string(row.text??'','备忘录',1_000_000),...dates};
+  if(name==='photos'||name==='references'){const media=name==='photos',blob=blobValue(row.blob,media?LIBRARY_LIMITS.photo:LIBRARY_LIMITS.reference,media?'图片':'参考音频',media?'image':'audio',row.name);return {id:identifier(row.id),name:string(row.name??(media?'图片':'reference.wav'),media?'图片名称':'音频名称',512,true),blob,type:blob.type,size:blob.size,...dates};}
+  if(name==='favorites'){if(!['fish','mini','eleven'].includes(row.engine))throw fail('备份里的收藏语音引擎无效');const blob=blobValue(row.blob,LIBRARY_LIMITS.total,'音频','audio');return {id:identifier(row.id),requestKey:string(row.requestKey,'音频编号',512,true),role:string(row.role,'角色名',200,true),text:string(row.text,'原文',1_000_000,true),translation:string(row.translation??'','译文',1_000_000),engine:row.engine,model:string(row.model??'','模型',200),voice:string(row.voice??'','音色',512),blob,type:blob.type,size:blob.size,...dates};}
+  const {wallpaper,icons,iconStyle,skin,lockOnOpen,volume}={...defaults(),...row};
+  this.#appearance(wallpaper,'wallpaper');fields(icons,PHONE_APPS);for(const icon of Object.values(icons))this.#appearance(icon,'icon');
+  return {wallpaper,icons,iconStyle:['color','glass','mono'].includes(iconStyle)?iconStyle:'color',skin:PHONE_SKINS.includes(skin)?skin:'sky',lockOnOpen:lockOnOpen===true,volume:Number.isFinite(volume)?Math.min(1,Math.max(0,volume)):1,...dates};
+ }
  async stats(){
   const db=await this.#open();return new Promise((resolve,reject)=>{
    let tx;const result={bytes:0,limit:LIBRARY_LIMITS.total,notes:0,photos:0,favorites:0,references:0};

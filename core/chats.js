@@ -166,5 +166,28 @@ export class ChatStore {
   async unread() {
     return (await this.list()).reduce((n, t) => n + t.unread, 0);
   }
+  /** Every thread with its messages, for a backup. */
+  async exportThreads() {
+    const rows = await this.#tx('readonly', (store, done) => { const req = store.index('scope').getAll(this.#scope); req.onsuccess = () => done(req.result); });
+    return rows.map(row => this.#public(row));
+  }
+  /** Puts backup threads back with their ids, checked like new ones, in one transaction. replace: other threads go. */
+  async importThreads(threads, {replace = false} = {}) {
+    if (!Array.isArray(threads)) throw fail('备份里的聊天记录无效');
+    const now = this.#now(), rows = threads.map(t => {
+      if (!t || typeof t !== 'object' || !t.id) throw fail('备份里的聊天记录无效');
+      const members = [...new Set((Array.isArray(t.members) ? t.members : []).map(m => clip(m, 40).trim()).filter(Boolean))].slice(0, CHAT_STORE_LIMITS.members);
+      if (!members.length) throw fail('备份里有一段聊天没有聊天对象');
+      const messages = (Array.isArray(t.messages) ? t.messages : []).slice(-CHAT_STORE_LIMITS.messages).map(m => cleanMessage(m, clip(m?.id || this.#id(), 512), Number.isFinite(m?.at) ? m.at : now));
+      return {scope: this.#scope, id: clip(t.id, 512), type: t.type === 'group' ? 'group' : 'dm', name: clip(t.name, 40).trim() || members.join('、').slice(0, 40), members: t.type === 'group' ? members : [members[0]],
+        unread: Math.max(0, Math.min(CHAT_STORE_LIMITS.messages, Math.round(Number(t.unread)) || 0)), createdAt: Number.isFinite(t.createdAt) ? t.createdAt : now, updatedAt: Number.isFinite(t.updatedAt) ? t.updatedAt : now, messages};
+    });
+    return this.#tx('readwrite', (store, done) => {
+      const write = () => { for (const row of rows) store.put(row); done(rows.length); };
+      if (!replace) { write(); return; }
+      const req = store.index('scope').getAllKeys(this.#scope);
+      req.onsuccess = () => { for (const key of req.result) store.delete(key); write(); };
+    });
+  }
   close() { this.#closed = true; this.#db?.close(); this.#db = null; }
 }

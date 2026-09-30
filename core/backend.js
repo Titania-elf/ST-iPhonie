@@ -1,3 +1,4 @@
+import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup } from './backup.js';
 import { normalizeSettings, validateSettings, modelRules, freshState } from './state.js';
 import { normalizeRoute, switchRouteEngine, removeRoute } from './routes.js';
 import { DEFAULT_PROMPT, DEFAULT_FORMAT, promptPlan, validatePreset, parseDialogue, isPlaceholderRole, knownFormats } from './protocol.js';
@@ -63,12 +64,61 @@ export class TTSBackend {
         try {
             const phone = await this.library.getPhone();
             if (!this.closed) this.player.setVolume(phone.volume);
-            for (const reference of this.settings.connections.fish.params.references) {
-                const record = await this.library.getReference(reference.audio);
-                if (record && !this.closed) { const audio = await this.base64(record.blob); if (!this.closed) this.providers.references.set(record.id, audio); }
-            }
+            await this.loadReferences();
         } catch (error) { this.notify(error.message); }
         return this;
+    }
+    /** Reads the Fish reference audio the settings use into memory, for requests. */
+    async loadReferences() {
+        for (const reference of this.settings.connections.fish.params.references) {
+            const record = await this.library.getReference(reference.audio);
+            if (record && !this.closed) { const audio = await this.base64(record.blob); if (!this.closed) this.providers.references.set(record.id, audio); }
+        }
+    }
+    /** A backup file of the chosen parts (core/backup.js BACKUP_PARTS). Keys and the account scope are never written. */
+    async exportBackup(parts = Object.keys(BACKUP_PARTS), version = '') {
+        this.assertOpen();
+        const want = [...new Set(parts)].filter(part => BACKUP_PARTS[part]);
+        if (!want.length) throw Error('请至少选一项要备份的内容');
+        const stores = want.flatMap(part => PART_STORES[part]);
+        const library = stores.length ? await this.library.exportRows(stores) : {};
+        let settings = null;
+        if (want.includes('settings')) { settings = this.getState(); delete settings.scope; delete settings.floating; }
+        const chats = want.includes('chats') ? await this.chats.exportThreads() : null;
+        const blob = await writeBackup({ version, settings, library, chats });
+        const day = new Date(), pad = n => String(n).padStart(2, '0');
+        return { blob, name: `ST-iPhonie 备份 ${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}` };
+    }
+    /** What a backup file holds, to show before restoring. */
+    async inspectBackup(file) {
+        this.assertOpen();
+        const backup = await readBackup(file);
+        return { version: backup.version, createdAt: backup.createdAt, summary: backup.summary };
+    }
+    /**
+     * Restores the chosen parts of a backup. replace: those kinds of data are emptied first; otherwise rows with the
+     * same id are overwritten and the rest kept. Settings are taken whole from the backup; keys, the account scope and
+     * the floating ball's place stay. Everything is checked before anything is written.
+     */
+    async importBackup(file, { parts = [], replace = false } = {}) {
+        this.assertOpen();
+        const backup = await readBackup(file), want = new Set(parts.filter(part => BACKUP_PARTS[part])), done = {};
+        if (!want.size) throw Error('请至少选一项要恢复的内容');
+        let settings = null;
+        if (want.has('settings') && backup.settings) {
+            settings = normalizeSettings({ ...backup.settings, scope: this.settings.scope, floating: this.settings.floating });
+            validateSettings(settings);
+        }
+        const rows = {};
+        for (const part of want) for (const store of PART_STORES[part]) if (backup.library[store]) rows[store] = backup.library[store];
+        // One transaction for the library: photos land before the phone's look that uses them, references before the
+        // settings that point at them.
+        if (Object.keys(rows).length) Object.assign(done, await this.library.importRows(rows, { replace }));
+        if (settings) { this.save(settings); done.settings = true; await this.loadReferences(); }
+        if (want.has('chats') && backup.chats) { done.chats = await this.chats.importThreads(backup.chats, { replace }); this.emit('chat', { threadId: '' }); }
+        for (const collection of ['favorites', 'photos', 'notes']) if (collection in done) this.emit('library', { collection });
+        if ('phone' in done || 'photos' in done) this.emit('phone', { preferences: await this.getPhone() });
+        return done;
     }
     assertOpen() { if (this.closed) throw Error('插件已关闭，请重新打开设置'); }
     emit(type, data = {}) {
@@ -526,7 +576,8 @@ export class TTSBackend {
             cacheStats: () => this.cache.stats(), clearCache: () => this.clearCache(), listAudio: () => this.cache.list(),
             deleteAudio: async key => { if (this.player.requestKey === key) this.player.stop('音频已删除'); if (this.prepared?.key === key) this.prepared = null; await this.cache.remove(key); this.emit('library', { collection: 'cache' }); },
             latestAudio: () => this.prepared ? this.audioInfo(this.prepared) : null,
-            favoriteAudio: key => this.favoriteAudio(key), audioFile: ref => this.audioFile(ref), listFavorites: query => this.library.listFavorites(query),
+            favoriteAudio: key => this.favoriteAudio(key), audioFile: ref => this.audioFile(ref),
+            backupParts: () => ({ ...BACKUP_PARTS }), exportBackup: (parts, version) => this.exportBackup(parts, version), inspectBackup: file => this.inspectBackup(file), importBackup: (file, options) => this.importBackup(file, options), listFavorites: query => this.library.listFavorites(query),
             getFavorite: id => this.library.getFavorite(id), playFavorite: id => this.playFavorite(id),
             deleteFavorite: id => this.mutateLibrary('favorites', 'deleteFavorite', id),
             listPhotos: () => this.library.listPhotos(), addPhoto: value => this.mutateLibrary('photos', 'addPhoto', value),

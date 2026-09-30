@@ -106,6 +106,7 @@ function connect(source){
   chatTyping:threadId=>{check();return chats.typing(threadId);},
    playFavorite:id=>{check();playbackMessage=null;return api.playFavorite(id);},
   diagnose:()=>{check();return diagnose();},
+  exportBackup:async parts=>{check();const manifest=await fetch(new URL('manifest.json',base)).then(r=>r.ok?r.json():null).catch(()=>null);return api.exportBackup(parts,manifest?.version||'');},
   noteError:text=>{check();remember(text,'error');}
  });
 }
