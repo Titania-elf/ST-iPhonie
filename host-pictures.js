@@ -2,7 +2,8 @@
 // uploads the result to the tavern's image folder and remembers it on the message (message.extra.sttts_pics),
 // so every device that opens the chat sees the same picture.
 //
-// A finished picture shows only the image. Tapping it opens the viewer, which holds everything else: the versions
+// A finished picture shows only the image. One tap folds it to a line of text (and back); a double tap opens the
+// viewer, which holds everything else: the versions
 // (‹ ›), the parameters (参数), redraw, open in the drawing app, fold and delete.
 //
 // Each tag keeps every version it was drawn in: {versions: [{url, seed, width, height, …}], index}.
@@ -19,6 +20,8 @@ const versionsOf = record => !record ? [] : Array.isArray(record.versions) ? rec
 export function createPictureHost({context, settings, backend, marker, scheduleRender, openDraw, notice}) {
   const jobs = new Map(); // queue key -> {state: 'generating'|'error', message}
   const folds = new Map(); // `${id}:${hash}` -> true/false, this session's fold choice per picture
+  const taps = new Map(); // `${id}:${hash}` -> {at, timer}: a first tap waiting to see whether a second one follows
+  const DOUBLE_TAP = 320;
 
   const stored = (message, hash) => message?.extra?.sttts_pics?.[hash] || null;
   /** The version on screen, with its position: {…version, index, count}; null when there is none. */
@@ -196,15 +199,15 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
     el.dataset.state = state;
     el.toggleAttribute('data-folded', state === 'done' && folded);
     if (state === 'done' && folded) {
-      el.innerHTML = `<button type="button" class="sttts-pic-fold" data-sttts-pic-action="unfold" aria-label="展开图片"><img src="${esc(pic.url)}" alt="" loading="lazy"><span>图片已收起${pic.count > 1 ? ` · ${pic.count} 个版本` : ''} · 点开</span></button>`;
+      el.innerHTML = `<button type="button" class="sttts-pic-fold" data-sttts-pic-action="tap" aria-label="展开图片，双击放大查看"><span class="sttts-pic-fold-mark" aria-hidden="true">▸</span>图片已收起${pic.count > 1 ? ` · ${pic.count} 个版本` : ''} · 点一下展开</button>`;
     } else if (state === 'done') {
-      el.innerHTML = frame(`<button type="button" class="sttts-pic-zoom" data-sttts-pic-action="zoom" aria-label="查看图片${pic.count > 1 ? `（${pic.count} 个版本）` : ''}、参数和操作"><img src="${esc(pic.url)}" alt="${esc(tag.prompt)}" loading="lazy"></button>`);
+      el.innerHTML = frame(`<button type="button" class="sttts-pic-zoom" data-sttts-pic-action="tap" aria-label="点一下收起，双击放大查看${pic.count > 1 ? `（${pic.count} 个版本）` : ''}、参数和操作"><img src="${esc(pic.url)}" alt="${esc(tag.prompt)}" loading="lazy"></button>`);
     } else if (state === 'removed') {
       el.innerHTML = `<span class="sttts-pic-removed">图片已删除<button type="button" data-sttts-pic-action="draw">重新生成</button></span>`;
     } else if (state === 'generating') {
       // Redrawing keeps the current picture on screen with a small note over it.
       el.innerHTML = pic
-        ? frame(`<button type="button" class="sttts-pic-zoom" data-sttts-pic-action="zoom" aria-label="查看图片"><img src="${esc(pic.url)}" alt="${esc(tag.prompt)}" loading="lazy"></button><span class="sttts-pic-note">${esc(waiting)}<button type="button" data-sttts-pic-action="cancel">取消</button></span>`)
+        ? frame(`<button type="button" class="sttts-pic-zoom" data-sttts-pic-action="tap" aria-label="点一下收起，双击放大查看"><img src="${esc(pic.url)}" alt="${esc(tag.prompt)}" loading="lazy"></button><span class="sttts-pic-note">${esc(waiting)}<button type="button" data-sttts-pic-action="cancel">取消</button></span>`)
         : frame(`<span class="sttts-pic-wait">${esc(waiting)}<br><button type="button" data-sttts-pic-action="cancel">取消</button></span>`);
     } else if (state === 'error') {
       el.innerHTML = frame(`<span class="sttts-pic-wait">${esc(job.message)}<br><button type="button" data-sttts-pic-action="draw">重试</button></span>`);
@@ -240,8 +243,21 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
     const id = Number(box.closest('.mes[mesid]')?.getAttribute('mesid')), message = context().chat[id];
     const tag = message && parsePictures(message.mes).find(t => t.hash === box.dataset.stttsHash);
     if (!tag) return true;
-    act(button.dataset.stttsPicAction, id, message, tag, button);
+    if (button.dataset.stttsPicAction === 'tap') tap(id, message, tag, button);
+    else act(button.dataset.stttsPicAction, id, message, tag, button);
     return true;
+  }
+  /** One tap folds or unfolds; a second tap within DOUBLE_TAP opens the viewer instead. */
+  function tap(id, message, tag, source) {
+    const key = id + ':' + tag.hash, first = taps.get(key);
+    if (first && Date.now() - first.at < DOUBLE_TAP) {
+      clearTimeout(first.timer);
+      taps.delete(key);
+      act('zoom', id, message, tag, source.closest('[data-sttts-pic]')?.querySelector('img') ? source : null);
+      return;
+    }
+    const folded = folds.get(key) ?? settings().draw.fold;
+    taps.set(key, {at: Date.now(), timer: setTimeout(() => { taps.delete(key); act(folded ? 'unfold' : 'fold', id, message, tag); }, DOUBLE_TAP)});
   }
   function act(action, id, message, tag, source = null) {
     const pic = shown(message, tag.hash);
