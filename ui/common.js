@@ -2,8 +2,10 @@ import {icon, spark} from './icons.js';
 
 export const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 export const engines = {fish: 'Fish Audio', mini: 'MiniMax', eleven: 'ElevenLabs'};
-import {LANGUAGES} from '../core/languages.js';
+import {LANGUAGES, customLanguages} from '../core/languages.js';
 export const languages = LANGUAGES;
+/** Languages typed in by the user anywhere in the settings (default language and every role), for the chip list. */
+export const typedLanguages = state => customLanguages([state.general?.defaultLanguage, ...(state.routes || []).map(r => r.language)]);
 export const languageName = code => languages.find(([value]) => value === code)?.[1] || code;
 export const size = bytes => bytes < 1024 * 1024 ? Math.round(bytes / 1024) + ' KB' : (bytes / 1024 / 1024).toFixed(1) + ' MB';
 
@@ -77,10 +79,13 @@ export function createView(ctx, name) {
 
 // A browser <datalist> only lists the entries that match what is already typed (with "ja" in the box it shows only
 // 日语), so the language box has its own list: every language as a chip under the box, opened by tapping the box or ▾.
-export function languageField(key, value, inherit = true) {
-  const chip = (v, t) => `<button type="button" class="combo-chip" data-combo-value="${esc(v)}" aria-pressed="${String(value) === v}">${esc(t)}${v ? `<small>${esc(v)}</small>` : ''}</button>`;
-  const control = `<span class="combo">${input(key, value, 'text', `placeholder="${inherit ? '留空跟随默认' : '例如 zh、en、ja'}" autocomplete="off"`)}<button type="button" class="combo-open" data-combo-open aria-expanded="false" aria-label="展开全部语言">${icon('down')}</button></span><span class="combo-menu" role="group" aria-label="全部语言" hidden>${languages.filter(([v]) => v || inherit).map(([v, t]) => chip(v, t)).join('')}</span>`;
-  return field('台词语言', control, '可填写语言代码或语言名称；角色留空时使用默认台词语言。点输入框或右边的箭头可以看到全部语言。');
+// A language not in the list is simply typed in the box (粤语, 上海话, Cantonese…); while typing, the first chip offers to
+// use exactly what was typed, and languages typed before come back as chips marked 自定义.
+export function languageField(key, value, inherit = true, typed = []) {
+  const chip = (v, t, note = v) => `<button type="button" class="combo-chip" data-combo-value="${esc(v)}" aria-pressed="${String(value) === v}">${esc(t)}${note ? `<small>${esc(note)}</small>` : ''}</button>`;
+  const chips = languages.filter(([v]) => v || inherit).map(([v, t]) => chip(v, t)).join('') + typed.map(v => chip(v, v, '自定义')).join('');
+  const control = `<span class="combo">${input(key, value, 'text', `placeholder="${inherit ? '留空跟随默认，也可以直接打字' : '选一个，或直接打字，比如 粤语'}" autocomplete="off"`)}<button type="button" class="combo-open" data-combo-open aria-expanded="false" aria-label="展开全部语言">${icon('down')}</button></span><span class="combo-menu" role="group" aria-label="全部语言" hidden><button type="button" class="combo-chip combo-typed" data-combo-value="" hidden></button>${chips}</span>`;
+  return field('台词语言', control, '列表里没有的语言，直接在框里打字就行，比如 粤语、上海话、Cantonese，模型会照着写台词。角色留空时用默认台词语言。ElevenLabs 只认语言代码（如 ja、yue），写成名字时它会自己听出来。');
 }
 function bindCombos(root, signal) {
   const menuOf = el => el.closest('.field')?.querySelector('.combo-menu');
@@ -89,10 +94,17 @@ function bindCombos(root, signal) {
     if (!menu || !box) return;
     menu.hidden = !open;
     field.querySelector('[data-combo-open]')?.setAttribute('aria-expanded', String(open));
-    const q = filter.trim().toLowerCase();
-    for (const chip of menu.querySelectorAll('[data-combo-value]')) {
+    const q = filter.trim().toLowerCase(), own = menu.querySelector('.combo-typed');
+    for (const chip of menu.querySelectorAll('[data-combo-value]:not(.combo-typed)')) {
       chip.hidden = !!q && !chip.textContent.toLowerCase().includes(q);
       chip.setAttribute('aria-pressed', String(chip.dataset.comboValue === box.value.trim()));
+    }
+    // What was typed, when it is not one of the chips: 用「粤语」.
+    const exact = [...menu.querySelectorAll('[data-combo-value]:not(.combo-typed)')].some(chip => chip.dataset.comboValue.toLowerCase() === q || chip.firstChild?.textContent.toLowerCase() === q);
+    if (own) {
+      own.hidden = !q || exact;
+      own.dataset.comboValue = filter.trim();
+      own.textContent = `用「${filter.trim()}」`;
     }
   };
   root.addEventListener('focusin', e => { if (e.target.matches('.combo input')) show(e.target.closest('.field'), true); }, {signal});
@@ -107,7 +119,7 @@ function bindCombos(root, signal) {
     show(f, false);
   }, {signal});
   // Typing narrows the list; a value already chosen (like "ja") still opens the whole list.
-  root.addEventListener('input', e => { if (e.target.matches('.combo input') && e.isTrusted !== false && e.target.ownerDocument.activeElement === e.target) show(e.target.closest('.field'), true, e.target.value); }, {signal});
+  root.addEventListener('input', e => { if (e.target.matches('.combo input') && e.target.ownerDocument.activeElement === e.target) show(e.target.closest('.field'), true, e.target.value); }, {signal});
   root.addEventListener('keydown', e => { if (e.key === 'Escape' && e.target.closest('.combo')) { const f = e.target.closest('.field'); if (!menuOf(e.target).hidden) { e.stopPropagation(); show(f, false); } } }, {signal});
   root.ownerDocument.addEventListener('pointerdown', e => {
     for (const menu of root.querySelectorAll('.combo-menu:not([hidden])')) if (!menu.closest('.field').contains(e.target)) show(menu.closest('.field'), false);

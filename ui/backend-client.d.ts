@@ -566,8 +566,10 @@ export interface BackendAPI extends BackendFacade {
     callDecline(): Promise<CallState | null>;
     /** Hangs up (or cancels while it rings); the call is kept in the private chat. */
     callHangup(): Promise<CallState | null>;
-    /** Says something in the call; the contact answers aloud. */
-    callSay(text: string): Promise<void>;
+    /** Says something in the call. Only puts the words in the call; the contact answers on callReply(). */
+    callSay(text: string): Promise<CallState | null>;
+    /** The contact answers everything said so far (goes on talking when the user said nothing), aloud. */
+    callReply(): Promise<void>;
     /** Asks the contact again after a turn failed. */
     callRetry(): Promise<void>;
     /** The tavern's own avatar pictures: the current persona's, and each character card's by name (URLs). */

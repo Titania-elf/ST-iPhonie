@@ -1,4 +1,4 @@
-import {createView, esc, btn, field, input, select, toggle, heading, size, languageField, groupTitle, help} from './common.js';
+import {createView, esc, btn, field, input, select, toggle, heading, size, languageField, typedLanguages, groupTitle, help} from './common.js';
 import {buildReport} from '../core/diagnostics.js';
 import {saveFile} from '../download.js';
 import {icon, GLYPH_NAMES} from './icons.js';
@@ -121,7 +121,7 @@ export function settingsApp(ctx) {
           ${phone.wallpaper.kind === 'photo' ? `<div class="setting-row"><span>现在用的是自己的照片当壁纸</span>${btn('builtin-wallpaper', '换回主题壁纸', 'chip-button')}</div>` : ''}
         </div>`
       + groupTitle('配音')
-      + `<div class="group pad">${languageField('defaultLanguage', s.general.defaultLanguage, false)}
+      + `<div class="group pad">${languageField('defaultLanguage', s.general.defaultLanguage, false, typedLanguages(api.getState()))}
           ${toggle('voiceEnabled', '正文语音', s.general.voiceEnabled !== false, '关掉后，聊天请求里不再加入语音规则，模型只写普通对白；正文里已有的语音标签只显示中文译文，不显示声波；手机聊天里的联系人也只发文字。打开后恢复。')}
           ${toggle('floatingEnabled', '悬浮入口', s.general.floatingEnabled, '在酒馆里显示可以拖动的小球，点开再点一次进入手机。')}
           ${toggle('waveformEnabled', '声波动效', s.general.waveformEnabled, '台词旁和手机里的声波随真实音频跳动。系统开启减少动态效果时保持静止。\n\n正文声波的颜色跟随酒馆主题：\n· 虚线小点：这个角色还没配音（斜体色）\n· 淡色：还没生成（正文色）\n· 引号色：已生成，可以播放\n· 引号色加底色：正在播放\n· 下划线色：已经播放过')}

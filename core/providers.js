@@ -1,4 +1,5 @@
 import { validateKey } from './keys.js';
+import { languageCode } from './languages.js';
 import { TTSParameters as P } from './parameters.js';
 const names={fish:'Fish Audio',mini:'MiniMax',eleven:'ElevenLabs'};
 export const miniBase=c=>'https://'+(c.region==='cn'?'api.minimaxi.com':c.region==='uw'?'api-uw.minimax.io':'api.minimax.io');
@@ -38,7 +39,7 @@ export function buildRequest(engine,connection,route,line,references=new Map()){
  if(engine==='fish'&&c.params.references.length){request.body.provider.options['fish-audio'].references=c.params.references.map(r=>{const audio=references.get(r.audio);if(typeof audio!=='string'||!audio)throw Error('请在引擎设置重新选择参考音频：'+r.audio);return {audio,text:r.text};});}
  // MiniMax takes a fixed emotion list: Chinese or English words map onto it; anything else lets the model choose.
  if(engine==='mini'&&!request.body.voice_setting.emotion){const emotion=P.miniEmotion(c.model,line.emotion);if(emotion)request.body.voice_setting.emotion=emotion;else delete request.body.voice_setting.emotion;}
- if(engine==='eleven'&&!request.body.language_code&&c.model!=='eleven_multilingual_v2'&&route.language)request.body.language_code=route.language;
+ if(engine==='eleven'&&!request.body.language_code&&c.model!=='eleven_multilingual_v2'){const code=languageCode(route.language).split('-')[0];if(/^[a-z]{2,3}$/.test(code))request.body.language_code=code;}
  const url=new URL(request.url);for(const [k,v] of Object.entries(request.query||{}))url.searchParams.set(k,String(v));
  return {engine,url:url.href,body:request.body,format:engine==='fish'?c.params.format:engine==='mini'?c.params['audio_setting.format']:c.params.output_format,sampleRate:engine==='fish'?c.params.sample_rate:engine==='mini'?c.params['audio_setting.sample_rate']:Number(c.params.output_format.split('_')[1]),channels:engine==='mini'?c.params['audio_setting.channel']:1};
 }

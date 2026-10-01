@@ -53,7 +53,7 @@ export function buildCallRequest({preset, mode, contact, lines = [], history = [
   const turn = {
     incoming: `（电话接通了。${name}先开口，说明为什么打来。）`,
     outgoing: `（电话接通了。${name}先开口，像平时接${user}的电话那样。）`,
-    reply: `（轮到${name}说话，接着${user}刚才的话往下说。）`,
+    reply: lines.at(-1)?.from === 'me' ? `（轮到${name}说话，接着${user}刚才的话往下说。）` : `（${user}没有接话，${name}接着往下说。）`,
     voicemail: `（${name}对着语音信箱留言，一到三句。）`
   }[mode];
   const system = [

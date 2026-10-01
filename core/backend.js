@@ -1,4 +1,5 @@
 import { MomentStore } from './moments-store.js';
+import { languageCode } from './languages.js';
 import { normalizeMoments, buildMomentsRequest } from './moments.js';
 import { normalizeCalls, buildCallRequest } from './call.js';
 import { normalizeText, customRequest, listModels } from './llm.js';
@@ -676,7 +677,7 @@ export class TTSBackend {
         route.name = route.name.trim();
         temporary.routes = temporary.routes.filter(row => row.name !== route.name); temporary.routes.push(route);
         const revision = this.revision;
-        const text = ({ zh: '雨还没停，再坐一会儿吧。', en: 'The rain has not stopped. Stay a little longer.', ja: '雨はまだ止んでいません。もう少しここにいましょう。', ko: '비가 아직 그치지 않았어요.' })[route.language || temporary.general.defaultLanguage] || 'Hello.';
+        const text = ({ zh: '雨还没停，再坐一会儿吧。', en: 'The rain has not stopped. Stay a little longer.', ja: '雨はまだ止んでいません。もう少しここにいましょう。', ko: '비가 아직 그치지 않았어요.' })[languageCode(route.language || temporary.general.defaultLanguage)] || 'Hello.';
         this.player.start([{ role: route.name, emotion: 'calm', text, translation: '' }], () => !this.closed && revision === this.revision, temporary);
     }
     async clearCache() {

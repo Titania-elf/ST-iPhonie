@@ -171,6 +171,7 @@ function connect(source){
   callDecline:()=>{check();return callHost.decline();},
   callHangup:()=>{check();return callHost.hangup();},
   callSay:text=>{check();return callHost.say(text);},
+  callReply:()=>{check();return callHost.reply();},
   callRetry:()=>{check();return callHost.retry();},
    playFavorite:id=>{check();playbackMessage=null;return api.playFavorite(id);},
   diagnose:()=>{check();return diagnose();},

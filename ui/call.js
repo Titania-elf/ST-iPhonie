@@ -69,6 +69,7 @@ export function callScreen(ctx, host) {
     if (c.error) return '';
     if (c.thinking) return `${c.name} 在想……`;
     if (c.speaking) return `${c.name} 正在说`;
+    if (c.lines.at(-1)?.from === 'me') return `说完了点右边的气泡，${c.name} 才会回`;
     return c.voiced ? '轮到你了，打字说话' : `${c.name} 还没有配音，只显示字幕`;
   }
   function linesHTML(c) {
@@ -90,12 +91,12 @@ export function callScreen(ctx, host) {
         <div class="call-top"><div class="call-av${c.state === 'ringing' ? ' ringing' : ''}">${avatar(c.name, engine(c.name), talking ? 64 : 104)}</div><h2>${esc(c.name)}</h2><p class="call-status" data-call-status></p><p class="call-note" data-call-note></p></div>
         <div class="call-lines" data-call-lines aria-live="polite"></div>
         <div class="call-error" data-call-error hidden></div>
-        ${talking ? `<form class="call-say" data-call-form><input data-call-input maxlength="1000" autocomplete="off" placeholder="说点什么……" aria-label="对 ${esc(c.name)} 说"><button class="call-send" type="submit" aria-label="说">${icon('send')}</button></form>` : ''}
+        ${talking ? `<form class="call-say" data-call-form><input data-call-input maxlength="1000" autocomplete="off" enterkeyhint="send" placeholder="说点什么……" aria-label="对 ${esc(c.name)} 说"><button class="call-send" type="submit"></button></form>` : ''}
         <div class="call-actions">${c.state === 'ringing' && c.dir === 'in'
           ? `<button class="call-btn decline" data-call="decline" aria-label="拒绝">${icon('phone', true)}<span>拒绝</span></button><button class="call-btn answer" data-call="answer" aria-label="接听">${icon('phone', true)}<span>接听</span></button>`
           : c.state === 'ended' ? '' : `<button class="call-btn decline" data-call="hangup" aria-label="${c.state === 'ringing' ? '取消' : '挂断'}">${icon('phone', true)}<span>${c.state === 'ringing' ? '取消' : '挂断'}</span></button>`}</div>`;
       const input = layer.querySelector('[data-call-input]');
-      if (input) { input.value = typed; input.addEventListener('input', () => { typed = input.value; }); }
+      if (input) { input.value = typed; input.addEventListener('input', () => { typed = input.value; sendButton(); }); }
     }
     layer.querySelector('[data-call-status]').textContent = status(c);
     layer.querySelector('[data-call-note]').textContent = note(c);
@@ -104,8 +105,21 @@ export function callScreen(ctx, host) {
     const error = layer.querySelector('[data-call-error]');
     error.hidden = !c.error;
     if (c.error) error.innerHTML = `<span>${esc(c.error)}</span><button data-call="retry">再说一次</button>`;
+    sendButton();
+  }
+  // Same as the chat app: a paper plane while there is text (it only says it), a bubble when the box is empty (the
+  // contact answers everything said so far).
+  function sendButton() {
     const send = layer.querySelector('.call-send');
-    if (send) send.disabled = !!c.thinking;
+    if (!send || !call) return;
+    const ask = !typed.trim(), label = ask ? `让${call.name}回话` : '说';
+    if (send.dataset.mode !== (ask ? 'ask' : 'say')) {
+      send.dataset.mode = ask ? 'ask' : 'say';
+      send.classList.toggle('ask', ask);
+      send.innerHTML = icon(ask ? 'bubble' : 'send');
+      send.setAttribute('aria-label', label); send.title = label;
+    }
+    send.disabled = ask && !!call.thinking;
   }
 
   function update(next) {
@@ -133,8 +147,8 @@ export function callScreen(ctx, host) {
   layer.addEventListener('submit', e => {
     e.preventDefault();
     const input = layer.querySelector('[data-call-input]'), words = input?.value.trim();
-    if (!words || call?.thinking) return;
-    input.value = ''; typed = '';
+    if (!words) { if (call?.state === 'talking' && !call.thinking) run(() => api.callReply()); return; }
+    input.value = ''; typed = ''; sendButton();
     run(() => api.callSay(words));
   });
   // Keys stay in the call: Escape does not close the phone under it.

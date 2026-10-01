@@ -1,4 +1,4 @@
-import {createView, esc, engines, btn, field, input, select, textArea, heading, help, groupTitle, plate, avatar, languageField, languageName} from './common.js';
+import {createView, esc, engines, btn, field, input, select, textArea, heading, help, groupTitle, plate, avatar, languageField, languageName, typedLanguages} from './common.js';
 import {icon, halo} from './icons.js';
 
 function barcode(seed) {
@@ -54,7 +54,7 @@ export function rolesApp(ctx) {
           <div class="voice-row"><span class="disc">${icon('wave')}</span><div>${voiced ? `<strong>${esc(voiceLabel(r.voice))}</strong><small class="mono">${esc(r.voice)}</small>` : '<strong class="unset">还没有选择音色</strong><small>从列表选择，或在下面粘贴音色 ID</small>'}</div>${btn('pick-voice', '从列表选', 'chip-button')}</div>
           ${field('音色 ID', input('voice', r.voice, 'text', 'placeholder="粘贴音色 ID 或从列表选择" autocomplete="off"'))}
           ${field('模型', select('model', r.model || '', [['', '跟随引擎 · ' + c.model], ...schema.models.map(m => [m.id, m.id, !m.supported])]))}
-          ${languageField('language', r.language || '')}
+          ${languageField('language', r.language || '', true, typedLanguages(api.getState()))}
         </div>
         ${groupTitle('绘图')}
         <div class="group pad">${field('外貌 tag', textArea('appearance', r.appearance || '', 'class="code" rows="3" placeholder="例如 1girl, long silver hair, blue eyes, slender"'), '这个角色入画时会自动补上这些 tag，让长相保持一致。写英文 danbooru tag，逗号分隔，只写不会变的特征：1girl 或 1boy、发型发色、瞳色、体型、显眼的特征；衣服、表情、动作让模型按剧情写。已有作品里的角色，把识别 tag 放最前，比如 hatsune miku (vocaloid)。\n\n新角色第一次入画时，模型写的外貌会自动填到这里，可以随时改。')}</div>

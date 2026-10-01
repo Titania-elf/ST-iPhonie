@@ -89,16 +89,25 @@ export function createCallHost({context, settings, backend, notice, ringing = ()
     if (call.state === 'ringing') return end(call.dir === 'in' ? 'declined' : 'cancelled');
     return end('answered');
   }
-  /** What the user says; the contact answers. */
+  /**
+   * What the user says. Like the chat app, saying only puts the words in the call, so the user can say several things
+   * in a row; the contact answers when the user asks with reply().
+   */
   function say(text) {
     const words = String(text || '').trim().slice(0, 1000);
     if (!words) throw Error('先说点什么');
     if (!call || call.state !== 'talking') throw Error('通话已经结束了');
-    if (call.thinking) throw Error(`${call.name}还在说话，等一下`);
     if (call.speaking) backend.player.stop('你插话了');
     call.lines.push({from: 'me', text: words, translation: words, emotion: 'calm'});
     if (call.lines.length > CALL_LIMITS.lines) call.lines = call.lines.slice(-CALL_LIMITS.lines);
     emit();
+    return Promise.resolve(snapshot());
+  }
+  /** The contact answers everything said so far (or, when the user said nothing, goes on talking). */
+  function reply() {
+    if (!call || call.state !== 'talking') throw Error('通话已经结束了');
+    if (call.thinking) throw Error(`${call.name}还在想，等一下`);
+    if (call.speaking) backend.player.stop('你插话了');
     return turn('reply');
   }
   /** Asks again after a failed turn. */
@@ -189,5 +198,5 @@ export function createCallHost({context, settings, backend, notice, ringing = ()
 
   function dispose() { clearTimeout(ringTimer); clearTimeout(pickTimer); if (call?.speaking) backend.player.stop(); call = null; }
 
-  return {ring, dial, answer, decline, hangup, say, retry, storyReplied, dispose, status: snapshot};
+  return {ring, dial, answer, decline, hangup, say, reply, retry, storyReplied, dispose, status: snapshot};
 }
