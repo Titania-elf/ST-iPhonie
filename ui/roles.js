@@ -35,7 +35,7 @@ export function rolesApp(ctx) {
     const saved = api.getState().routes.findIndex(x => x.id === r.id), pending = api.pendingRole() === r.name && !!r.name;
     const voiced = !!r.voice;
     v.draw(heading(r.id ? '角色配音' : '新增角色', '', 'Voice Route')
-      + (pending ? `<div class="banner">${icon('alert')}<span>整条播放停在「${esc(r.name)}」这里，选好音色后可以继续。</span></div>` : '')
+      + (pending ? `<div class="banner">${icon('alert')}<span>播放停在「${esc(r.name)}」这里，选好音色后可以继续。</span></div>` : '')
       + `<div class="id-card${voiced ? '' : ' none'}" data-engine="${r.engine}">
           <div class="id-top"><span>VOICE ID CARD</span>${plate(saved >= 0 ? number(saved) : 'NEW')}</div>
           <div class="id-main"><span class="id-photo">${halo()}${avatar(r.name || '新', voiced ? r.engine : 'none', 76)}</span>

@@ -130,6 +130,7 @@ export class DialoguePlayer {
   this.queue = [];
   this.index = 0;
   this.pending = null;
+  this.skipped = [];
   this.controller = null;
   this.valid = () => true;
   this.played = new Set();
@@ -184,6 +185,7 @@ export class DialoguePlayer {
   this.pending = null;
   this.settingsOverride = null;
   this.resumePhase = null;
+  this.skipped = [];
   this.wake?.();
   this.wake = null;
   this.clearMetadata();
@@ -225,6 +227,13 @@ export class DialoguePlayer {
     this.engine = route?.engine || '';
     this.requestKey = null;
     if (!route?.voice?.trim() && !(route?.engine === 'fish' && s.connections.fish.params.references.length) && !(route?.engine === 'mini' && s.connections.mini.params.timbre_weights.length)) {
+     // Playing a whole reply goes on past speakers without a voice, so a story with more people than voices still plays
+     // through; a single line stops and asks for a voice.
+     if (this.queue.length > 1) {
+      if (line.role && !this.skipped.includes(line.role)) this.skipped.push(line.role);
+      this.index++;
+      continue;
+     }
      this.pending = line.role;
      this.emit('waiting', '等待为 ' + line.role + ' 选择音色');
      this.unknown(line.role);
@@ -261,10 +270,12 @@ export class DialoguePlayer {
   } catch (error) { this.fail(epoch, signal, error); }
  }
  complete() {
+  const skipped = this.skipped || [];
   this.queue = [];
   this.index = 0;
   this.pending = null;
-  this.emit('idle', '播放完成');
+  this.skipped = [];
+  this.emit('idle', skipped.length ? `播放完成 · 跳过了还没选音色的${skipped.join('、')}` : '播放完成');
  }
  fail(epoch, signal, error) {
   if (!this.current(epoch) || signal.aborted) return;
