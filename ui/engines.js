@@ -41,7 +41,8 @@ export function enginesApp(ctx) {
         : [['MODEL', api.getState().connections[id].model], ['ROLES', api.getState().routes.filter(r => r.engine === id && r.voice).length + ' 个角色']];
     const front = order.at(-1) === id;
     const attrs = tag === 'button' ? `data-action="engine" data-engine="${id}" aria-label="${name}，${front ? '点一下打开' : '点一下抽到最前面'}"` : `data-engine="${id}"`;
-    const number = llm ? (custom ? (saved ? '•••• •••• •••• ••••' : '未绑定密钥 · 点卡片去填写') : '用酒馆当前连接的模型') : saved ? '•••• •••• •••• ••••' : '未绑定密钥 · 点卡片去填写';
+    const dots = `•••• •••• •••• ${api.keyHint?.(id) || '••••'}`;
+    const number = llm ? (custom ? (saved ? dots : '未绑定密钥 · 点卡片去填写') : '用酒馆当前连接的模型') : saved ? dots : '未绑定密钥 · 点卡片去填写';
     return `<${tag} class="bank-card${tag === 'div' ? ' detail-card' : ''}" ${attrs}>${spark()}
       <span class="card-top"><span class="card-name">${name}</span><span class="card-kind">${nai ? 'IMAGE' : llm ? 'TEXT' : 'VOICE'}${icon('nfc')}</span></span>
       <span class="card-chip"></span>
@@ -63,7 +64,7 @@ export function enginesApp(ctx) {
       + card('nai', 'div')
       + groupTitle('连接')
       + `<div class="group pad">
-          <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? '已保存在这台浏览器' : '还没有填写'}</span></div>
+          <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? `已保存${api.keyHint?.(engine) ? '，末尾 ' + esc(api.keyHint(engine)) : ''}` : '还没有填写'}</span></div>
           ${field('Persistent API Token', input('key', '', 'password', `autocomplete="off" placeholder="${saved ? '已保存，填写新的可替换' : '在 NovelAI 账户设置里获取，以 pst- 开头'}"`), '插件直接连接 NovelAI，不经过酒馆。密钥只保存在当前浏览器和酒馆地址。')}
           <div class="key-actions">${btn('save-key', icon('key') + '保存密钥', 'primary')}${btn('reveal-key', '显示', 'secondary')}${btn('clear-key', '清除', 'danger')}</div>
         </div>`
@@ -154,7 +155,7 @@ export function enginesApp(ctx) {
       + card(engine, 'div')
       + groupTitle('连接')
       + `<div class="group pad">
-          <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? '已保存在这台浏览器' : '还没有填写'}</span></div>
+          <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? `已保存${api.keyHint?.(engine) ? '，末尾 ' + esc(api.keyHint(engine)) : ''}` : '还没有填写'}</span></div>
           ${field('API Key', input('key', '', 'password', `autocomplete="off" placeholder="${saved ? '已保存，填写新密钥可替换' : '填写这家引擎的密钥'}"`), '密钥只保存在当前浏览器和酒馆地址，按账户分别保存。填写过不代表鉴权成功。')}
           <div class="key-actions">${btn('save-key', icon('key') + '保存密钥', 'primary')}${btn('reveal-key', '显示', 'secondary')}${btn('clear-key', '清除', 'danger')}</div>
           ${field('默认模型', select('model', c.model, schema.models.map(m => [m.id, m.id, !m.supported])), unsupported || '角色没有单独指定模型时使用这里的模型。')}
@@ -180,7 +181,7 @@ export function enginesApp(ctx) {
 </div>`
       + (custom ? groupTitle('连接') + `<div class="group pad">
           ${field('接口地址', input('text-url', t.url, 'url', 'autocomplete="off" placeholder="https://api.openai.com/v1"'), '填到 /v1 为止，后面的 /chat/completions 不用写。OpenAI 格式的服务都可以：OpenAI、DeepSeek、OpenRouter、硅基流动、各种中转站。接口要允许网页直接访问（CORS），不然浏览器会拦下请求。')}
-          <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? '已保存在这台浏览器' : '还没有填写'}</span></div>
+          <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? `已保存${api.keyHint?.(engine) ? '，末尾 ' + esc(api.keyHint(engine)) : ''}` : '还没有填写'}</span></div>
           ${field('API Key', input('key', '', 'password', `autocomplete="off" placeholder="${saved ? '已保存，填写新密钥可替换' : '这个接口的密钥（本地模型可以不填）'}"`), '密钥只保存在当前浏览器和酒馆地址，不会写进设置或备份。')}
           <div class="key-actions">${btn('save-key', icon('key') + '保存密钥', 'primary')}${btn('reveal-key', '显示', 'secondary')}${btn('clear-key', '清除', 'danger')}</div>
           ${field('模型', input('text-model', t.model, 'text', 'autocomplete="off" placeholder="例如 gpt-4o-mini、deepseek-chat"'))}
@@ -269,7 +270,14 @@ export function enginesApp(ctx) {
         });
         break;
       }
-      case 'save-connection': api.saveConnection(engine, draft()); dirty = false; render(); ctx.notify('引擎配置已保存'); break;
+      case 'save-connection': {
+        // A key typed in the box is kept too: people expect the big button to save everything on the page.
+        const typed = v.root.querySelector('[data-field=key]')?.value || '';
+        if (typed.trim()) { api.setKey(engine, typed); balances.delete(engine); }
+        api.saveConnection(engine, draft()); dirty = false; render(); ctx.notify(typed.trim() ? '密钥和引擎配置都已保存' : '引擎配置已保存');
+        if (typed.trim()) loadBalance(engine, true);
+        break;
+      }
       case 'save-key': api.setKey(engine, v.root.querySelector('[data-field=key]').value); balances.delete(engine); render(); ctx.notify('密钥已保存'); if (engine === 'nai') loadSubscription(true); else loadBalance(engine, true); break;
       case 'refresh-subscription': await v.busy(el, () => loadSubscription(true)); break;
       case 'refresh-balance': await v.busy(el, () => loadBalance(engine, true)); break;

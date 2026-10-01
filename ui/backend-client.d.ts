@@ -382,6 +382,8 @@ export interface BackendFacade {
     /** ElevenLabs or Fish balance; null without a key. Cached for a minute unless `refresh`. */
     voiceBalance(engine: 'eleven' | 'fish', refresh?: boolean): Promise<VoiceBalance | null>;
     keyStatus(engine: KeyEngine): boolean;
+    /** The last 4 characters of the saved key ('' when none is saved), to tell which key is in use. */
+    keyHint(engine: KeyEngine): string;
     setKey(engine: KeyEngine, key: string): void;
     clearKey(engine: KeyEngine): void;
     saveDraw(patch: DrawSettingsPatch): DrawSettings;

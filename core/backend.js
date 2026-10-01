@@ -8,7 +8,7 @@ import { normalizeSettings, validateSettings, modelRules, freshState } from './s
 import { normalizeRoute, switchRouteEngine, removeRoute } from './routes.js';
 import { DEFAULT_PROMPT, DEFAULT_FORMAT, promptPlan, validatePreset, parseDialogue, isPlaceholderRole, knownFormats } from './protocol.js';
 import { TTSParameters } from './parameters.js';
-import { LocalKeyStore } from './keys.js';
+import { LocalKeyStore, keyTail } from './keys.js';
 import { Providers, buildRequest } from './providers.js';
 import { AudioCache } from './cache.js';
 import { DialoguePlayer } from './player.js';
@@ -271,6 +271,8 @@ export class TTSBackend {
         this.emit('balance', { engine, balance: clone(value) });
         return clone(value);
     }
+    /** The last 4 characters of the saved key ('' without one), so the user can tell which key is in use. */
+    keyHint(engine) { keyCheck(engine); try { return keyTail(this.keyStore.load().get(engine) || ''); } catch { return ''; } }
     keyStatus(engine) { keyCheck(engine); return engine === 'nai' ? this.novelai.configured : engine === 'llm' ? !!this.textKey : this.providers.keys.has(engine); }
 
     // ---------- 保存到酒馆 ----------
@@ -708,7 +710,7 @@ export class TTSBackend {
             savePreset: preset => this.savePreset(preset), deletePreset: id => this.deletePreset(id), selectPreset: id => this.selectPreset(id),
             validatePreset: preset => { try { validatePreset(preset); return ''; } catch (error) { return message(error); } },
             previewPrompt: preset => this.previewPrompt(preset), promptPlan: () => clone(promptPlan(this.settings, modelRules(this.settings))), parse: text => this.parse(text),
-            voiceBalance: (engine, refresh) => this.voiceBalance(engine, refresh), keyStatus: engine => this.keyStatus(engine), setKey: (engine, key) => this.setKey(engine, key), clearKey: engine => this.clearKey(engine),
+            voiceBalance: (engine, refresh) => this.voiceBalance(engine, refresh), keyStatus: engine => this.keyStatus(engine), keyHint: engine => this.keyHint(engine), setKey: (engine, key) => this.setKey(engine, key), clearKey: engine => this.clearKey(engine),
             saveDraw: patch => this.saveDraw(patch), saveStyle: style => this.saveStyle(style), deleteStyle: id => this.deleteStyle(id),
             saveDrawPreset: preset => this.saveDrawPreset(preset), deleteDrawPreset: id => this.deleteDrawPreset(id), previewDrawPrompt: preset => this.previewDrawPrompt(preset),
             naiSubscription: refresh => this.naiSubscription(refresh), drawQuote: params => this.drawQuote(params),

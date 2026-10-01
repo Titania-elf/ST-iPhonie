@@ -82,7 +82,7 @@ const REASONS={
  too_many_concurrent_requests:'同时生成的太多了，等前面的生成完再试。',
  system_busy:'服务正忙，稍后再试。'
 };
-const FALLBACK={400:'请求里有服务不接受的内容',401:'密钥没有通过验证',402:'需要付费档或额度不足',403:'这个账户没有权限',404:'找不到这个音色或模型',422:'请求里有服务不接受的内容',429:'请求太频繁或额度不足，稍后再试'};
+const FALLBACK={400:'请求里有服务不接受的内容',401:'密钥没有通过验证。请回官网重新复制密钥，粘贴后点「保存密钥」；卡片上显示已保存密钥的末尾 4 位，可以和官网的对一下',402:'需要付费档或额度不足',403:'这个账户没有权限',404:'找不到这个音色或模型',422:'请求里有服务不接受的内容',429:'请求太频繁或额度不足，稍后再试'};
 /**
  * An Error that says what the service reported: our explanation of its code, then its own code and message.
  * The service's text never shows a key: `secrets` and anything shaped like a key are replaced with ***.
