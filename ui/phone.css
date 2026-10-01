@@ -508,24 +508,25 @@ details>div{padding-bottom:10px}
 /* ---------- Full screen on real phones ---------- */
 .home-close{position:absolute;top:10px;right:12px;z-index:5;width:36px;height:36px;border-radius:50%;place-items:center;background:rgba(255,255,255,.35);color:inherit;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
 .home-close svg{width:18px;height:18px}
+/* A real phone (or a very narrow window): full screen. Not for the floating phone on a computer, whose frame is narrow too. */
 @media (pointer:coarse) and (max-width:540px),(max-width:360px){
-  body{background:var(--page)}
-  .stage{padding:0}
-  .stage-bar,.power-key,.statusbar{display:none}
-  .pull-tab{display:block}
-  .device{width:100%;flex:1;aspect-ratio:auto;border-radius:0;padding:0;background:none!important;box-shadow:none!important}
-  .screen{border-radius:0}
-  .home-close{display:grid;top:calc(env(safe-area-inset-top,0px) + 8px)}
-  .home-page{padding-top:calc(env(safe-area-inset-top,0px) + 24px)}
-  .phone-dock{margin-bottom:calc(env(safe-area-inset-bottom,0px) + 22px)}
-  .app-nav{height:calc(env(safe-area-inset-top,0px) + 50px);padding-top:env(safe-area-inset-top,0px)}
-  .view:before{top:-50px}
-  .island{top:calc(env(safe-area-inset-top,0px) + 6px);display:none;box-shadow:0 8px 20px -6px rgba(0,0,0,.5)}
-  .island[data-active]{display:flex}
-  .home-indicator{bottom:calc(env(safe-area-inset-bottom,0px) + 2px)}
-  .savebar{padding-bottom:calc(env(safe-area-inset-bottom,0px) + 40px)}
-  .lockscreen{padding-top:calc(env(safe-area-inset-top,0px) + 40px)}
-  .overlay.top{padding-top:calc(env(safe-area-inset-top,0px) + 12px)}
+  :root:not([data-floating]) body{background:var(--page)}
+  :root:not([data-floating]) .stage{padding:0}
+  :root:not([data-floating]) .stage-bar,:root:not([data-floating]) .power-key,:root:not([data-floating]) .statusbar{display:none}
+  :root:not([data-floating]) .pull-tab{display:block}
+  :root:not([data-floating]) .device{width:100%;flex:1;aspect-ratio:auto;border-radius:0;padding:0;background:none!important;box-shadow:none!important}
+  :root:not([data-floating]) .screen{border-radius:0}
+  :root:not([data-floating]) .home-close{display:grid;top:calc(env(safe-area-inset-top,0px) + 8px)}
+  :root:not([data-floating]) .home-page{padding-top:calc(env(safe-area-inset-top,0px) + 24px)}
+  :root:not([data-floating]) .phone-dock{margin-bottom:calc(env(safe-area-inset-bottom,0px) + 22px)}
+  :root:not([data-floating]) .app-nav{height:calc(env(safe-area-inset-top,0px) + 50px);padding-top:env(safe-area-inset-top,0px)}
+  :root:not([data-floating]) .view:before{top:-50px}
+  :root:not([data-floating]) .island{top:calc(env(safe-area-inset-top,0px) + 6px);display:none;box-shadow:0 8px 20px -6px rgba(0,0,0,.5)}
+  :root:not([data-floating]) .island[data-active]{display:flex}
+  :root:not([data-floating]) .home-indicator{bottom:calc(env(safe-area-inset-bottom,0px) + 2px)}
+  :root:not([data-floating]) .savebar{padding-bottom:calc(env(safe-area-inset-bottom,0px) + 40px)}
+  :root:not([data-floating]) .lockscreen{padding-top:calc(env(safe-area-inset-top,0px) + 40px)}
+  :root:not([data-floating]) .overlay.top{padding-top:calc(env(safe-area-inset-top,0px) + 12px)}
 }
 /* Tap-to-zoom wrappers around pictures */
 .photo-zoom,.canvas-zoom{display:block;width:100%;height:100%;padding:0;cursor:zoom-in;border-radius:inherit}
@@ -1052,7 +1053,14 @@ button.moment-note{color:var(--accent-ink);text-decoration:underline;text-underl
 @container (max-width:340px){.th-head .bring-label{display:none}.th-head [data-action=bring]{padding-inline:10px}}
 
 /* Avatars with a picture (album photo, or the tavern's character card and persona) */
-.avatar.pic{padding:0;overflow:hidden;background:var(--card2)}
-.avatar.pic img{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block}
+.avatar.pic{display:block;position:relative;padding:0;overflow:hidden;background:var(--card2)}
+/* The picture fills the circle exactly (tavern thumbnails are 2:3 portraits): cropped a little above the middle, where faces usually are. */
+.avatar.pic img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 22%;display:block}
 .file-button{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
 .pick-photos [aria-pressed=true]{outline:3px solid var(--accent-btn);outline-offset:2px}
+
+/* On a computer the stage bar moves the floating phone */
+.stage-bar[data-draggable]{cursor:grab;-webkit-user-select:none;user-select:none;touch-action:none;margin-bottom:6px;border-radius:14px;background:rgba(18,22,38,.62);box-shadow:0 6px 18px -8px #0008}
+.stage-bar[data-dragging]{cursor:grabbing}
+.stage-bar .size-button{min-width:36px;height:28px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:800;color:#fff;background:#ffffff26}
+@media (hover:hover){.stage-bar .size-button:hover{background:#ffffff40}}

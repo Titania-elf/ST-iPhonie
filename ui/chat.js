@@ -1,4 +1,4 @@
-import {createView, esc, btn, field, input, textArea, heading, groupTitle, avatar, avatarPicture, empty} from './common.js';
+import {createView, esc, btn, field, input, textArea, heading, groupTitle, avatar, avatarPicture, empty, help} from './common.js';
 import {icon} from './icons.js';
 import {openImageViewer} from '../image-viewer.js';
 import {saveFile, downloadAction} from '../download.js';
@@ -138,8 +138,8 @@ export function chatApp(ctx) {
     const special = contacts.filter(c => stars.includes(c.name));
     v.draw(frame(heading('联系人', btn('contact-add', icon('add'), 'round-button', 'aria-label="手动添加联系人"'), 'Contacts')
       + (special.length ? groupTitle('特别关心') + `<div class="group">${special.map(row).join('')}</div>` : '')
-      + groupTitle(`好友 · ${contacts.length}`)
-      + (contacts.length ? `<div class="group">${contacts.map(row).join('')}</div>` : '<p class="hint">角色 App 里的角色会自动出现在这里；剧情之外的人（同学、店员、网友……）可以点右上角手动添加，写上人设就能聊。</p>')
+      + groupTitle(`好友 · ${contacts.length}`, help('角色 App 里的角色会自动出现在这里；剧情之外的人（同学、店员、网友……）可以点右上角的「＋」手动添加，写上人设就能聊。'))
+      + (contacts.length ? `<div class="group">${contacts.map(row).join('')}</div>` : '<p class="hint">还没有好友。</p>')
       + (groups.length ? groupTitle(`群聊 · ${groups.length}`) + `<div class="group">${groups.map(t => `<button class="list-row" data-action="open" data-id="${esc(t.id)}">${threadAvatar(t, 42)}<span><strong>${esc(t.name)}</strong><small>${t.members.length} 人</small></span>${icon('next')}</button>`).join('')}</div>` : '')));
   }
   function renderContactForm() {
@@ -590,7 +590,7 @@ export function chatApp(ctx) {
   /** Picks an avatar for the user ('me') or a contact: an album photo, a new picture, the tavern's avatar, or text. */
   async function avatarSheet(key) {
     const rows = (await api.listPhotos()).slice(0, 30), who = key === 'me' ? '我' : key, chosen = api.getState().chat.avatars?.[key];
-    const d = ctx.dialog(`${who}的头像`, `<p class="help-copy">点一张照片当头像，或者上传一张新的。没选的时候，酒馆里有头像就用酒馆的（${key === 'me' ? '当前人设' : '角色卡'}）。</p>
+    const d = ctx.dialog(`${who}的头像`, `<p class="help-copy">点一张照片，或者上传一张新的。</p>
       <label class="secondary file-button">${icon('import')}上传图片<input type="file" accept="image/*" data-avatar-file hidden></label>
       ${rows.length ? `<div class="photo-grid pick-photos">${rows.map(r => `<button data-avatar-photo="${esc(r.id)}" aria-label="用 ${esc(r.name)} 当头像"${chosen?.photoId === r.id ? ' aria-pressed="true"' : ''}><img data-chat-photo="${esc(r.id)}" alt=""></button>`).join('')}</div>` : '<p class="hint">相册里还没有照片。</p>'}
       <div class="actions">${btn('avatar-tavern', '用酒馆的头像', 'secondary')}${btn('avatar-text', '只显示文字', 'text-button')}</div>`);
@@ -613,8 +613,7 @@ export function chatApp(ctx) {
   /** 来电 options: characters calling by themselves (off by default), and how long a call rings. */
   function callsSheet() {
     const o = () => api.getState().calls;
-    const draw = () => `<p class="help-copy">角色可以给你打语音电话：接通后用 TA 的音色说话，你打字回。聊天里角色偶尔也会直接打过来（聊天预设的「打电话」规则）。每句话都要调用一次模型并生成语音。</p>
-      <div class="setting-row"><span>角色自己打来</span><input class="switch" type="checkbox" data-field="call-auto" aria-label="角色自己打来" ${o().auto ? 'checked' : ''}></div>
+    const draw = () => `<div class="setting-row"><span>角色自己打来${help('角色可以给你打语音电话：接通后用 TA 的音色说话，你打字回。打开这里后，每隔几条正文回复，角色可能会自己打来；不打开时，聊天里角色偶尔也会直接打过来（聊天预设的「打电话」规则）。每句话都要调用一次模型并生成语音。')}</span><input class="switch" type="checkbox" data-field="call-auto" aria-label="角色自己打来" ${o().auto ? 'checked' : ''}></div>
       <div class="field"><span>每几条正文回复可能打来一次</span><input data-field="call-every" type="number" min="1" max="100" value="${o().every}"></div>
       <div class="field"><span>每天最多</span><input data-field="call-dailyMax" type="number" min="1" max="10" value="${o().dailyMax}"></div>
       <div class="field"><span>响铃多久算未接（秒）</span><input data-field="call-ring" type="number" min="15" max="60" value="${o().ring}"></div>`;

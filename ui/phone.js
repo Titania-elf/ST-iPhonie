@@ -47,7 +47,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
 
   mount.innerHTML = `
     <div class="stage">
-      <div class="stage-bar"><span>ST-iPhonie</span><div class="stage-actions"><button class="info" data-system="help" aria-label="手机界面说明">i</button><button class="close" data-system="close" aria-label="返回酒馆">${icon('close')}</button></div></div>
+      <div class="stage-bar" title="按住这里拖动手机，双击放回原处"><span>ST-iPhonie</span><div class="stage-actions"><button class="size-button" data-system="size" aria-label="换手机大小" hidden></button><button class="info" data-system="help" aria-label="手机界面说明">i</button><button class="close" data-system="close" aria-label="返回酒馆">${icon('close')}</button></div></div>
       <div class="device">
         <button class="power-key" data-system="power" aria-label="锁屏或唤醒"></button>
         <div class="screen" data-view="home">
@@ -159,6 +159,26 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   const ctx = {api, doc, win, notify, dialog, confirm, help, lock, open, routeFor, engineOf, openPendingRole: name => openPendingRole(name), visible: name => active === name && !locked,
     editEngine: id => views.get('engines')?.edit?.(id), showPresetKind: kind => views.get('presets')?.showKind?.(kind), momentsSeen: () => { if (fresh) { fresh = 0; renderHome(); } }};
   installMotion(win, mount, signal);
+  // On a computer the phone is a floating window: its top bar moves it.
+  const stageBar = $('.stage-bar'), sizeButton = $('[data-system=size]');
+  function floatingBar() {
+    let float = false;
+    try { float = !!api.panelFloating?.(); } catch { /* outside the tavern */ }
+    stageBar.toggleAttribute('data-draggable', float);
+    doc.documentElement.toggleAttribute('data-floating', float);
+    sizeButton.hidden = !float;
+    if (float) sizeButton.textContent = api.panelSizeName?.() || '中';
+  }
+  stageBar.addEventListener('pointerdown', e => {
+    if (e.button || e.target.closest('button') || !stageBar.hasAttribute('data-draggable')) return;
+    e.preventDefault();
+    stageBar.setPointerCapture?.(e.pointerId);
+    stageBar.dataset.dragging = '';
+    api.panelDrag?.('start', e.screenX, e.screenY);
+  }, {signal});
+  stageBar.addEventListener('pointermove', e => { if ('dragging' in stageBar.dataset) api.panelDrag?.('move', e.screenX, e.screenY); }, {signal});
+  for (const type of ['pointerup', 'pointercancel']) stageBar.addEventListener(type, () => { if (!('dragging' in stageBar.dataset)) return; delete stageBar.dataset.dragging; api.panelDrag?.('end'); }, {signal});
+  stageBar.addEventListener('dblclick', e => { if (!e.target.closest('button')) api.panelDrag?.('reset'); }, {signal});
   // 来电: one layer over everything, drawn from what the tavern side reports.
   const calls = callScreen(ctx, screen);
   const callState = () => { try { calls.update(api.callStatus?.() || null); } catch { /* not in the tavern */ } };
@@ -509,9 +529,9 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
       if (!body || body.scrollHeight <= body.clientHeight + 1) gesture = {kind: 'close', x, y, d: sheet};
       return;
     }
-    if (sheet || locked) return;
+    if (sheet || locked || target.closest('.stage-bar')) return;
     const top = y - screen.getBoundingClientRect().top;
-    if (target.closest('.status-icons,.pull-tab') || top < Math.max(34, $('.safe-probe').offsetHeight + 26)) gesture = {kind: 'open', x, y};
+    if (target.closest('.status-icons,.pull-tab') || top >= 0 && top < Math.max(34, $('.safe-probe').offsetHeight + 26)) gesture = {kind: 'open', x, y};
   }
   /** Returns true while the drag is ours, so the page does not scroll under it. */
   function gestureMove(x, y) {
@@ -568,6 +588,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
           break;
         }
         case 'control': if (Date.now() - pulledAt > 400) control(); break;
+        case 'size': b.textContent = api.panelSize?.() || b.textContent; break;
         case 'toggle': api.toggle(); break;
         case 'help': help('桌面左右滑动翻页，图标打开对应应用；底部横条或左上角返回键回到桌面。\n从屏幕顶端往下拉（或点右上角的信号和电量）打开控制中心，往上推收起。侧键可以看锁屏，锁屏随时可以跳过。\n\n信号和电量是你设备上的真实状态（有的浏览器不提供电量，比如 Safari、Firefox）。语音只在点击台词、播放或试听时生成。'); break;
       }
@@ -667,7 +688,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   win.stTtsOpenDraw = () => run(takeDraw);
   win.stTtsPanelVisibility = visible => {
     panelVisible = visible;
-    if (visible) { callState(); run(refreshAvatars); }
+    if (visible) { callState(); run(refreshAvatars); floatingBar(); }
     if (!visible) sheet?.close(null);
     else if (takeDraw()) { /* opened from a chat picture */ }
     else if (preferences?.lockOnOpen && !api.pendingRole()) lock();
@@ -704,6 +725,7 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   countMoments();
   callState();
   run(refreshAvatars);
+  floatingBar();
   paintPlayback(playback);
 
   const fallback = {wallpaper: {kind: 'builtin', key: 'sky'}, icons: {}, iconStyle: 'color', lockOnOpen: false, volume: api.getVolume(), theme: api.getState().theme};

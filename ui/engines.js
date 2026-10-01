@@ -117,8 +117,8 @@ export function enginesApp(ctx) {
 
   function renderList() {
     delete v.root.dataset.engine;
-    v.draw(heading('引擎', help('每个服务一张卡：文字模型、三家语音引擎，加上绘图用的 NovelAI。点一张卡片把它抽到最前面，再点一下打开，查看连接和全部参数。\n卡片只显示密钥是否保存，不显示内容；“已保存”不代表鉴权成功。'), 'Wallet · 05')
-      + `<div class="wallet">${order.map(id => card(id)).join('')}</div><p class="hint">点一张卡片把它抽到最前面，再点一下打开。ElevenLabs 和 Fish 的卡片上显示剩余额度。</p>`);
+    v.draw(heading('引擎', help('每个服务一张卡：文字模型、三家语音引擎，加上绘图用的 NovelAI。点一张卡片把它抽到最前面，再点一下打开，查看连接和全部参数。ElevenLabs 和 Fish 的卡片上显示剩余额度。\n卡片只显示密钥是否保存，不显示内容；“已保存”不代表鉴权成功。'), 'Wallet · 05')
+      + `<div class="wallet">${order.map(id => card(id)).join('')}</div>`);
     for (const id of PRICED) if (!balances.has(id)) loadBalance(id);
   }
   /** The 额度 group of the ElevenLabs and Fish cards. */
@@ -175,9 +175,9 @@ export function enginesApp(ctx) {
     v.root.dataset.engine = 'llm';
     v.draw(heading('文字模型', '', 'Text Card')
       + card('llm', 'div')
-      + groupTitle('谁来写手机里的字')
+      + groupTitle('谁来写手机里的字', help('手机里的字：聊天回复、朋友圈、来电，以及正文配图时挑画面。正文本身始终用酒馆的模型。\n酒馆主模型：和正文一样，用酒馆当前连接的模型，换了酒馆的模型手机也跟着换。\n自定义接口：用你自己的 OpenAI 兼容接口，不占用酒馆正在用的模型，正文和手机可以用不同的模型。插件直接从浏览器连接这个接口，不经过酒馆。'))
       + `<div class="group pad"><div class="segmented" style="margin:0">${[['tavern', '酒馆主模型'], ['custom', '自定义接口']].map(([k, l]) => `<button type="button" data-action="text-source" data-source="${k}" aria-pressed="${t.source === k}">${l}</button>`).join('')}</div>
-          <p class="hint">${custom ? '手机里的字由你自己的 OpenAI 兼容接口来写，不占用酒馆正在用的模型，正文和手机可以用不同的模型。插件直接从浏览器连接这个接口，不经过酒馆。' : '和正文一样，用酒馆当前连接的模型。换了酒馆的模型，手机也跟着换。'}</p></div>`
+</div>`
       + (custom ? groupTitle('连接') + `<div class="group pad">
           ${field('接口地址', input('text-url', t.url, 'url', 'autocomplete="off" placeholder="https://api.openai.com/v1"'), '填到 /v1 为止，后面的 /chat/completions 不用写。OpenAI 格式的服务都可以：OpenAI、DeepSeek、OpenRouter、硅基流动、各种中转站。接口要允许网页直接访问（CORS），不然浏览器会拦下请求。')}
           <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? '已保存在这台浏览器' : '还没有填写'}</span></div>
@@ -190,7 +190,6 @@ export function enginesApp(ctx) {
           ${field('温度', input('text-temperature', t.temperature, 'number', 'min="0" max="2" step="0.05"'), '越高越随性，越低越稳定。0.7–1 比较常用。')}
           ${field('最长回复（tokens）', input('text-maxTokens', t.maxTokens, 'number', 'min="64" max="32000" step="1"'), '一次回复最多写多少。聊天和电话用不了多少，配图规划会按需要取更小的值。')}
         </div>` : '')
-      + `<p class="hint">用在：聊天回复、朋友圈、来电、正文配图时挑画面。正文本身始终用酒馆的模型。</p>`
       + `<div class="savebar"><span class="save-state" data-save-state>${dirty ? '未保存' : '已保存'}</span>${btn('save-text', '保存', 'primary')}</div>`);
   }
 

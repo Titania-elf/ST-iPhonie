@@ -1,7 +1,7 @@
 // 动态 (朋友圈) in the chat app: the characters' posts, likes and comments, and the user's own posts and comments.
 // New posts, reactions and replies are generated in the tavern page (host-moments.js); this panel only shows them and
 // sends what the user does. It draws into the chat app's view, inside the frame the chat app gives it (tabs and all).
-import {esc, btn, empty, avatar, field, textArea, input, toggle} from './common.js';
+import {esc, btn, empty, avatar, field, textArea, input, toggle, help} from './common.js';
 import {icon} from './icons.js';
 import {openImageViewer} from '../image-viewer.js';
 import {downloadAction} from '../download.js';
@@ -139,8 +139,7 @@ export function momentsPanel(ctx, {v, frame, me, visible}) {
         ${field('每天最多自动发几次', input('dailyMax', m.dailyMax, 'number', 'min="1" max="30" step="1"'))}
         ${toggle('images', '动态配图', m.images, '有画面感的动态会用 NovelAI 画一张配图。只在免费档内自动画；会扣 Anlas 的图要你点一下确认。没有 NovelAI 密钥时只显示文字。')}
         ${toggle('replyToMe', '角色回复我', m.replyToMe, '你发动态或评论后，角色会点赞、评论和回复（每次调用一次模型）。')}</div>
-      <p class="hint">动态怎么写，在预设 App 的聊天预设里：勾了「朋友圈」的规则就用在这里。</p>
-      <div class="actions">${btn('edit-prompt', icon('edit') + '编辑聊天预设', 'secondary')}</div>
+      <div class="actions">${btn('edit-prompt', icon('edit') + '编辑聊天预设', 'secondary')}${help('动态怎么写，在预设 App 的聊天预设里：勾了「朋友圈」的规则就用在这里。')}</div>
       <div class="actions">${btn('clear-moments', icon('trash') + '清空动态', 'danger')}</div>`, {
       'edit-prompt': () => { d.close(); ctx.open('presets'); ctx.showPresetKind?.('chat'); },
       'clear-moments': async () => { if (!await ctx.confirm('清空所有动态？', '所有动态、点赞和评论都会删除，配图还留在相册里。')) return; d.close(); await api.clearMoments(); await render(); ctx.notify('动态已清空'); }

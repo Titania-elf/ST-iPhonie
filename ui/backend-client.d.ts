@@ -570,6 +570,13 @@ export interface BackendAPI extends BackendFacade {
     callRetry(): Promise<void>;
     /** The tavern's own avatar pictures: the current persona's, and each character card's by name (URLs). */
     tavernAvatars(): { me: string; characters: Record<string, string> };
+    /** On a computer the phone is a floating window beside the story (false when it is full screen). */
+    panelFloating(): boolean;
+    /** Moves the floating phone by its top bar, in screen coordinates; 'reset' puts it back at the right edge. */
+    panelDrag(phase: 'start' | 'move' | 'end' | 'reset', screenX?: number, screenY?: number): boolean;
+    /** Switches the floating phone to the next size and returns its name (小 / 中 / 大). */
+    panelSize(): string;
+    panelSizeName(): string;
     /** The tavern's persona name ('' outside the tavern). */
     userName(): string;
     /** Facts for the self-check report (core/diagnostics.js buildReport). Asks whether keys work; never returns them. */
