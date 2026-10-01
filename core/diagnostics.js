@@ -16,7 +16,9 @@ export function buildReport(f) {
     item('info', '版本', f.plugin?.version || '读不到'),
     copies.length > 1
       ? item('error', `装了 ${copies.length} 份插件`, `同时加载了：${copies.join('、')}。只留一份，把其余的文件夹删掉后刷新页面。`)
-      : item('ok', '只装了一份')
+      : f.plugin?.oldCopy
+        ? item('error', '还装着旧版 ST-TTS', '「ST-TTS · 角色对白」也在运行，会抢走小手机的连接（显示“设置页面未连接”）、重复画声波。在扩展管理里删除它，然后刷新页面。')
+        : item('ok', '只装了一份')
   ]);
 
   add('酒馆', [

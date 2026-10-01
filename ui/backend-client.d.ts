@@ -605,7 +605,7 @@ export interface PanelHostBridge { connect(source: Window): BackendAPI; }
 
 declare global {
     interface Window {
-        __stTtsPanelBridge?: PanelHostBridge;
+        __stIphoniePanelBridge?: PanelHostBridge;
         /** Legacy callbacks remain supported; new views should use subscribe(). */
         stTtsUpdate?: (state: PlaybackSnapshot) => void;
         stTtsOpenRole?: (routeId: string) => void;
