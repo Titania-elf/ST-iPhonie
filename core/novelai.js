@@ -121,6 +121,7 @@ export async function unzipFirstImage(buffer) {
     const type = /\.webp$/i.test(name) ? 'image/webp' : /\.jpe?g$/i.test(name) ? 'image/jpeg' : 'image/png';
     if (method === 0) return new Blob([data], {type});
     if (method === 8) {
+      if (typeof DecompressionStream !== 'function') throw Error('这个浏览器不能解压 NovelAI 的图片（iPhone 需要 iOS 16.4 或更新）');
       const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
       return new Blob([await new Response(stream).arrayBuffer()], {type});
     }

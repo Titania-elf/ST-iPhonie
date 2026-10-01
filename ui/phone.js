@@ -1,3 +1,4 @@
+import '../core/compat.js';
 import {connectBackend} from './backend-client.js';
 import {glyph, icon, spark, wave} from './icons.js';
 import {esc, avatar, plate, setAvatarPictures} from './common.js';
