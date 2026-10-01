@@ -1,7 +1,7 @@
 import {createView, esc, btn, field, input, select, textArea, toggle, heading, help, groupTitle, plate, avatar, empty} from './common.js';
 import {icon} from './icons.js';
 import {openImageViewer} from '../image-viewer.js';
-import {saveFile, downloadAction} from '../download.js';
+import {downloadAction} from '../download.js';
 
 const SIZES = [['portrait', '竖图', 832, 1216], ['landscape', '横图', 1216, 832], ['square', '方图', 1024, 1024], ['tall', '大竖图', 1024, 1536]];
 const TIERS = {0: '未订阅', 1: 'Tablet', 2: 'Scroll', 3: 'Opus'};
@@ -89,7 +89,7 @@ export function drawApp(ctx) {
         ${cloudNote ? `<p class="hint${cloudNote.ok ? '' : ' error-copy'}" style="padding:0">${esc(cloudNote.text)}</p>` : ''}
       </div>`;
     if (tab === 'chat') body = `
-      <div class="group">${toggle('enabled', '正文出图', d.enabled, '开启后，模型会按「预设 · 绘图」里的出图规则给正文配图。')}${toggle('auto', '新回复自动出图', d.auto, '只在免费档内自动画；超出免费档或读不到订阅时，正文里会显示“点击生成”。')}${toggle('fold', '正文图片默认收起', d.fold, '收起后正文里只留一个小缩略图，点开再看，手机上不占地方。每张图也可以单独收起或展开。')}</div>
+      ${d.enabled ? '' : `<div class="banner">${icon('image')}<span>正文出图没有开启，在「设置 · 绘图」里打开。</span>${btn('go-settings', '去打开', 'chip-button')}</div>`}<div class="group">${toggle('auto', '新回复自动出图', d.auto, '只在免费档内自动画；超出免费档或读不到订阅时，正文里会显示“点击生成”。')}${toggle('fold', '正文图片默认收起', d.fold, '收起后正文里只留一个小缩略图，点开再看，手机上不占地方。每张图也可以单独收起或展开。')}</div>
       <div class="field"><span>配图方式${help('单独配图：正文模型只管写故事；回复写完后，插件用同一个模型再单独请求一次，读这条回复、挑画面、写出图块，再把图插到对应的段落后面。出图规则不会挤占正文，张数和格式更稳，每条回复多一次请求。\n\n正文里顺手写：把出图规则加进正文请求，模型写故事时顺手写出图块。只要一次请求，但规则较长，偶尔会影响正文或漏写。')}</span><div class="segmented" style="margin:0">${[['separate', '回复后单独配图'], ['inline', '正文里顺手写']].map(([k, l]) => `<button data-action="mode" data-mode="${k}" aria-pressed="${d.mode === k}">${l}</button>`).join('')}</div></div>
       <div class="group">${toggle('strip', '发给模型时去掉旧出图块', d.strip, '出图块留在聊天记录里（图片靠它显示），但之后每次请求模型时会把它们去掉，省下上下文。')}</div>
       <div class="actions">${btn('plan-latest', icon('wand') + '给最新回复配图', 'secondary', api.planLatestPictures && d.enabled ? '' : 'disabled')}</div>
@@ -103,8 +103,8 @@ export function drawApp(ctx) {
         <div class="canvas-card"><div class="canvas-main${main ? '' : ' empty'}" style="aspect-ratio:${p.width}/${p.height}">${main ? `<button type="button" class="canvas-zoom" data-action="zoom" aria-label="放大查看"><img src="${esc(main)}" alt="生成的图片"></button>` : `<span>${p.width} × ${p.height}<br>还没有图</span>`}${busy ? '<span class="canvas-busy">NovelAI 正在画……</span>' : ''}</div>
           ${results.length ? `<div class="canvas-side">${thumbs.map((url, i) => `<button class="thumb" data-action="thumb" data-index="${i}" aria-pressed="${i === current}" aria-label="第 ${i + 1} 张">${url ? `<img src="${esc(url)}" alt="">` : ''}</button>`).join('')}</div>` : ''}</div>
         ${shown ? `<p class="hint canvas-meta">${esc(shown.params.model)} · ${shown.params.width}×${shown.params.height} · ${shown.params.steps} 步 · 种子 ${shown.seed}</p>` : ''}
-        <div class="draw-actions">${btn('insert', icon('insert') + '插入正文', 'secondary', shown ? '' : 'disabled')}${btn('wallpaper', icon('image') + '设为壁纸', 'secondary', shown ? '' : 'disabled')}${btn('reuse-seed', icon('dice') + '用这个种子', 'secondary', shown ? '' : 'disabled')}${btn('download-image', icon('download') + '下载', 'secondary', shown ? '' : 'disabled')}</div>
         <details data-group="style" class="style-card"><summary>${icon('paint')}画风 · ${esc(s.name)}<span class="save-state" data-style-state>${styleDraft ? '未保存' : ''}</span></summary><div>
+          ${field('名字', input('name', s.name, 'text', 'data-style-field maxlength="40"'))}
           ${field('画师串', textArea('artist', s.artist, 'class="code" rows="2" data-style-field placeholder="例如 artist:wlop, artist:ciloranko"'))}
           ${field('固定正面', textArea('positive', s.positive, 'class="code" rows="2" data-style-field'))}
           ${field('固定负面', textArea('negative-fixed', s.negative, 'class="code" rows="2" data-style-field'))}
@@ -187,7 +187,7 @@ export function drawApp(ctx) {
         break;
       }
       case 'cancel-all': if (await ctx.confirm('取消所有排队的图？', '正在画的那一张也会停下。')) api.cancelAllDraws(); break;
-      case 'reuse-seed': seed = results[current].seed; tab = 'params'; render(); ctx.notify('已填入这张图的种子'); break;
+      case 'go-settings': ctx.open('settings'); break;
       case 'go-key': ctx.open('engines'); ctx.editEngine?.('nai'); break;
       case 'open-presets': ctx.open('presets'); ctx.showPresetKind?.('draw'); break;
       case 'position': characters[index].position = Number(el.dataset.position); render(); break;
@@ -195,7 +195,6 @@ export function drawApp(ctx) {
       case 'add-custom': characters.push({name: '角色', prompt: '', position: -1}); render(); break;
       case 'add-char': pickCharacter(); break;
       case 'zoom': { const img = el.querySelector('img'), shown = results[current]; if (img) openImageViewer({doc: ctx.doc, src: img.src, alt: '生成的图片', from: img, actions: shown ? [downloadAction(ctx.doc, () => resultFile(shown), ctx.notify)] : []}); break; }
-      case 'download-image': { const shown = results[current]; if (!shown) break; await v.busy(el, async () => { const {source, name} = await resultFile(shown); ctx.notify('已下载 ' + await saveFile(ctx.doc, source, name)); }); break; }
       case 'suggest':
         await v.busy(el, async () => {
           el.innerHTML = icon('spin') + '正在读剧情…';
@@ -207,6 +206,7 @@ export function drawApp(ctx) {
       case 'pick-style': pickStyle(); break;
       case 'save-style': {
         if (!styleDraft) { ctx.notify('画风没有改动'); break; }
+        if (!styleDraft.name.trim()) { ctx.notify('请填写画风名字'); break; }
         api.saveStyle(styleDraft);
         styleDraft = null;
         render();
@@ -214,8 +214,6 @@ export function drawApp(ctx) {
         break;
       }
       case 'generate': await generate(); break;
-      case 'insert': insert(); break;
-      case 'wallpaper': await api.savePhone({wallpaper: {kind: 'photo', photoId: results[current].photoId}}); ctx.notify('已设为壁纸'); break;
     }
   });
 
@@ -272,7 +270,7 @@ export function drawApp(ctx) {
           const created = api.saveStyle({name: '新画风 ' + (d0.styles.length + 1), artist: '', positive: style().positive, negative: style().negative});
           api.saveDraw({activeStyle: created.id});
           styleDraft = null; d.close(); render();
-          ctx.notify('已新建画风，在下面填写画师串');
+          ctx.notify('已新建画风，在下面改名字、填写画师串');
         }
         if (b.dataset.action === 'delete-style') {
           d.close();
@@ -282,21 +280,6 @@ export function drawApp(ctx) {
     });
   }
 
-  function insert() {
-    const shown = results[current];
-    let rows;
-    try { rows = api.recentMessages(); } catch (error) { ctx.notify(error.message); return; }
-    const d = ctx.dialog('插入到哪条消息？', rows.length
-      ? `<div class="group">${rows.map(r => `<button class="list-row" data-message="${r.id}"><span class="mono muted" style="width:40px;flex:0 0 40px">#${r.id}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.preview || '（空消息）')}</small></span>${icon('next')}</button>`).join('')}</div><p class="hint">图片会上传到酒馆，挂在这条消息上。</p>`
-      : '<p class="hint">当前聊天还没有消息。</p>');
-    d.body.addEventListener('click', async e => {
-      const b = e.target.closest('[data-message]');
-      if (!b) return;
-      b.disabled = true;
-      try { await api.insertImage(Number(b.dataset.message), shown.photoId); d.close(); ctx.notify('已插入到 #' + b.dataset.message); }
-      catch (error) { b.disabled = false; ctx.notify(error.message); }
-    });
-  }
 
   render();
   refreshSubscription();

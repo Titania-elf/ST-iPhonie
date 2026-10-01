@@ -42,7 +42,7 @@ export function presetsApp(ctx) {
     {
       const o = ops(kind), active = o.active();
       const draw = api.getState().draw;
-      body = (kind === 'draw' ? `<div class="group">${toggle('drawEnabled', '正文出图', draw.enabled, '开启后，使用中的绘图预设会加进聊天请求，让模型在正文里写出图标签。')}</div>` : '')
+      body = (kind === 'draw' && !draw.enabled ? '<p class="hint">正文出图没有开启，在「设置 · 绘图」里打开后，使用中的绘图预设才会加进聊天请求。</p>' : '')
         + o.list().map(p => `<button class="preset-card" data-action="edit-preset" data-kind="${kind}" data-id="${esc(p.id)}"${p.id === active ? ' data-active' : ''}>${tile(app)}<span><strong>${esc(p.name || '未命名预设')}</strong><small>${kind === 'chat' ? `读正文 ${p.context} 条 · 聊天记录 ${p.history} 条` : kind === 'draw' ? `每条回复 ${p.count} 张 · ${p.entries.length} 条规则` : `${p.entries.length} 条规则 · ${esc(positions.find(x => x[0] === p.injection.position)?.[1] || '')}`}</small></span>${p.id === active ? plate('使用中') : icon('next')}</button>`).join('')
         + `<div class="actions">${btn('restore-default', icon('refresh') + '恢复默认预设', 'secondary')}</div>`
         + `<p class="hint">${kind === 'draw'
@@ -111,7 +111,6 @@ export function presetsApp(ctx) {
     mark();
   });
   v.on('change', '[data-field]', el => {
-    if (el.dataset.field === 'drawEnabled') { api.saveDraw({enabled: el.checked}); ctx.notify(el.checked ? '已开启正文出图' : '已关闭正文出图'); return; }
     if (current && (el.type === 'checkbox' || el.tagName === 'SELECT')) update(el, true);
   });
   function save() {
