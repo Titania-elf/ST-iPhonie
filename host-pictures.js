@@ -66,7 +66,8 @@ export function createPictureHost({context, redrawMessage = (id, message) => con
   /** Asks before spending Anlas. Returns 'free', 'paid' or false (declined, or no key). */
   async function allowed(interactive) {
     if (!backend.keyStatus('nai')) { if (interactive) notice('还没有填写 NovelAI 密钥，请在小手机的引擎卡包里填写'); return false; }
-    try { await backend.naiSubscription(); } catch (error) { if (interactive) notice(error.message); }
+    // Through a relay counted as Opus, a subscription it does not pass on is expected, not worth a notice.
+    try { await backend.naiSubscription(); } catch (error) { const relay = settings().draw.relay; if (interactive && !(relay.url && relay.assumeOpus)) notice(error.message); }
     const quote = backend.drawQuote();
     if (quote.free === true) return 'free';
     if (!interactive) return false;

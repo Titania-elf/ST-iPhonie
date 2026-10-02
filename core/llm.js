@@ -1,20 +1,39 @@
 // 文字模型: which model writes the phone's text (chat replies, 朋友圈, calls, picture plans). 'tavern' uses the model the
 // tavern is connected to (generateRaw), as before; 'custom' calls an OpenAI-compatible Chat Completions API directly
 // from the browser with its own address, key and model. The story itself always stays on the tavern's model.
-// The key lives with the other keys (core/keys.js, engine 'llm') and never appears in settings, requests shown to
-// the user, or error messages.
+// Several custom connections can be kept as presets (address, model, temperature, length), one of them in use.
+// Each preset's key lives with the other keys (core/keys.js, engine 'llm', one line per preset) and never appears in
+// settings, requests shown to the user, or error messages.
 
 export const TEXT_LIMITS = Object.freeze({maxTokens: [64, 32000], temperature: [0, 2], timeout: 120000});
 
-export function defaultText() {
-  return {source: 'tavern', url: '', model: '', temperature: 0.9, maxTokens: 1200};
+export function defaultTextPreset(id = 'default', name = '自定义接口') {
+  return {id, name, url: '', model: '', temperature: 0.9, maxTokens: 1200};
 }
+export function defaultText() {
+  return {source: 'tavern', active: 'default', presets: [defaultTextPreset()]};
+}
+export const TEXT_PRESET_ID = /^[\w-]{1,64}$/;
 const count = (value, [min, max], fallback, round = true) => { const n = round ? Math.round(Number(value)) : Number(value); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback; };
+function normalizePreset(value, index) {
+  const base = defaultTextPreset();
+  return {id: TEXT_PRESET_ID.test(String(value?.id || '')) ? String(value.id) : crypto.randomUUID(), name: String(value?.name || '').trim().slice(0, 40) || '接口 ' + (index + 1),
+    url: String(value?.url || '').trim().slice(0, 500), model: String(value?.model || '').trim().slice(0, 200),
+    temperature: Math.round(count(value?.temperature, TEXT_LIMITS.temperature, base.temperature, false) * 100) / 100, maxTokens: count(value?.maxTokens, TEXT_LIMITS.maxTokens, base.maxTokens)};
+}
 export function normalizeText(value) {
   const base = defaultText();
   if (!value || typeof value !== 'object') return base;
-  return {source: value.source === 'custom' ? 'custom' : 'tavern', url: String(value.url || '').trim().slice(0, 500), model: String(value.model || '').trim().slice(0, 200),
-    temperature: Math.round(count(value.temperature, TEXT_LIMITS.temperature, base.temperature, false) * 100) / 100, maxTokens: count(value.maxTokens, TEXT_LIMITS.maxTokens, base.maxTokens)};
+  // Before presets there was one custom connection: it becomes the first preset, and its saved key goes with it ('default').
+  const list = Array.isArray(value.presets) && value.presets.length ? value.presets : [{...value, id: 'default', name: '自定义接口'}];
+  const presets = [];
+  for (const [i, p] of list.slice(0, 30).entries()) { const preset = normalizePreset(p, i); if (presets.some(x => x.id === preset.id)) preset.id = crypto.randomUUID(); presets.push(preset); }
+  return {source: value.source === 'custom' ? 'custom' : 'tavern', active: presets.some(p => p.id === value.active) ? value.active : presets[0].id, presets};
+}
+/** The connection in use: the source plus the active preset's address, model, temperature and length. */
+export function activeText(value) {
+  const text = normalizeText(value);
+  return {source: text.source, ...text.presets.find(p => p.id === text.active)};
 }
 
 /** The API base: what the user typed without a trailing slash or a pasted /chat/completions or /models. */

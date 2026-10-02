@@ -1,4 +1,4 @@
-import {createView, esc, engines, btn, field, input, select, toggle, heading, help, groupTitle} from './common.js';
+import {createView, esc, engines, btn, field, input, select, textArea, toggle, heading, help, groupTitle, plate} from './common.js';
 
 const TIERS = {0: '未订阅', 1: 'Tablet', 2: 'Scroll', 3: 'Opus'};
 import {icon, spark} from './icons.js';
@@ -28,12 +28,26 @@ export function enginesApp(ctx) {
   const draft = () => drafts.get(engine);
   const changed = () => { dirty = true; const e = v.root.querySelector('[data-save-state]'); if (e) e.textContent = '未保存'; };
 
+  /** 已保存，末尾 ab12 · or, with several keys: 已保存 3 个，正在用第 2 个（末尾 ab12），1 个这次被拒已跳过. */
+  const keyState = id => {
+    const tail = api.keyHint?.(id) || '', pool = api.keyPool?.(id);
+    if (!pool || pool.count < 2) return '已保存' + (tail ? '，末尾 ' + esc(tail) : '');
+    return `已保存 ${pool.count} 个，正在用第 ${pool.current} 个${tail ? '（末尾 ' + esc(tail) + '）' : ''}${pool.refused ? `，${pool.refused} 个这次被拒已跳过` : ''}`;
+  };
+  /** The saved keys of a voice engine, one row each: never the key, only its last characters. */
+  const keyRows = id => {
+    const list = api.keyList?.(id) || [];
+    if (!list.length) return '';
+    return `<div class="key-list">${list.map((k, i) => `<div class="key-row${k.current ? ' current' : ''}"><span class="key-no" aria-label="第 ${i + 1} 个">${i + 1}</span><span class="mono">•••• ${esc(k.tail)}</span>${k.current ? plate('正在用') : ''}${k.refused ? '<small class="error-copy">这次被拒</small>' : ''}<button class="text-button" data-action="remove-key" data-index="${i}" aria-label="删除第 ${i + 1} 个密钥">删除</button></div>`).join('')}</div>`;
+  };
+  /** The text model preset being edited (the draft's active one). */
+  const textPreset = () => textDraft.presets.find(p => p.id === textDraft.active) || textDraft.presets[0];
   const nameOf = id => id === 'nai' ? 'NovelAI' : id === 'llm' ? '文字模型' : engines[id];
   function card(id, tag = 'button') {
     const saved = api.keyStatus(id), nai = id === 'nai', llm = id === 'llm';
     const name = nameOf(id), t = llm ? (engine === 'llm' && textDraft ? textDraft : api.getState().text) : null, custom = t?.source === 'custom';
     const fields = llm
-      ? [['SOURCE', custom ? 'CUSTOM API' : 'TAVERN'], ['MODEL', custom ? t.model || '未填写' : '跟随酒馆']]
+      ? [['SOURCE', custom ? 'CUSTOM API' : 'TAVERN'], ['MODEL', custom ? t.presets.find(p => p.id === t.active)?.model || '未填写' : '跟随酒馆']]
       : nai
       ? [['TIER', subscription ? TIERS[subscription.tier] || '未知' : '—'], ['ANLAS', subscription ? String(subscription.anlas) : '—']]
       : PRICED.includes(id) && saved
@@ -65,8 +79,14 @@ export function enginesApp(ctx) {
       + groupTitle('连接')
       + `<div class="group pad">
           <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? `已保存${api.keyHint?.(engine) ? '，末尾 ' + esc(api.keyHint(engine)) : ''}` : '还没有填写'}</span></div>
-          ${field('Persistent API Token', input('key', '', 'password', `autocomplete="off" placeholder="${saved ? '已保存，填写新的可替换' : '在 NovelAI 账户设置里获取，以 pst- 开头'}"`), '插件直接连接 NovelAI，不经过酒馆。密钥只保存在当前浏览器和酒馆地址。')}
+          ${field(d.relay.url ? '中转密钥' : 'Persistent API Token', input('key', '', 'password', `autocomplete="off" placeholder="${saved ? '已保存，填写新的可替换' : d.relay.url ? '填中转要求的密钥' : '在 NovelAI 账户设置里获取，以 pst- 开头'}"`), d.relay.url ? '用了中转时，填中转要求的密钥（可能就是 NovelAI 的 pst- 密钥，也可能是中转自己发的）。密钥只保存在当前浏览器和酒馆地址。' : '插件直接连接 NovelAI，不经过酒馆。密钥只保存在当前浏览器和酒馆地址。')}
           <div class="key-actions">${btn('save-key', icon('key') + '保存密钥', 'primary')}${btn('reveal-key', '显示', 'secondary')}${btn('clear-key', '清除', 'danger')}</div>
+        </div>`
+      + groupTitle('中转', help('自己搭的 NovelAI 中转。中转的路径要和官方一样：出图 /ai/generate-image，查订阅 /user/subscription；插件把请求原样发到「中转地址 + 路径」。留空就直连 NovelAI。\n\n中转要允许跨域（CORS）；酒馆用 HTTPS 打开时，中转也要用 HTTPS。'))
+      + `<div class="group pad">
+          ${field('中转地址', input('relay', d.relay.url, 'url', 'autocomplete="off" placeholder="留空直连，例如 https://nai.example.com"'))}
+          ${d.relay.url ? toggle('relayOpus', '读不到订阅时按 Opus 算', d.relay.assumeOpus, '中转不转发查订阅的接口时打开：28 步、1024×1024 以内的非 V5 小图当作免费，可以自动出图。V5 的免费额度读不到，仍然会先问。账号不是 Opus 时，这些图会扣 Anlas。') : ''}
+          <div class="key-actions">${btn('save-relay', d.relay.url ? '保存中转' : '使用中转', 'primary')}${d.relay.url ? btn('test-relay', icon('refresh') + '测试连接', 'secondary', saved ? '' : 'disabled') : ''}</div>
         </div>`
       + groupTitle('订阅', btn('refresh-subscription', icon('refresh') + '刷新', 'chip-button', saved ? '' : 'disabled'))
       + `<div class="group">
@@ -155,9 +175,10 @@ export function enginesApp(ctx) {
       + card(engine, 'div')
       + groupTitle('连接')
       + `<div class="group pad">
-          <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? `已保存${api.keyHint?.(engine) ? '，末尾 ' + esc(api.keyHint(engine)) : ''}` : '还没有填写'}</span></div>
-          ${field('API Key', input('key', '', 'password', `autocomplete="off" placeholder="${saved ? '已保存，填写新密钥可替换' : '填写这家引擎的密钥'}"`), '密钥只保存在当前浏览器和酒馆地址，按账户分别保存。填写过不代表鉴权成功。')}
-          <div class="key-actions">${btn('save-key', icon('key') + '保存密钥', 'primary')}${btn('reveal-key', '显示', 'secondary')}${btn('clear-key', '清除', 'danger')}</div>
+          <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? keyState(engine) : '还没有填写'}</span></div>
+          ${keyRows(engine)}
+          ${field(saved ? '添加密钥' : 'API Key', textArea('key', '', `rows="2" class="code" autocomplete="off" spellcheck="false" placeholder="${saved ? '粘贴新的密钥，会加在后面' : '粘贴密钥；有多个账号可以每行一个'}"`), '可以保存多个账号的密钥，新加的排在后面，不用的可以单独删掉。先用排在前面的；某个密钥被拒（401、403）、额度用完（402）或请求太频繁（429）时，自动换下一个重试，这次打开页面里不再用它。\n\n密钥只保存在当前浏览器和酒馆地址，按账户分别保存。')}
+          <div class="key-actions">${btn('add-key', icon('key') + (saved ? '添加' : '保存密钥'), 'primary')}${saved ? btn('clear-key', '全部清除', 'danger') : ''}</div>
           ${field('默认模型', select('model', c.model, schema.models.map(m => [m.id, m.id, !m.supported])), unsupported || '角色没有单独指定模型时使用这里的模型。')}
           ${engine === 'mini' ? field('服务区域', select('region', c.region, [['cn', '国内'], ['global', '国际'], ['uw', '国际 · 低延迟入口']])) : ''}
           <div class="actions">${btn('read-voices', icon('refresh') + '读取音色列表', 'secondary')}</div><p class="hint" data-connection-status></p>
@@ -172,16 +193,20 @@ export function enginesApp(ctx) {
 
   /** 文字模型: the tavern's model, or an OpenAI-compatible API of the user's own. */
   function renderText() {
-    const t = textDraft, saved = api.keyStatus('llm'), custom = t.source === 'custom';
+    const all = textDraft, t = textPreset(), hint = api.textKeyHint?.(t.id) || '', saved = !!hint, custom = all.source === 'custom';
     v.root.dataset.engine = 'llm';
     v.draw(heading('文字模型', '', 'Text Card')
       + card('llm', 'div')
       + groupTitle('谁来写手机里的字', help('手机里的字：聊天回复、朋友圈、来电，以及正文配图时挑画面。正文本身始终用酒馆的模型。\n酒馆主模型：和正文一样，用酒馆当前连接的模型，换了酒馆的模型手机也跟着换。\n自定义接口：用你自己的 OpenAI 兼容接口，不占用酒馆正在用的模型，正文和手机可以用不同的模型。插件直接从浏览器连接这个接口，不经过酒馆。'))
-      + `<div class="group pad"><div class="segmented" style="margin:0">${[['tavern', '酒馆主模型'], ['custom', '自定义接口']].map(([k, l]) => `<button type="button" data-action="text-source" data-source="${k}" aria-pressed="${t.source === k}">${l}</button>`).join('')}</div>
+      + `<div class="group pad"><div class="segmented" style="margin:0">${[['tavern', '酒馆主模型'], ['custom', '自定义接口']].map(([k, l]) => `<button type="button" data-action="text-source" data-source="${k}" aria-pressed="${all.source === k}">${l}</button>`).join('')}</div>
 </div>`
-      + (custom ? groupTitle('连接') + `<div class="group pad">
+      + (custom ? groupTitle('接口预设', help('可以存好几套自定义接口：地址、模型、密钥、温度、长度各一份，点一下切换正在用的那套。每套的密钥分开保存；删掉一套，它的密钥也一起删掉。切换、新建、删除和改名都要点下面的「保存」才生效。'))
+        + `<div class="group pad"><div class="text-presets">${all.presets.map(p => `<button type="button" class="combo-chip" data-action="text-preset" data-id="${esc(p.id)}" aria-pressed="${p.id === all.active}">${esc(p.name)}</button>`).join('')}${btn('text-new', icon('add') + '新建', 'chip-button')}</div>
+          ${field('预设名字', input('text-name', t.name, 'text', 'maxlength="40" autocomplete="off"'))}
+          ${all.presets.length > 1 ? `<div class="actions" style="margin-top:0">${btn('text-delete', icon('trash') + '删除这套', 'danger')}</div>` : ''}</div>`
+        + groupTitle('连接') + `<div class="group pad">
           ${field('接口地址', input('text-url', t.url, 'url', 'autocomplete="off" placeholder="https://api.openai.com/v1"'), '填到 /v1 为止，后面的 /chat/completions 不用写。OpenAI 格式的服务都可以：OpenAI、DeepSeek、OpenRouter、硅基流动、各种中转站。接口要允许网页直接访问（CORS），不然浏览器会拦下请求。')}
-          <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? `已保存${api.keyHint?.(engine) ? '，末尾 ' + esc(api.keyHint(engine)) : ''}` : '还没有填写'}</span></div>
+          <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? `已保存，末尾 ${esc(hint)}` : '还没有填写'}</span></div>
           ${field('API Key', input('key', '', 'password', `autocomplete="off" placeholder="${saved ? '已保存，填写新密钥可替换' : '这个接口的密钥（本地模型可以不填）'}"`), '密钥只保存在当前浏览器和酒馆地址，不会写进设置或备份。')}
           <div class="key-actions">${btn('save-key', icon('key') + '保存密钥', 'primary')}${btn('reveal-key', '显示', 'secondary')}${btn('clear-key', '清除', 'danger')}</div>
           ${field('模型', input('text-model', t.model, 'text', 'autocomplete="off" placeholder="例如 gpt-4o-mini、deepseek-chat"'))}
@@ -214,12 +239,14 @@ export function enginesApp(ctx) {
     if (el.dataset.field === 'key') return;
     if (engine === 'llm') {
       const key = el.dataset.field.replace(/^text-/, '');
-      if (!['url', 'model', 'temperature', 'maxTokens'].includes(key)) return;
-      textDraft[key] = ['temperature', 'maxTokens'].includes(key) ? Number(el.value) : el.value.trim();
+      if (!['name', 'url', 'model', 'temperature', 'maxTokens'].includes(key)) return;
+      textPreset()[key] = ['temperature', 'maxTokens'].includes(key) ? Number(el.value) : el.value.trim();
       changed();
       return;
     }
     if (el.dataset.field === 'guard') { api.saveDraw({guard: el.checked}); render(); return; }
+    if (el.dataset.field === 'relayOpus') { api.saveDraw({relay: {assumeOpus: el.checked}}); render(); return; }
+    if (el.dataset.field === 'relay') return;
     draft()[el.dataset.field] = el.value; changed(); render();
   });
   const readValue = (el, f) => f.type === 'boolean' ? el.checked : f.type === 'number' ? (el.value === '' ? '' : Number(el.value)) : f.type === 'select' ? f.options.find(([key]) => String(key) === el.value)?.[0] : el.value;
@@ -250,11 +277,25 @@ export function enginesApp(ctx) {
     switch (el.dataset.action) {
       case 'engine': if (order.at(-1) === el.dataset.engine) edit(el.dataset.engine); else bringFront(el.dataset.engine); break;
       case 'text-source': textDraft.source = el.dataset.source; changed(); dirty = true; render(); break;
+      case 'text-preset': if (textDraft.active !== el.dataset.id) { textDraft.active = el.dataset.id; models = []; changed(); dirty = true; render(); } break;
+      case 'text-new': {
+        const id = crypto.randomUUID(), now = textPreset();
+        textDraft.presets.push({id, name: '接口 ' + (textDraft.presets.length + 1), url: '', model: '', temperature: now.temperature, maxTokens: now.maxTokens});
+        textDraft.active = id; models = []; changed(); dirty = true; render();
+        v.root.querySelector('[data-field=text-name]')?.focus();
+        break;
+      }
+      case 'text-delete': {
+        const gone = textPreset();
+        if (textDraft.presets.length < 2 || !await ctx.confirm('删除这套接口？', `「${gone.name}」和它的密钥会被删掉（点「保存」后生效），其他的保留。`)) break;
+        textDraft.presets = textDraft.presets.filter(p => p.id !== gone.id); textDraft.active = textDraft.presets[0].id; models = []; changed(); dirty = true; render();
+        break;
+      }
       case 'save-text': api.saveText(textDraft); textDraft = structuredClone(api.getState().text); dirty = false; render(); ctx.notify('文字模型已保存'); break;
       case 'text-pick': {
-        textDraft.model = el.dataset.model;
+        textPreset().model = el.dataset.model;
         const box = v.root.querySelector('[data-field=text-model]');
-        if (box) box.value = textDraft.model;
+        if (box) box.value = textPreset().model;
         for (const chip of v.root.querySelectorAll('[data-action=text-pick]')) chip.setAttribute('aria-pressed', String(chip === el));
         changed();
         break;
@@ -278,11 +319,32 @@ export function enginesApp(ctx) {
         if (typed.trim()) loadBalance(engine, true);
         break;
       }
-      case 'save-key': api.setKey(engine, v.root.querySelector('[data-field=key]').value); balances.delete(engine); render(); ctx.notify('密钥已保存'); if (engine === 'nai') loadSubscription(true); else loadBalance(engine, true); break;
+      case 'save-key': if (engine === 'llm') { api.setTextKey(textDraft.active, v.root.querySelector('[data-field=key]').value); render(); ctx.notify('密钥已保存'); break; } api.setKey(engine, v.root.querySelector('[data-field=key]').value); balances.delete(engine); render(); ctx.notify('密钥已保存'); if (engine === 'nai') loadSubscription(true); else loadBalance(engine, true); break;
       case 'refresh-subscription': await v.busy(el, () => loadSubscription(true)); break;
+      case 'save-relay': {
+        const url = v.root.querySelector('[data-field=relay]').value;
+        api.saveDraw({relay: {url}});
+        subscription = null; render();
+        ctx.notify(api.getState().draw.relay.url ? '中转地址已保存' : '已改回直连 NovelAI');
+        if (api.keyStatus('nai')) loadSubscription(true);
+        break;
+      }
+      case 'test-relay': await v.busy(el, async () => { await loadSubscription(true); ctx.notify(subscription ? '中转连通，读到订阅：' + (TIERS[subscription.tier] || '未知档位') : subscriptionError || '没有读到订阅'); }); break;
       case 'refresh-balance': await v.busy(el, () => loadBalance(engine, true)); break;
       case 'open-draw': ctx.open('draw'); break;
-      case 'clear-key': if (await ctx.confirm('清除密钥？', '之后使用这个引擎需要重新填写。')) { api.clearKey(engine); if (engine === 'nai') subscription = null; balances.delete(engine); render(); } break;
+      case 'add-key': {
+        const added = api.addKeys(engine, v.root.querySelector('[data-field=key]').value);
+        balances.delete(engine); render(); ctx.notify(added > 1 ? `已添加 ${added} 个密钥` : '密钥已保存'); loadBalance(engine, true);
+        break;
+      }
+      case 'remove-key': {
+        const index = Number(el.dataset.index), k = api.keyList(engine)[index];
+        if (!k || !await ctx.confirm('删除这个密钥？', `第 ${index + 1} 个（末尾 ${k.tail}）会被删掉，其他的保留。`)) break;
+        api.removeKey(engine, index); balances.delete(engine); render(); ctx.notify('已删除'); loadBalance(engine, true);
+        break;
+      }
+      case 'clear-key': if (engine === 'llm') { if (await ctx.confirm('清除这套接口的密钥？', '其他接口预设的密钥不受影响。')) { api.clearTextKey(textDraft.active); render(); } break; }
+        if (await ctx.confirm(engine === 'nai' ? '清除密钥？' : '清除全部密钥？', '之后使用这个引擎需要重新填写。')) { api.clearKey(engine); if (engine === 'nai') subscription = null; balances.delete(engine); render(); } break;
       case 'reveal-key': {
         const field = v.root.querySelector('[data-field=key]');
         field.type = field.type === 'password' ? 'text' : 'password';

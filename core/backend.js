@@ -2,19 +2,19 @@ import { MomentStore } from './moments-store.js';
 import { languageCode } from './languages.js';
 import { normalizeMoments, buildMomentsRequest } from './moments.js';
 import { normalizeCalls, buildCallRequest } from './call.js';
-import { normalizeText, customRequest, listModels } from './llm.js';
+import { normalizeText, activeText, customRequest, listModels, TEXT_PRESET_ID } from './llm.js';
 import { normalizeSync, runSync, SYNC_PARTS } from './sync.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup, sealKeys, openKeys } from './backup.js';
 import { normalizeSettings, validateSettings, modelRules, freshState } from './state.js';
 import { normalizeRoute, switchRouteEngine, removeRoute } from './routes.js';
 import { DEFAULT_PROMPT, DEFAULT_FORMAT, promptPlan, validatePreset, parseDialogue, isPlaceholderRole, knownFormats } from './protocol.js';
 import { TTSParameters } from './parameters.js';
-import { LocalKeyStore, keyTail } from './keys.js';
+import { LocalKeyStore, keyTail, validateKey, parseTextKeys, joinTextKeys } from './keys.js';
 import { Providers, buildRequest } from './providers.js';
 import { AudioCache } from './cache.js';
 import { DialoguePlayer } from './player.js';
 import { LocalLibrary, PHONE_APPS, PHONE_WALLPAPERS, PHONE_GLYPHS, PHONE_SKINS } from './library.js';
-import { NovelAIClient, NAI_MODELS, NAI_MODEL_NAMES, NAI_SAMPLERS, NAI_SCHEDULES, buildImageRequest, guardParams, isFree, isV5, normalizeDrawParams } from './novelai.js';
+import { NovelAIClient, relayUrl, NAI_MODELS, NAI_MODEL_NAMES, NAI_SAMPLERS, NAI_SCHEDULES, buildImageRequest, guardParams, isFree, isV5, normalizeDrawParams } from './novelai.js';
 import { PIC_TAG_FORMAT, DEFAULT_DRAW_RULE, DRAW_COUNT_MAX, drawPromptPlan, planRequest, validateDrawPreset, normalizeDraw, defaultDraw } from './draw.js';
 import { defaultChat, normalizeChatPreset, normalizeContact, validateChatPreset, validateContact, chatContacts, buildChatRequest, activeChatPreset, normalizeVoiceText, normalizeProfile , normalizeAvatars } from './chat.js';
 import { ChatStore } from './chats.js';
@@ -44,11 +44,14 @@ export class TTSBackend {
         this.providers = providers;
         // Voice balances (ElevenLabs, Fish) read for the engine cards; a new audio marks them out of date.
         this.balances = new Map();
+        // Several Fish keys: when one gives way to the next, the balance shown belongs to the old key.
+        providers.onKeySwitch = engine => { this.balances.delete(engine); this.emit('balance', { engine, stale: true, switched: true }); };
         providers.onSpend = engine => { const b = this.balances.get(engine); if (b) b.checkedAt = 0; this.emit('balance', { engine, stale: true }); };
         this.cache = cache || new AudioCache(this.settings.scope, notify, indexedDB);
         this.library = library || new LocalLibrary(this.settings.scope, { indexedDB });
         this.keyStore = keyStore || new LocalKeyStore(this.settings.scope);
         this.novelai = novelai || new NovelAIClient();
+        this.textKeys = new Map();
         this.chats = chats || new ChatStore(this.settings.scope, { indexedDB });
         this.moments = new MomentStore(this.settings.scope, { indexedDB });
         this.subscription = null;
@@ -72,7 +75,7 @@ export class TTSBackend {
     }
     async initialize() {
         this.assertOpen();
-        try { for (const [engine, key] of this.keyStore.load()) { if (engine === 'nai') this.novelai.setKey(key); else if (engine === 'llm') this.textKey = key; else this.providers.setKey(engine, key); } }
+        try { for (const [engine, key] of this.keyStore.load()) { if (engine === 'nai') this.novelai.setKey(key); else if (engine === 'llm') this.textKeys = parseTextKeys(key); else this.providers.setKey(engine, key); } }
         catch (error) { this.notify(error.message); }
         try {
             const phone = await this.library.getPhone();
@@ -251,13 +254,49 @@ export class TTSBackend {
     }
     setKey(engine, key) {
         keyCheck(engine); if (!String(key).trim()) throw Error('请填写密钥，或使用清除密钥');
+        // The text model: a stored list (from a backup) replaces every preset's key; a plain key is the active preset's.
+        if (engine === 'llm') { if (String(key).includes('\t')) this.storeTextKeys(parseTextKeys(key)); else this.setTextKey(this.settings.text.active, key); return; }
         const saved = this.keyStore.save(engine, key);
-        if (engine === 'nai') { this.novelai.setKey(saved); this.subscription = null; } else if (engine === 'llm') this.textKey = saved; else { this.providers.setKey(engine, saved); this.balances.delete(engine); }
+        if (engine === 'nai') { this.novelai.setKey(saved); this.subscription = null; } else { this.providers.setKey(engine, saved); this.balances.delete(engine); }
         this.emit('keys', { engine, configured: true });
     }
+    /** Voice engines keep several keys: new ones are added after those saved (repeats once). Returns how many were new. */
+    addKeys(engine, value) {
+        engineCheck(engine);
+        const fresh = validateKey(engine, value).split('\n').filter(Boolean);
+        if (!fresh.length) throw Error('请填写密钥');
+        const saved = this.savedKeys(engine), added = fresh.filter(key => !saved.includes(key));
+        if (!added.length) throw Error(fresh.length > 1 ? '这些密钥都已经保存过了' : '这个密钥已经保存过了');
+        this.setKey(engine, [...saved, ...added].join('\n'));
+        return added.length;
+    }
+    /** Deletes one saved key by its place in the list (0-based); the last one deleted clears the engine's key. */
+    removeKey(engine, index) {
+        engineCheck(engine);
+        const saved = this.savedKeys(engine);
+        if (!Number.isInteger(index) || !saved[index]) throw Error('这个密钥已经不在了');
+        saved.splice(index, 1);
+        if (saved.length) this.setKey(engine, saved.join('\n')); else this.clearKey(engine);
+    }
+    savedKeys(engine) { return (this.providers.keys.get(engine) || '').split('\n').filter(Boolean); }
+    /** The saved keys of a voice engine as the phone shows them: last characters, in use, refused this time. Never the keys. */
+    keyList(engine) { engineCheck(engine); return this.providers.keyList(engine); }
+    /** The text model's keys, one per connection preset. */
+    setTextKey(id, key) {
+        if (!TEXT_PRESET_ID.test(String(id))) throw Error('文字模型预设无效');
+        const value = [...parseTextKeys(String(key ?? '').replace(/\t/g, ' ')).values()][0];
+        if (!value) throw Error('请填写密钥，或使用清除密钥');
+        this.storeTextKeys(new Map(this.textKeys).set(id, value));
+    }
+    clearTextKey(id) { const map = new Map(this.textKeys); map.delete(id); this.storeTextKeys(map); }
+    /** The last characters of a preset's key ('••••' for a key too short to show any), '' without one. */
+    textKeyHint(id) { const key = this.textKeys.get(id); return key ? keyTail(key) || '••••' : ''; }
+    storeTextKeys(map) { this.keyStore.save('llm', joinTextKeys(map)); this.textKeys = map; this.emit('keys', { engine: 'llm', configured: map.has(this.settings.text.active) }); }
     clearKey(engine) {
-        keyCheck(engine); this.keyStore.save(engine, '');
-        if (engine === 'nai') { this.novelai.setKey(''); this.subscription = null; } else if (engine === 'llm') this.textKey = ''; else { this.providers.setKey(engine, ''); this.balances.delete(engine); }
+        keyCheck(engine);
+        if (engine === 'llm') { this.clearTextKey(this.settings.text.active); return; }
+        this.keyStore.save(engine, '');
+        if (engine === 'nai') { this.novelai.setKey(''); this.subscription = null; } else { this.providers.setKey(engine, ''); this.balances.delete(engine); }
         this.emit('keys', { engine, configured: false });
     }
     /** What is left on a voice account (ElevenLabs credits, Fish API balance); null without a key. Cached for a minute. */
@@ -273,8 +312,10 @@ export class TTSBackend {
         return clone(value);
     }
     /** The last 4 characters of the saved key ('' without one), so the user can tell which key is in use. */
-    keyHint(engine) { keyCheck(engine); try { return keyTail(this.keyStore.load().get(engine) || ''); } catch { return ''; } }
-    keyStatus(engine) { keyCheck(engine); return engine === 'nai' ? this.novelai.configured : engine === 'llm' ? !!this.textKey : this.providers.keys.has(engine); }
+    keyHint(engine) { keyCheck(engine); if (engine !== 'nai' && engine !== 'llm') return keyTail(this.providers.currentKey(engine)); if (engine === 'llm') return this.textKeyHint(this.settings.text.active); try { return keyTail(this.keyStore.load().get(engine) || ''); } catch { return ''; } }
+    /** For a voice engine with keys: how many, which one is in use (1-based) and how many were refused while this page is open. */
+    keyPool(engine) { engineCheck(engine); return this.providers.keyPool(engine); }
+    keyStatus(engine) { keyCheck(engine); return engine === 'nai' ? this.novelai.configured : engine === 'llm' ? this.textKeys.has(this.settings.text.active) : this.providers.keys.has(engine); }
 
     // ---------- 保存到酒馆 ----------
     /** The tavern's user files: {read(name, {blob}), write(name, data), remove(name)}. Without it, syncing is off. */
@@ -358,23 +399,35 @@ export class TTSBackend {
 
     // ---------- 文字模型 ----------
     /** Text model options: {source:'tavern'|'custom', url, model, temperature, maxTokens}. */
+    /** The text settings with a change applied: presets, active and source as given; url, model, temperature, maxTokens and name edit the preset in use. */
+    textWith(patch) {
+        const p = patch && typeof patch === 'object' ? patch : {};
+        const text = normalizeText({ ...this.settings.text, ...Object.fromEntries(['source', 'active', 'presets'].filter(key => key in p).map(key => [key, clone(p[key])])) });
+        const active = text.presets.find(x => x.id === text.active);
+        for (const key of ['name', 'url', 'model', 'temperature', 'maxTokens']) if (key in p) active[key] = p[key];
+        return normalizeText(text);
+    }
     saveText(patch) {
-        const next = this.getState(), allowed = ['source', 'url', 'model', 'temperature', 'maxTokens'];
-        next.text = normalizeText({ ...next.text, ...Object.fromEntries(Object.entries(patch || {}).filter(([key]) => allowed.includes(key))) });
-        return this.save(next).text;
+        const next = this.getState();
+        next.text = this.textWith(patch);
+        // A deleted preset takes its key with it.
+        const ids = new Set(next.text.presets.map(x => x.id)), kept = new Map([...this.textKeys].filter(([id]) => ids.has(id)));
+        const saved = this.save(next).text;
+        if (kept.size !== this.textKeys.size) this.storeTextKeys(kept);
+        return saved;
     }
     /**
      * Writes phone text (chat, 朋友圈, calls, picture plans) with the chosen model. context: the tavern context, used
      * when the source is the tavern's model. request: {prompt, responseLength?, ...} as for generateRaw.
      */
     async generateText(context, request) {
-        const text = this.settings.text;
-        if (text.source === 'custom') return customRequest({ text, key: this.textKey, prompt: request.prompt, responseLength: request.responseLength });
+        const text = activeText(this.settings.text);
+        if (text.source === 'custom') return customRequest({ text, key: this.textKeys.get(text.id) || '', prompt: request.prompt, responseLength: request.responseLength });
         if (!context?.generateRaw) throw Error('当前酒馆版本不支持后台生成');
         return context.generateRaw(request);
     }
     /** Model ids of the custom API (also a free connection check). `draft`: options not saved yet. */
-    textModels(draft) { return listModels({ text: normalizeText({ ...this.settings.text, ...draft }), key: this.textKey }); }
+    textModels(draft) { const text = activeText(this.textWith(draft)); return listModels({ text, key: this.textKeys.get(text.id) || '' }); }
 
     // ---------- Drawing ----------
     saveDraw(patch) {
@@ -383,6 +436,11 @@ export class TTSBackend {
         if ('queue' in patch) draw.queue = normalizeDraw({ queue: { ...draw.queue, ...clone(patch.queue) } }).queue;
         for (const key of ['enabled', 'auto', 'guard', 'fold', 'strip']) if (key in patch) { if (typeof patch[key] !== 'boolean') throw Error('开关设置无效'); draw[key] = patch[key]; }
         if ('mode' in patch) { if (!['separate', 'inline'].includes(patch.mode)) throw Error('配图方式无效'); draw.mode = patch.mode; }
+        if ('relay' in patch) {
+            const relay = patch.relay && typeof patch.relay === 'object' ? patch.relay : {};
+            draw.relay = { url: 'url' in relay ? relayUrl(relay.url) : draw.relay.url, assumeOpus: 'assumeOpus' in relay ? !!relay.assumeOpus : draw.relay.assumeOpus };
+            this.subscription = null;
+        }
         if ('params' in patch) draw.params = normalizeDrawParams({ ...draw.params, ...clone(patch.params) });
         if ('activeStyle' in patch) { if (!draw.styles.some(s => s.id === patch.activeStyle)) throw Error('画风预设不存在'); draw.activeStyle = patch.activeStyle; }
         if ('activePreset' in patch) { if (!draw.presets.some(p => p.id === patch.activePreset)) throw Error('绘图预设不存在'); draw.activePreset = patch.activePreset; }
@@ -431,6 +489,7 @@ export class TTSBackend {
         this.assertOpen();
         if (!this.novelai.configured) return null;
         if (!refresh && this.subscription && Date.now() - this.subscription.checkedAt < 10 * 60 * 1000) return clone(this.subscription);
+        this.novelai.relay = this.settings.draw.relay.url;
         this.subscription = await this.novelai.subscription();
         this.emit('draw', { subscription: this.subscription });
         return clone(this.subscription);
@@ -439,7 +498,9 @@ export class TTSBackend {
     drawQuote(params) {
         const requested = normalizeDrawParams(params || this.settings.draw.params);
         const effective = this.settings.draw.guard ? guardParams(requested) : requested;
-        return { params: effective, clamped: JSON.stringify(effective) !== JSON.stringify(requested), free: isFree(effective, this.subscription), guard: this.settings.draw.guard,
+        // Through a relay that does not pass the subscription on, the user may say the account is Opus: small non-V5 images count as free.
+        const relay = this.settings.draw.relay, subscription = this.subscription || (relay.url && relay.assumeOpus ? { unlimited: true, active: true, usage: null, assumed: true } : null);
+        return { params: effective, clamped: JSON.stringify(effective) !== JSON.stringify(requested), free: isFree(effective, subscription), guard: this.settings.draw.guard,
             v5: isV5(effective.model), usage: this.subscription?.usage ? clone(this.subscription.usage) : null };
     }
     /** Generates one image and keeps it in the album. Requests wait in the NovelAI queue (see draw-queue.js).
@@ -453,6 +514,7 @@ export class TTSBackend {
         const job = this.drawQueue.add({ key, label: label || String(prompt).slice(0, 40), task: async signal => {
             this.assertOpen();
             this.emit('draw', { phase: 'generating' });
+            this.novelai.relay = this.settings.draw.relay.url;
             const blob = await this.novelai.generate(request.body, signal);
             this.assertOpen();
             const photo = await this.library.addPhoto({ name: (name || 'NovelAI') + '-' + request.seed + '.png', blob });
@@ -713,7 +775,7 @@ export class TTSBackend {
             savePreset: preset => this.savePreset(preset), deletePreset: id => this.deletePreset(id), selectPreset: id => this.selectPreset(id),
             validatePreset: preset => { try { validatePreset(preset); return ''; } catch (error) { return message(error); } },
             previewPrompt: preset => this.previewPrompt(preset), promptPlan: () => clone(promptPlan(this.settings, modelRules(this.settings))), parse: text => this.parse(text),
-            voiceBalance: (engine, refresh) => this.voiceBalance(engine, refresh), keyStatus: engine => this.keyStatus(engine), keyHint: engine => this.keyHint(engine), setKey: (engine, key) => this.setKey(engine, key), clearKey: engine => this.clearKey(engine),
+            voiceBalance: (engine, refresh) => this.voiceBalance(engine, refresh), keyStatus: engine => this.keyStatus(engine), keyHint: engine => this.keyHint(engine), keyPool: engine => this.keyPool(engine), keyList: engine => this.keyList(engine), addKeys: (engine, value) => this.addKeys(engine, value), removeKey: (engine, index) => this.removeKey(engine, index), setKey: (engine, key) => this.setKey(engine, key), clearKey: engine => this.clearKey(engine),
             saveDraw: patch => this.saveDraw(patch), saveStyle: style => this.saveStyle(style), deleteStyle: id => this.deleteStyle(id),
             saveDrawPreset: preset => this.saveDrawPreset(preset), deleteDrawPreset: id => this.deleteDrawPreset(id), previewDrawPrompt: preset => this.previewDrawPrompt(preset),
             naiSubscription: refresh => this.naiSubscription(refresh), drawQuote: params => this.drawQuote(params),
@@ -742,7 +804,7 @@ export class TTSBackend {
             getPhone: () => this.getPhone(), savePhone: patch => this.savePhone(patch), libraryStats: () => this.library.stats(),
             generatedPhotos: () => this.generatedPhotos().then(({ count, bytes }) => ({ count, bytes })), deleteGeneratedPhotos: () => this.deleteGeneratedPhotos(),
             saveMoments: patch => this.saveMoments(clone(patch)), saveCalls: patch => this.saveCalls(clone(patch)),
-            saveText: patch => this.saveText(clone(patch)), textModels: draft => this.textModels(clone(draft || {})),
+            saveText: patch => this.saveText(clone(patch)), setTextKey: (id, key) => this.setTextKey(id, key), clearTextKey: id => this.clearTextKey(id), textKeyHint: id => this.textKeyHint(id), textModels: draft => this.textModels(clone(draft || {})),
             syncStatus: () => this.syncStatus(), saveSync: patch => this.saveSync(clone(patch)), syncNow: () => this.syncNow().then(() => this.syncStatus()),
             listMoments: () => this.moments.list(), getMoment: id => this.moments.get(id),
             postMoment: ({ text, photoId } = {}) => this.momentsMutate(async () => (await this.moments.add([{ author: 'me', source: 'me', text, photoId }]))[0]),

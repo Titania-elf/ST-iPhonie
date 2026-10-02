@@ -1,5 +1,5 @@
 /** Public API returned by the installed ST-iPhonie panel bridge (backend API 1.0.0 plus drawing). */
-export type Engine = 'fish' | 'mini' | 'eleven';
+export type Engine = 'fish' | 'mini' | 'eleven' | 'mimo';
 /** Keys cover the voice engines and NovelAI. */
 /** llm: the key of the phone's own text model (an OpenAI-compatible API). */
 export type KeyEngine = Engine | 'nai' | 'llm';
@@ -148,7 +148,10 @@ export interface VoiceTextOptions { mode: 'translation' | 'original' | 'both'; a
 export interface SyncSettings { enabled: boolean; }
 export interface SyncStatus { enabled: boolean; available: boolean; parts: Record<string, string>; busy: boolean; pending: boolean; error: string; lastAt: number; memoryAt: number;
     remote: { savedAt: number; deviceName: string; device: string } | null; lastResult?: { pulled: string[]; pushed: string[]; merged: string[] }; }
-export interface TextSettings { source: 'tavern' | 'custom'; url: string; model: string; temperature: number; maxTokens: number; }
+export interface TextPreset { id: string; name: string; url: string; model: string; temperature: number; maxTokens: number; }
+export interface TextSettings { source: 'tavern' | 'custom'; active: string; presets: TextPreset[]; }
+/** A change to the text settings: whole presets, or name/url/model/temperature/maxTokens of the preset in use. */
+export type TextPatch = Partial<TextSettings> & Partial<Omit<TextPreset, 'id'>>;
 export interface SpokenLine { role: string; text: string; emotion?: string; translation?: string; }
 /** A call as the phone draws it. `since`/`answeredAt` are ms timestamps; `ended` is set once it is over. */
 export interface CallState { id: number; name: string; dir: 'in' | 'out'; state: 'ringing' | 'talking' | 'ended'; since: number; answeredAt: number; lines: CallLine[]; thinking: boolean; speaking: boolean; voiced: boolean; error: string; auto: boolean;
@@ -384,6 +387,14 @@ export interface BackendFacade {
     keyStatus(engine: KeyEngine): boolean;
     /** The last 4 characters of the saved key ('' when none is saved), to tell which key is in use. */
     keyHint(engine: KeyEngine): string;
+    /** Several keys (Fish): how many, which one is in use (1-based) and how many were refused while this page is open. */
+    keyPool(engine: Engine): { count: number; current: number; refused: number } | null;
+    /** The saved keys of a voice engine: last 4 characters, whether in use, whether refused while this page is open. */
+    keyList(engine: Engine): Array<{ tail: string; current: boolean; refused: boolean }>;
+    /** Adds keys (several, one per line) after those saved; returns how many were new. */
+    addKeys(engine: Engine, value: string): number;
+    /** Deletes the saved key at this place in keyList (0-based). */
+    removeKey(engine: Engine, index: number): void;
     setKey(engine: KeyEngine, key: string): void;
     clearKey(engine: KeyEngine): void;
     saveDraw(patch: DrawSettingsPatch): DrawSettings;
@@ -466,14 +477,18 @@ export interface BackendFacade {
     saveChatPreset(preset: Partial<ChatPreset> & { name: string }): ChatPreset;
     /** 朋友圈 options. */
     saveCalls(patch: Partial<CallsSettings>): CallsSettings;
-    saveText(patch: Partial<TextSettings>): TextSettings;
+    saveText(patch: TextPatch): TextSettings;
+    /** The key of one text model preset (each preset keeps its own). */
+    setTextKey(id: string, key: string): void;
+    clearTextKey(id: string): void;
+    textKeyHint(id: string): string;
     /** 保存到酒馆: whether it is on, whether the tavern's files can be reached here, and how the last sync went. */
     syncStatus(): SyncStatus;
     saveSync(patch: Partial<SyncSettings>): SyncSettings;
     /** Syncs now: takes what changed in the tavern, writes what changed here. */
     syncNow(): Promise<SyncStatus>;
     /** Model ids the custom text API lists (a free connection check); `draft` are options not saved yet. */
-    textModels(draft?: Partial<TextSettings>): Promise<string[]>;
+    textModels(draft?: TextPatch): Promise<string[]>;
     saveMoments(patch: Partial<Pick<MomentsSettings, 'auto' | 'every' | 'dailyMax' | 'images' | 'replyToMe'>>): MomentsSettings;
     /** Newest first. */
     listMoments(): Promise<MomentPost[]>;

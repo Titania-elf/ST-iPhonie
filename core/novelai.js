@@ -2,6 +2,18 @@
 // The key stays in this browser; nothing here goes through the tavern server.
 
 export const NAI_HOST = 'https://image.novelai.net';
+/**
+ * A relay the user runs in front of NovelAI: the same paths (/ai/generate-image, /user/subscription) and whatever key it
+ * asks for. '' means NovelAI itself. A page opened over HTTPS cannot reach an http:// relay (except on this computer).
+ */
+export function relayUrl(value, pageProtocol = globalThis.location?.protocol) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  let url; try { url = new URL(raw); } catch { throw Error('中转地址格式不对，要以 https:// 开头'); }
+  if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw Error('中转地址格式不对：以 https:// 开头，不带 ? 和 #');
+  if (url.protocol === 'http:' && pageProtocol === 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) throw Error('酒馆是用 HTTPS 打开的，浏览器不允许连 http:// 的中转，请给中转配上 HTTPS');
+  return (url.origin + url.pathname).replace(/\/+$/, '');
+}
 export const NAI_MODELS = ['nai-diffusion-5-full', 'nai-diffusion-5-curated', 'nai-diffusion-4-5-full', 'nai-diffusion-4-5-curated', 'nai-diffusion-4-full', 'nai-diffusion-4-curated-preview', 'nai-diffusion-3'];
 export const NAI_MODEL_NAMES = {
   'nai-diffusion-5-full': 'V5 Full', 'nai-diffusion-5-curated': 'V5 Curated', 'nai-diffusion-4-5-full': 'V4.5 Full', 'nai-diffusion-4-5-curated': 'V4.5 Curated',
@@ -140,31 +152,40 @@ export function readSubscription(data = {}) {
 }
 
 /** Readable error with the HTTP status kept on it (the queue retries 429). */
-function failure(status, text) {
+function failure(status, text, relay = false) {
+  if (relay && status === 401) return Object.assign(Error('中转拒绝了密钥（401）：请填写中转要求的密钥'), {status});
+  if (relay && status === 404) return Object.assign(Error('中转返回 404：地址不对，或者中转没有转发这个接口（查订阅失败不影响出图）'), {status});
   const message = status === 401 ? 'NovelAI 密钥无效或已过期，请在引擎卡包里重新填写'
     : status === 402 ? 'Anlas 不足，或当前订阅不支持这次生成'
     : status === 429 ? 'NovelAI 账号正忙（可能有人在用同一个账号出图），重试几次后仍然没空，已停下'
     : status === 400 ? 'NovelAI 拒绝了这次请求：' + (text || '参数无效').slice(0, 160)
     : `NovelAI 暂时不可用（${status}）`;
-  return Object.assign(Error(message), {status});
+  return Object.assign(Error(relay ? '经中转：' + message : message), {status});
 }
 
 export class NovelAIClient {
-  constructor(fetcher = (...args) => globalThis.fetch(...args)) { this.fetch = fetcher; this.key = ''; }
+  // relay: the user's relay address ('' for NovelAI itself), set from the drawing settings before each call.
+  constructor(fetcher = (...args) => globalThis.fetch(...args)) { this.fetch = fetcher; this.key = ''; this.relay = ''; }
   setKey(key) { this.key = String(key || '').trim(); }
   get configured() { return !!this.key; }
   headers() {
     if (!this.key) throw Error('还没有填写 NovelAI 密钥');
     return {Authorization: 'Bearer ' + this.key, 'Content-Type': 'application/json'};
   }
+  async call(path, init) {
+    const relay = this.relay;
+    let response;
+    try { response = await this.fetch((relay || NAI_HOST) + path, init); }
+    catch (error) { if (error?.name === 'AbortError') throw error; throw Error(relay ? '连不上中转：请确认地址正确、中转允许跨域（CORS）；酒馆用 HTTPS 打开时，中转也要用 HTTPS' : '连不上 NovelAI，请检查网络'); }
+    if (!response.ok) throw failure(response.status, await response.text().catch(() => ''), !!relay);
+    return response;
+  }
   async subscription(signal) {
-    const response = await this.fetch(NAI_HOST + '/user/subscription', {headers: this.headers(), signal});
-    if (!response.ok) throw failure(response.status, await response.text().catch(() => ''));
+    const response = await this.call('/user/subscription', {headers: this.headers(), signal});
     return readSubscription(await response.json());
   }
   async generate(body, signal) {
-    const response = await this.fetch(NAI_HOST + '/ai/generate-image', {method: 'POST', headers: this.headers(), body: JSON.stringify(body), signal});
-    if (!response.ok) throw failure(response.status, await response.text().catch(() => ''));
+    const response = await this.call('/ai/generate-image', {method: 'POST', headers: this.headers(), body: JSON.stringify(body), signal});
     return unzipFirstImage(await response.arrayBuffer());
   }
 }
