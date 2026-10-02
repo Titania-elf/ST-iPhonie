@@ -64,6 +64,47 @@ export function replyText(json) {
   throw Error('接口返回的内容里没有回复文字');
 }
 
+/** The text in one streamed chunk, whatever the provider's shape: OpenAI-style deltas, Claude's content deltas, Gemini's
+ *  candidate parts. Reasoning sent apart (reasoning_content, Gemini thoughts) is left out. */
+export function chunkText(json) {
+  const choice = json?.choices?.[0];
+  if (choice) {
+    const part = choice.delta?.content ?? choice.message?.content ?? choice.text;
+    if (Array.isArray(part)) return part.map(p => typeof p === 'string' ? p : p?.text || '').join('');
+    return typeof part === 'string' ? part : '';
+  }
+  if (json?.type === 'content_block_delta') return typeof json.delta?.text === 'string' ? json.delta.text : '';
+  const parts = json?.candidates?.[0]?.content?.parts;
+  if (Array.isArray(parts)) return parts.filter(p => !p?.thought).map(p => p?.text || '').join('');
+  return '';
+}
+/**
+ * Reads a streamed answer (server-sent events) to the end and returns the whole text. Some relays ("假流式" channels)
+ * only answer a streamed request: asked without streaming they send back an empty message.
+ */
+export async function streamText(response) {
+  const reader = response.body?.getReader?.();
+  const decoder = new TextDecoder();
+  let buffer = '', text = '';
+  const take = block => {
+    const data = block.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).join('');
+    if (!data || data === '[DONE]') return;
+    let json; try { json = JSON.parse(data); } catch { return; }
+    const message = json?.error?.message || (typeof json?.error === 'string' ? json.error : '');
+    if (message) throw Error(String(message).slice(0, 300));
+    text += chunkText(json);
+  };
+  if (!reader) { for (const block of (await response.text()).split(/\r?\n\r?\n/)) take(block); return text; }
+  for (;;) {
+    const {done, value} = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), {stream: !done});
+    const blocks = buffer.split(/\r?\n\r?\n/);
+    buffer = done ? '' : blocks.pop();
+    for (const block of blocks) take(block);
+    if (done) { if (buffer) take(buffer); return text; }
+  }
+}
+
 /** A readable reason for a failed request. The key is never part of it. */
 export function failure(status, body, key = '') {
   let detail = '';
@@ -80,20 +121,30 @@ export function failure(status, body, key = '') {
  */
 export async function customRequest({text, key, prompt, responseLength, fetch: send = globalThis.fetch, signal}) {
   const base = apiBase(text.url), body = chatBody(text, prompt, responseLength);
-  const timeout = AbortSignal.timeout ? AbortSignal.timeout(TEXT_LIMITS.timeout) : undefined;
-  let response;
-  try {
-    response = await send(base + '/chat/completions', {method: 'POST', headers: {'Content-Type': 'application/json', ...(key ? {Authorization: 'Bearer ' + key} : {})}, body: JSON.stringify(body),
-      signal: signal && timeout && AbortSignal.any ? AbortSignal.any([signal, timeout]) : signal || timeout});
-  } catch (error) {
-    if (error?.name === 'AbortError' || error?.name === 'TimeoutError') throw Error('文字模型：等太久了，接口没有回应');
-    throw Error('文字模型：连不上这个接口。可能是地址写错了，或者这个接口不允许网页直接访问（CORS）');
-  }
+  const post = async stream => {
+    const timeout = AbortSignal.timeout ? AbortSignal.timeout(TEXT_LIMITS.timeout) : undefined;
+    try {
+      return await send(base + '/chat/completions', {method: 'POST', headers: {'Content-Type': 'application/json', ...(key ? {Authorization: 'Bearer ' + key} : {})}, body: JSON.stringify({...body, stream}),
+        signal: signal && timeout && AbortSignal.any ? AbortSignal.any([signal, timeout]) : signal || timeout});
+    } catch (error) {
+      if (error?.name === 'AbortError' || error?.name === 'TimeoutError') throw Error('文字模型：等太久了，接口没有回应');
+      throw Error('文字模型：连不上这个接口。可能是地址写错了，或者这个接口不允许网页直接访问（CORS）');
+    }
+  };
+  const response = await post(false);
   const raw = await response.text();
   if (!response.ok) throw failure(response.status, raw, key);
   let json;
   try { json = JSON.parse(raw); } catch { throw Error('文字模型：接口返回的不是 JSON，地址可能填错了'); }
-  return replyText(json);
+  let reply = '';
+  try { reply = replyText(json); } catch { /* no text: tried again as a stream below */ }
+  if (reply.trim()) return reply;
+  // An empty answer: a "假流式" channel only answers streamed requests. Asked again as a stream.
+  const streamed = await post(true);
+  if (!streamed.ok) throw failure(streamed.status, await streamed.text(), key);
+  reply = await streamText(streamed);
+  if (!reply.trim()) throw Error('文字模型：接口没有返回内容（普通请求和流式请求都试过了）');
+  return reply;
 }
 
 /** Model ids the API lists (GET /models): for picking a model and checking the connection. Listing costs nothing. */

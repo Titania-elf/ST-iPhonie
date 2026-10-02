@@ -7,6 +7,7 @@ import { renderPictures, drawPromptPlan, withoutPictures } from './core/draw.js'
 import { createPictureHost } from './host-pictures.js';
 import { createChatHost } from './host-chat.js';
 import { createMomentsHost } from './host-moments.js';
+import { loreBooks } from './host-lore.js';
 import { createCallHost } from './host-call.js';
 import { TIER_NAMES } from './core/novelai.js';
 const base=new URL('.',import.meta.url),marker=globalThis.crypto?.randomUUID?.()||'unavailable';
@@ -222,6 +223,7 @@ function connect(source){
   diagnose:()=>{check();return diagnose();},
   tavernAvatars:()=>{check();return tavernAvatars();},
   chatu8Vibes:()=>{check();return chatu8Count();},
+  loreBooks:async()=>{check();return loreBooks(context);},
   importChatu8:async()=>{check();return owner.importVibes([new File([JSON.stringify(await chatu8Vibes())],'智绘姬.json',{type:'application/json'})],{names:true});},
   panelFloating:()=>{check();return !!panel?.classList.contains('floating');},
   panelDrag:(phase,sx,sy)=>{check();return panelDrag(phase,sx,sy);},

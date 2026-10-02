@@ -2,8 +2,8 @@
 // model (generateRaw), like phone chat replies; nothing is written into the story. Pictures go through the drawing
 // queue and only when they are free (NovelAI's free tier); others wait for the user to ask.
 import {buildMomentsRequest, parseMoments, storyLines, MOMENTS_LIMITS} from './core/moments.js';
-import {chatContacts, activeChatPreset} from './core/chat.js';
-import {worldInfoFor} from './host-lore.js';
+import {chatContacts, activeChatPreset, cleanTagged} from './core/chat.js';
+import {worldInfoFor, loreOptions} from './host-lore.js';
 import {pictureInputs} from './core/draw.js';
 
 export function createMomentsHost({context, settings, backend, notice}) {
@@ -21,7 +21,7 @@ export function createMomentsHost({context, settings, backend, notice}) {
   const people = () => chatContacts(settings()).slice(0, MOMENTS_LIMITS.people).map(c => ({name: c.name, persona: c.persona, card: c.persona ? '' : card(c.name)}));
   const emit = extra => backend.emit('moments', {busy: !!busy, ...extra});
   /** 世界书 for these people: scanned over their names, the recent story and the posts in question. */
-  const lore = (preset, crowd, story, texts) => preset.lore === false ? Promise.resolve('') : worldInfoFor(context, {persona: userPersona(), characters: crowd.map(p => p.persona || p.card).join('\n'),
+  const lore = (preset, crowd, story, texts) => preset.lore === false ? Promise.resolve('') : worldInfoFor(context, {...loreOptions(preset), persona: userPersona(), characters: crowd.map(p => p.persona || p.card).join('\n'),
     texts: [crowd.map(p => p.name).join('、'), ...story.map(r => `${r.name}: ${r.text}`), ...texts]});
 
   /** One model request at a time; the phone shows it as busy. */
@@ -36,7 +36,7 @@ export function createMomentsHost({context, settings, backend, notice}) {
   }
   async function ask(ctx, request) {
     const text = await backend.generateText(ctx, {prompt: request, trimNames: false});
-    return String(text || '');
+    return cleanTagged(String(text || ''), activeChatPreset(settings().chat).cleanTags);
   }
   const base = () => {
     const s = settings(), preset = activeChatPreset(s.chat), crowd = people();

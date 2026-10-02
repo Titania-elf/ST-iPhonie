@@ -54,12 +54,60 @@ export function presetsApp(ctx) {
     v.draw(heading('预设', btn('add-preset', icon('add'), 'round-button', `aria-label="新增${label}预设"`), 'Preset · 3 类') + tabs + body);
   }
 
+  /** The 世界书 line: how much is left out (picked in a sheet), and the tags cleaned away (status bars). */
+  function loreFields(p) {
+    const books = (p.loreSkipBooks || []).length, entries = (p.loreSkipEntries || []).length;
+    return `<div class="setting-row"><span class="row-text"><strong>手机读哪些世界书</strong><small>${books || entries ? `不读 ${books} 本、${entries} 条` : '现在开着的都读'}</small></span>${btn('lore-pick', '选择', 'chip-button')}</div>
+      ${field('清洗标签', input('cleanTags', Array.isArray(p.cleanTags) ? p.cleanTags.join(', ') : String(p.cleanTags ?? ''), 'text', 'placeholder="比如 status, 状态栏" autocomplete="off"'), '写标签名，逗号隔开。世界书里用这些标签包住的内容（比如 <status>…</status>）不给手机，手机回复里要是写了也会去掉。')}`;
+  }
+  /** A sheet listing the books turned on now and their entries: switch one off and the phone leaves it out. */
+  async function pickLore() {
+    const d = ctx.dialog('手机读哪些世界书', '<p class="hint">正在读取世界书……</p>');
+    let books = [];
+    try { books = await api.loreBooks?.() || []; } catch (error) { d.body.innerHTML = `<p class="hint error-copy">${esc(error.message)}</p>`; return; }
+    if (!d.live) return;
+    const skipBooks = new Set(current.loreSkipBooks || []), skipEntries = new Set(current.loreSkipEntries || []);
+    let query = '';
+    const hit = (...texts) => !query || texts.some(t => String(t || '').toLowerCase().includes(query));
+    const paint = () => {
+      const keep = d.body.querySelector('[data-lore-list]')?.scrollTop || 0;
+      const rows = books.map(b => {
+        const off = skipBooks.has(b.name), shown = b.entries.filter(e => hit(e.title, e.keys.join(' '), e.preview, b.name));
+        if (query && !shown.length && !hit(b.name)) return '';
+        const left = b.entries.filter(e => skipEntries.has(e.id)).length;
+        return `<details class="lore-book${off ? ' off' : ''}" ${query ? 'open' : ''}><summary><span class="row-text"><strong>${esc(b.name)}</strong><small>${esc(b.from.join(' · '))} · ${b.entries.length} 条${left ? `，不读 ${left} 条` : ''}</small></span>
+            <input class="switch" type="checkbox" data-lore-book="${esc(b.name)}" ${off ? '' : 'checked'} aria-label="读「${esc(b.name)}」"></summary>
+          <div>${shown.map(e => `<label class="lore-entry${skipEntries.has(e.id) ? ' off' : ''}"><span class="row-text"><strong>${esc(e.title)}</strong><small>${e.constant ? '常驻' : e.keys.length ? '关键词：' + esc(e.keys.join('、')) : '没有关键词'}${e.preview ? ' · ' + esc(e.preview) : ''}</small></span>
+            <input class="switch" type="checkbox" data-lore-entry="${esc(e.id)}" ${skipEntries.has(e.id) ? '' : 'checked'} ${off ? 'disabled' : ''} aria-label="读「${esc(e.title)}」"></label>`).join('') || '<p class="hint">这本书没有启用的条目。</p>'}</div></details>`;
+      }).join('');
+      d.body.querySelector('[data-lore-list]').innerHTML = rows || `<p class="hint">${query ? '没有搜到。' : '现在没有开着的世界书。'}</p>`;
+      d.body.querySelector('[data-lore-list]').scrollTop = keep;
+    };
+    d.body.innerHTML = `<div class="vibe-search">${icon('search')}<input type="search" data-lore-search placeholder="搜索书名、条目标题、关键词" aria-label="搜索世界书"></div>
+      <p class="hint" style="padding:6px 2px">列出的是现在开着的世界书（全局、角色卡、聊天、人设绑定的）和里面启用的条目。关掉的手机就不读，正文照常用。改完点「保存预设」才生效。</p>
+      <div class="lore-list" data-lore-list></div>`;
+    paint();
+    d.body.addEventListener('input', e => { if (e.target.matches('[data-lore-search]')) { query = e.target.value.trim().toLowerCase(); paint(); } });
+    d.body.addEventListener('change', e => {
+      const el = e.target;
+      if (el.dataset.loreBook !== undefined) { if (el.checked) skipBooks.delete(el.dataset.loreBook); else skipBooks.add(el.dataset.loreBook); }
+      else if (el.dataset.loreEntry !== undefined) { if (el.checked) skipEntries.delete(el.dataset.loreEntry); else skipEntries.add(el.dataset.loreEntry); }
+      else return;
+      current.loreSkipBooks = [...skipBooks]; current.loreSkipEntries = [...skipEntries]; mark();
+      const open = [...d.body.querySelectorAll('details.lore-book')].map(x => x.open);
+      paint();
+      d.body.querySelectorAll('details.lore-book').forEach((x, i) => { if (open[i]) x.open = true; });
+    });
+    // A click on the switch inside a summary must not also open or close the book.
+    d.body.addEventListener('click', e => { if (e.target.matches('summary .switch')) e.stopPropagation(); }, true);
+    d.onClose(() => render());
+  }
   function renderEditor() {
     const p = current, o = ops(currentKind), draw = currentKind === 'draw', chat = currentKind === 'chat';
     const used = p.id && p.id === o.active();
     v.draw(heading(p.id ? '编辑预设' : '新预设', '', draw ? 'Drawing Preset' : chat ? 'Chat Preset' : 'Voice Preset')
       + `<div class="group pad">${field('名称', input('name', p.name))}${chat
-        ? `${field('读取最近的正文', input('context', p.context, 'number', 'min="0" max="40" step="1"'), '回消息时参考最近几条正文，0 表示不看剧情。')}${field('读取聊天记录', input('history', p.history, 'number', 'min="2" max="200" step="1"'), '回消息时带上最近多少条手机聊天。')}${field('每次刷新朋友圈最多几条', input('posts', p.posts ?? 2, 'number', 'min="1" max="5" step="1"'), '在动态里刷新时，由模型挑 1 到这么多个人发动态。')}${toggle('lore', '带上世界书', p.lore !== false, '聊天、电话和朋友圈也带上酒馆的世界书：和写正文时一样，常驻的条目，以及在名字、最近的正文和聊天里触发关键词的条目（当前角色卡的世界书、全局和聊天绑定的世界书都算）。人设写在世界书里的话要打开。\n\n条目多的话会多占一些上下文。')}${field('带进剧情的写法', textArea('bring', p.bring, 'class="code" rows="4"'), '选中的聊天消息会按这段文字注入下一次正文，只用一次。需要包含 {{聊天记录}}；也可以用 {{用户}}、{{对象}}。')}`
+        ? `${field('读取最近的正文', input('context', p.context, 'number', 'min="0" max="40" step="1"'), '回消息时参考最近几条正文，0 表示不看剧情。')}${field('读取聊天记录', input('history', p.history, 'number', 'min="2" max="200" step="1"'), '回消息时带上最近多少条手机聊天。')}${field('每次刷新朋友圈最多几条', input('posts', p.posts ?? 2, 'number', 'min="1" max="5" step="1"'), '在动态里刷新时，由模型挑 1 到这么多个人发动态。')}${toggle('lore', '带上世界书', p.lore !== false, '聊天、电话和朋友圈也带上酒馆的世界书：和写正文时一样，常驻的条目，以及在名字、最近的正文和聊天里触发关键词的条目（当前角色卡的世界书、全局和聊天绑定的世界书都算）。人设写在世界书里的话要打开。\n\n条目多的话会多占一些上下文。')}${p.lore !== false ? loreFields(p) : ''}${field('带进剧情的写法', textArea('bring', p.bring, 'class="code" rows="4"'), '选中的聊天消息会按这段文字注入下一次正文，只用一次。需要包含 {{聊天记录}}；也可以用 {{用户}}、{{对象}}。')}`
         : draw
         ? `${field('每条回复出图数量', input('count', p.count ?? 1, 'number', `min="1" max="${api.drawCountMax}" step="1"`), '每条回复固定出这么多张图。规则里写 {{出图数量}} 会换成这个数字；插件还会在规则最后加一段硬性要求，让张数更稳定。张数越多，出图越久。')}<div class="field"><span>出图块格式${help('规则里写 {{出图格式}} 会换成下面这段（回复后单独配图时，还会多一行「位置」）；{{角色列表}} 会换成已登记的角色和他们的固定外貌；{{出图数量}} 换成张数。别的插件要排除出图内容时，排除标签填 <img></img>。')}</span><pre class="code-preview" style="margin:0">${esc(api.picTagFormat)}</pre></div>`
         : field('台词格式', textArea('format', p.format, 'class="code"'), '{译文}、{角色}、{情绪}、{文本} 各保留一次。译文供阅读，原语言供语音生成。默认格式是成对的 <tts></tts>，别的插件要排除语音原文时，排除标签填 <tts></tts>。')}</div>
@@ -155,6 +203,7 @@ export function presetsApp(ctx) {
         break;
       case 'save-preset': save(); break;
       case 'use-preset': save(); ops(currentKind).use(current.id); render(); break;
+      case 'lore-pick': await pickLore(); break;
       case 'add-entry':
         current.entries.push({id: crypto.randomUUID(), title: '新条目', enabled: true, text: ''});
         render();

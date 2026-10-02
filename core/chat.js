@@ -36,7 +36,7 @@ const DEFAULT_INJECTION = {position: 'in_chat', depth: 1, role: 'system'};
 // default words get the new ones, rules the user changed stay as they are.
 const PRESET_REV = 5;
 const OLD_RULES = Object.freeze({style: '你在一个手机聊天软件里，以联系人本人的身份回复{{用户}}。像真的在发手机消息：口语、简短，一次发一到三条，每条一两句话。可以用语气词和颜文字，不写动作、旁白和心理描写，不加引号。', group: '群聊里每次由一到三位成员接话，谁接话看话题和各自性格，成员之间也可以互相回应、吐槽。', 'c-style': '你在和{{用户}}打语音电话，说的每一句都会被念出来。像真人打电话一样说话：口语、句子短，一次说一到三句；会接话、会反问，会有停顿和语气词。身边发生的小事用说的话带出来（比如「等一下，我这边有点吵」），不写动作、旁白、心理描写和表情符号。守住人设和你们的关系，最近的剧情和聊天可以自然提起。'});
-const DEFAULT_PRESET = {id: 'default', name: '日常短信', rev: PRESET_REV, context: 6, history: 30, posts: 2, lore: true, bring: DEFAULT_BRING, injection: DEFAULT_INJECTION, entries: DEFAULT_CHAT_ENTRIES.map(e => ({...e, enabled: true}))};
+const DEFAULT_PRESET = {id: 'default', name: '日常短信', rev: PRESET_REV, context: 6, history: 30, posts: 2, lore: true, loreSkipBooks: [], loreSkipEntries: [], cleanTags: [], bring: DEFAULT_BRING, injection: DEFAULT_INJECTION, entries: DEFAULT_CHAT_ENTRIES.map(e => ({...e, enabled: true}))};
 
 // How voice messages read in the phone: only the voice bar until the user asks for 转文字 (or `auto`),
 // then the translation, the original line, or both.
@@ -52,6 +52,21 @@ export function defaultChat() {
 
 const text = (value, max) => String(value ?? '').slice(0, max);
 const count = (value, min, max, fallback) => { const n = Math.round(Number(value)); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback; };
+
+/** Tag names whose blocks are taken out of 世界书 text and of phone replies (status bars and the like). */
+export const tagList = value => [...new Set((Array.isArray(value) ? value : String(value ?? '').split(/[\s,，、;；]+/))
+  .map(t => String(t).trim().replace(/^<\/?|\/?>$/g, '')).filter(t => /^[\w\u4e00-\u9fff:.-]{1,40}$/.test(t)))].slice(0, 30);
+const lineList = (value, max = 100) => [...new Set((Array.isArray(value) ? value : String(value ?? '').split(/\r?\n/)).map(t => String(t).trim().slice(0, 200)).filter(Boolean))].slice(0, max);
+const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Takes out <tag …>…</tag> blocks (and <tag/>) of the given names, then collapses the blank lines left behind. */
+export function cleanTagged(text, tags) {
+  let out = String(text ?? '');
+  for (const tag of tagList(tags)) {
+    const t = escapeRe(tag);
+    out = out.replace(new RegExp(`<${t}(?:\\s[^>]*)?>[\\s\\S]*?<\\/${t}\\s*>`, 'gi'), '').replace(new RegExp(`<${t}(?:\\s[^>]*)?\\/>`, 'gi'), '');
+  }
+  return out.replace(/\n{3,}/g, '\n\n').trim();
+}
 
 export function normalizeChatPreset(p = {}) {
   let entries = Array.isArray(p.entries) ? p.entries : [];
@@ -78,6 +93,10 @@ export function normalizeChatPreset(p = {}) {
     posts: count(p.posts, 1, 5, DEFAULT_PRESET.posts),
     // 世界书: entries the tavern would turn on are added to chat, call and 朋友圈 requests (host-lore.js).
     lore: p.lore !== false,
+    // Books and entries ("book#uid") left out of the phone's 世界书, and tags whose blocks are cleaned away.
+    loreSkipBooks: lineList(p.loreSkipBooks),
+    loreSkipEntries: lineList(p.loreSkipEntries, 1000),
+    cleanTags: tagList(p.cleanTags),
     bring: text(p.bring ?? DEFAULT_BRING, 4000),
     injection: {...DEFAULT_INJECTION, ...p.injection, depth: count(p.injection?.depth, 0, 10000, DEFAULT_INJECTION.depth)},
     entries: entries.map(e => ({id: String(e.id || crypto.randomUUID()), title: text(e.title, 80), enabled: e.enabled !== false, text: text(e.text, 20000), use: ruleUse(e)}))

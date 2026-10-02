@@ -2,7 +2,7 @@ import { MomentStore } from './moments-store.js';
 import { languageCode } from './languages.js';
 import { normalizeMoments, buildMomentsRequest } from './moments.js';
 import { normalizeCalls, buildCallRequest } from './call.js';
-import { normalizeText, activeText, customRequest, listModels, TEXT_PRESET_ID } from './llm.js';
+import { normalizeText, activeText, customRequest, listModels, streamText, asMessages, TEXT_PRESET_ID } from './llm.js';
 import { normalizeSync, runSync, SYNC_PARTS } from './sync.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup, sealKeys, openKeys } from './backup.js';
 import { normalizeSettings, validateSettings, modelRules, freshState } from './state.js';
@@ -470,7 +470,33 @@ export class TTSBackend {
         const text = activeText(this.settings.text);
         if (text.source === 'custom') return customRequest({ text, key: this.textKeys.get(text.id) || '', prompt: request.prompt, responseLength: request.responseLength });
         if (!context?.generateRaw) throw Error('当前酒馆版本不支持后台生成');
-        return context.generateRaw(request);
+        // The chat-completion request the tavern builds is kept, so an empty answer can be asked again as a stream:
+        // "假流式" channels only answer streamed requests, and the tavern's background generation never streams.
+        const source = context.eventSource, event = context.eventTypes?.CHAT_COMPLETION_SETTINGS_READY, last = JSON.stringify(asMessages(request.prompt).at(-1)?.content ?? '');
+        let payload = null;
+        const keep = data => { if (!payload && data?.type === 'quiet' && JSON.stringify(data.messages?.at?.(-1)?.content ?? '') === last) payload = clone(data); };
+        if (source?.on && event) source.on(event, keep);
+        let empty = false;
+        try {
+            const text = await context.generateRaw(request);
+            if (String(text ?? '').trim() || !payload) return text;
+            empty = true;
+        } catch (error) {
+            if (!payload || !/no message generated|empty/i.test(String(error?.message || ''))) throw error;
+            empty = true;
+        } finally { source?.removeListener?.(event, keep); }
+        if (empty) return this.streamTavern(context, payload);
+    }
+    /** Sends the tavern's chat-completion request again with streaming on, and reads the whole answer. */
+    async streamTavern(context, payload) {
+        if (typeof context.getRequestHeaders !== 'function') throw Error('模型没有返回内容');
+        let response;
+        try { response = await fetch('/api/backends/chat-completions/generate', { method: 'POST', headers: context.getRequestHeaders(), cache: 'no-cache', body: JSON.stringify({ ...payload, stream: true }) }); }
+        catch { throw Error('模型没有返回内容，改用流式请求也没连上'); }
+        if (!response.ok) throw Error(`模型没有返回内容，改用流式请求也失败了（HTTP ${response.status}）`);
+        const text = await streamText(response);
+        if (!text.trim()) throw Error('模型没有返回内容（普通请求和流式请求都试过了）');
+        return text;
     }
     /** Model ids of the custom API (also a free connection check). `draft`: options not saved yet. */
     textModels(draft) { const text = activeText(this.textWith(draft)); return listModels({ text, key: this.textKeys.get(text.id) || '' }); }

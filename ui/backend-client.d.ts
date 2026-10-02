@@ -625,6 +625,9 @@ export interface BackendAPI extends BackendFacade {
     tavernAvatars(): { me: string; characters: Record<string, string> };
     /** How many single vibes and groups 智绘姬 (st-chatu8) has in this tavern; 0 when it is not installed. */
     chatu8Vibes(): number;
+    /** The World Info books turned on now (global, character, chat, persona) with their entries that are on, for picking
+     *  what the phone leaves out. Entry ids are "book#uid". */
+    loreBooks(): Promise<Array<{ name: string; from: string[]; entries: Array<{ id: string; title: string; keys: string[]; constant: boolean; preview: string }> }>>;
     /** Imports every vibe and group 智绘姬 keeps (read only: nothing of 智绘姬's changes). */
     importChatu8(): Promise<{ added: number; updated: number; renamed: number; groups: number; errors: Array<{ name: string; message: string }> }>;
     /** On a computer the phone is a floating window beside the story (false when it is full screen). */

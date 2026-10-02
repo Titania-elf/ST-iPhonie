@@ -2,8 +2,8 @@
 // (generateRaw): the prompt carries the chat preset, each contact's persona or character card, the user's persona,
 // recent story messages and the chat history. Nothing is written into the story unless the user brings a chat
 // into it; that text is injected once, into the next story reply.
-import {buildChatRequest, parseChatReply, bringText, plainStory, activeChatPreset, chatContacts, messageLine} from './core/chat.js';
-import {worldInfoFor} from './host-lore.js';
+import {buildChatRequest, parseChatReply, bringText, plainStory, activeChatPreset, chatContacts, messageLine, cleanTagged} from './core/chat.js';
+import {worldInfoFor, loreOptions} from './host-lore.js';
 
 export function createChatHost({context, settings, backend, notice, onCall = () => {}}) {
   const busy = new Map();
@@ -50,10 +50,10 @@ export function createChatHost({context, settings, backend, notice, onCall = () 
       backend.emit('chat', {threadId, typing: true});
       const recent = story(preset.context);
       // 世界书: scanned over who is in the chat, the recent story and the chat itself, as the story's own request would be.
-      const lore = preset.lore === false ? '' : await worldInfoFor(context, {persona: userPersona(), characters: people.map(p => p.persona || p.card).join('\n'),
+      const lore = preset.lore === false ? '' : await worldInfoFor(context, {...loreOptions(preset), persona: userPersona(), characters: people.map(p => p.persona || p.card).join('\n'),
         texts: [people.map(p => p.name).join('、'), ...recent.map(r => `${r.name}: ${r.text}`), ...thread.messages.slice(-preset.history).map(m => messageLine(m, user))]});
       const prompt = buildChatRequest({preset, thread, members: people, story: recent, user, userPersona: userPersona(), voiceFormat, lore});
-      const text = await backend.generateText(ctx, {prompt, trimNames: false});
+      const text = cleanTagged(await backend.generateText(ctx, {prompt, trimNames: false}), preset.cleanTags);
       const items = parseChatReply(text, {members: people, user, voiceFormat, voiceNames: people.filter(p => p.voice).map(p => p.name)});
       if (!items.length) throw Error('这次没有收到消息，可以再试一次');
       return backend.chatMutate(threadId, () => settle(threadId, items));
