@@ -13,7 +13,8 @@ export function rolesApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'roles'), drafts = new Map(), voiceNames = new Map();
   let current = null;
   const changed = () => { const el = v.root.querySelector('[data-save-state]'); if (el) el.textContent = '未保存'; };
-  const voiceLabel = voice => voiceNames.get(voice) || voice;
+  // A MiMo voice description can run to a few sentences: cards show its start, the editor shows it whole.
+  const voiceLabel = voice => { const name = voiceNames.get(voice) || voice; return name.length > 16 ? name.slice(0, 15) + '…' : name; };
 
   function renderList() {
     const roles = api.getState().routes;
@@ -33,7 +34,8 @@ export function rolesApp(ctx) {
   function renderEditor() {
     const r = current, c = api.getState().connections[r.engine], schema = api.engineSchema(r.engine);
     const saved = api.getState().routes.findIndex(x => x.id === r.id), pending = api.pendingRole() === r.name && !!r.name;
-    const voiced = !!r.voice;
+    const voiced = !!r.voice, model = r.model || c.model;
+    const mimo = r.engine !== 'mimo' ? '' : /voicedesign$/.test(model) ? 'design' : /voiceclone$/.test(model) ? 'clone' : 'preset';
     v.draw(heading(r.id ? '角色配音' : '新增角色', '', 'Voice Route')
       + (pending ? `<div class="banner">${icon('alert')}<span>播放停在「${esc(r.name)}」这里，选好音色后可以继续。</span></div>` : '')
       + `<div class="id-card${voiced ? '' : ' none'}" data-engine="${r.engine}">
@@ -44,15 +46,17 @@ export function rolesApp(ctx) {
           <div class="barcode">${barcode((r.name || '') + r.engine + (r.voice || ''))}</div><span class="id-stamp">${voiced ? '已配音' : '待配音'}</span>
         </div>
         <div class="group pad">${field('角色名称', input('name', r.name, 'text', 'placeholder="与台词里的说话者一致"'))}</div>
-        ${groupTitle('引擎', help('每个角色在三家引擎里各自记住一套音色和模型，切过去再切回来不会丢。'))}
+        ${groupTitle('引擎', help('每个角色在各家引擎里各自记住一套音色和模型，切过去再切回来不会丢。'))}
         <div class="engine-tabs">${Object.entries(engines).map(([k, label]) => {
           const bound = k === r.engine ? r.voice : r.bindings?.[k]?.voice;
           return `<button class="engine-tab" data-action="route-engine" data-engine="${k}" aria-pressed="${r.engine === k}" title="${esc(label + '：' + (bound ? voiceLabel(bound) : '未选音色'))}">${label}<small>${esc(bound ? voiceLabel(bound) : '未选音色')}</small></button>`;
         }).join('')}</div>
         ${groupTitle('声音')}
         <div class="group pad" data-engine="${r.engine}">
-          <div class="voice-row"><span class="disc">${icon('wave')}</span><div>${voiced ? `<strong>${esc(voiceLabel(r.voice))}</strong><small class="mono">${esc(r.voice)}</small>` : '<strong class="unset">还没有选择音色</strong><small>从列表选择，或在下面粘贴音色 ID</small>'}</div>${btn('pick-voice', '从列表选', 'chip-button')}</div>
-          ${field('音色 ID', input('voice', r.voice, 'text', 'placeholder="粘贴音色 ID 或从列表选择" autocomplete="off"'))}
+          <div class="voice-row"><span class="disc">${icon('wave')}</span><div>${voiced ? `<strong>${esc(voiceLabel(r.voice))}</strong><small class="mono">${esc(mimo === 'design' ? '音色设计' : r.voice)}</small>` : '<strong class="unset">还没有选择音色</strong><small>从列表选择，或在下面粘贴音色 ID</small>'}</div>${mimo === 'design' ? '' : btn('pick-voice', '从列表选', 'chip-button')}</div>
+          ${mimo === 'design'
+            ? field('音色描述', textArea('voice', r.voice, 'rows="3" placeholder="例如：二十岁出头的女生，声音清亮，带点慵懒，说话慢悠悠的"'), '用一到四句话描述：性别年龄、音色质感、情绪语气、语速节奏。不要写混响、回声这类后期效果，也不要写“普通”“正常”这种模糊的词。')
+            : field(mimo === 'clone' ? '克隆样本' : '音色 ID', input('voice', r.voice, 'text', `placeholder="${mimo === 'clone' ? '填克隆样本的名字，或从列表选择' : '粘贴音色 ID 或从列表选择'}" autocomplete="off"`))}
           ${field('模型', select('model', r.model || '', [['', '跟随引擎 · ' + c.model], ...schema.models.map(m => [m.id, m.id, !m.supported])]))}
           ${languageField('language', r.language || '', true, typedLanguages(api.getState()))}
         </div>
@@ -91,7 +95,8 @@ export function rolesApp(ctx) {
     if (el.dataset.field === 'name') { const n = v.root.querySelector('[data-id-name]'); if (n) n.textContent = el.value || '新角色'; }
     if (el.dataset.field === 'voice') { const n = v.root.querySelector('[data-id-voice]'); if (n) n.textContent = el.value ? voiceLabel(el.value) : '未选择'; }
   });
-  v.on('change', 'select[data-field]', el => { current[el.dataset.field] = el.value; changed(); });
+  // A MiMo model change turns the 音色 field into a description or a clone sample name.
+  v.on('change', 'select[data-field]', el => { current[el.dataset.field] = el.value; changed(); if (el.dataset.field === 'model' && current.engine === 'mimo') render(); });
   v.on('click', '[data-action]', async el => {
     switch (el.dataset.action) {
       case 'add-role': create(); break;
@@ -128,7 +133,7 @@ export function rolesApp(ctx) {
   });
 
   function pickVoice() {
-    const target = current, engine = target.engine, connection = api.getState().connections[engine];
+    const target = current, engine = target.engine, saved = api.getState().connections[engine], connection = {...saved, model: target.model || saved.model};
     let page = 0, token = '', search = '', epoch = 0;
     const dialog = ctx.dialog('选择音色', `<div class="field"><input class="search" type="search" placeholder="搜索音色" aria-label="搜索音色"></div><div class="actions">${btn('search', '搜索', 'secondary')}</div><div class="group" data-engine="${engine}" data-voices></div>`);
     const load = async more => {

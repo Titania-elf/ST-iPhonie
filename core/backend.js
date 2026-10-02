@@ -22,7 +22,7 @@ import { DrawQueue } from './draw-queue.js';
 import { CloudQueue, KeyHashQueue, newRoomCode, validRoom, sha256Hex } from './cloud-queue.js';
 
 export const BACKEND_API_VERSION = '1.0.0';
-const ENGINES = ['fish', 'mini', 'eleven'];
+const ENGINES = ['fish', 'mini', 'eleven', 'mimo'];
 const clone = value => structuredClone(value);
 const engineCheck = engine => { if (!ENGINES.includes(engine)) throw Error('引擎无效'); };
 // Keys cover the voice engines, NovelAI for drawing, and llm (the phone's own text model).
@@ -81,9 +81,9 @@ export class TTSBackend {
         } catch (error) { this.notify(error.message); }
         return this;
     }
-    /** Reads the Fish reference audio the settings use into memory, for requests. */
+    /** Reads the Fish reference audio and the MiMo clone samples the settings use into memory, for requests. */
     async loadReferences() {
-        for (const reference of this.settings.connections.fish.params.references) {
+        for (const reference of [...this.settings.connections.fish.params.references, ...(this.settings.connections.mimo?.params.samples || [])]) {
             const record = await this.library.getReference(reference.audio);
             if (record && !this.closed) { const audio = await this.base64(record.blob); if (!this.closed) this.providers.references.set(record.id, audio); }
         }
@@ -611,6 +611,7 @@ export class TTSBackend {
     async deleteReference(id) {
         const next = this.getState();
         next.connections.fish.params.references = next.connections.fish.params.references.filter(reference => reference.audio !== id);
+        next.connections.mimo.params.samples = next.connections.mimo.params.samples.filter(sample => sample.audio !== id);
         this.save(next); await this.library.deleteReference(id); this.providers.references.delete(id);
     }
     getEngineSchema(engine, connection = this.settings.connections[engine]) {
@@ -622,6 +623,7 @@ export class TTSBackend {
             ...field, ...(field.type === 'select' ? { options: TTSParameters.allowed(engine, field, current) } : {}),
             unavailable: TTSParameters.unavailable(engine, field, current),
             ...(field.key === 'references' ? { help: '参考音频保存在当前浏览器，按酒馆账户隔离。' } : {}),
+            ...(field.key === 'samples' ? { help: '上传 mp3 或 wav（编码后不超过 10 MB），起个名字，角色的音色填这个名字。保存在当前浏览器，按酒馆账户隔离。' } : {}),
         })) }));
         return { engine, ...catalog, connection: current, tags: TTSParameters.tags(engine, current.model), tagNote: TTSParameters.tagNote(engine, current.model), sounds: current.model === 's1' && engine === 'fish' ? [...TTSParameters.vocab.FISH_S1_TONES, ...TTSParameters.vocab.FISH_S1_SOUNDS] : [], sourceDate: '2026-09-30' };
     }
@@ -722,7 +724,7 @@ export class TTSBackend {
             engineSchema: (engine, connection) => this.getEngineSchema(engine, connection),
             validateConnection: (engine, connection) => { try { modelCheck(engine, connection.model); return TTSParameters.validate(engine, connection); } catch (error) { return message(error); } },
             voices: (engine, connection, query) => { engineCheck(engine); return this.providers.voices(engine, connection || this.settings.connections[engine], query); },
-            previewRequest: (engine, connection, route, line) => { const request = buildRequest(engine, connection || this.settings.connections[engine], route, line, this.providers.references); if (request.body.provider?.options?.['fish-audio']?.references) for (const ref of request.body.provider.options['fish-audio'].references) ref.audio = '[本地参考音频]'; return request; },
+            previewRequest: (engine, connection, route, line) => { const request = buildRequest(engine, connection || this.settings.connections[engine], route, line, this.providers.references); if (request.body.provider?.options?.['fish-audio']?.references) for (const ref of request.body.provider.options['fish-audio'].references) ref.audio = '[本地参考音频]'; if (request.body.audio?.voice?.startsWith?.('data:')) request.body.audio.voice = '[本地克隆样本：' + route.voice + ']'; return request; },
             status: () => this.player.snapshot(), subscribe: listener => this.subscribe(listener), levels: () => this.player.sink.levels(),
             pendingRole: () => this.player.pending, stop: () => this.player.stop(), toggle: () => this.player.toggle(), resume: () => this.player.continuePending(),
             audition: route => this.audition(route), lineState: line => this.player.lineState(line),

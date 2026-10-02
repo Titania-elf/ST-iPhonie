@@ -1,7 +1,7 @@
 import { validateKey } from './keys.js';
 import { languageCode } from './languages.js';
 import { TTSParameters as P } from './parameters.js';
-const names={fish:'Fish Audio',mini:'MiniMax',eleven:'ElevenLabs'};
+const names={fish:'Fish Audio',mini:'MiniMax',eleven:'ElevenLabs',mimo:'小米 MiMo'};
 export const miniBase=c=>'https://'+(c.region==='cn'?'api.minimaxi.com':c.region==='uw'?'api-uw.minimax.io':'api.minimax.io');
 const object=value=>Object.prototype.toString.call(value)==='[object Object]';
 function checkedConnection(engine,connection,route,line,references){
@@ -33,15 +33,18 @@ function checkedConnection(engine,connection,route,line,references){
 export function buildRequest(engine,connection,route,line,references=new Map()){
  const c=checkedConnection(engine,connection,route,line,references);P.normalize(engine,c);const error=P.validate(engine,c);if(error)throw Error(error);
  if(engine==='fish'&&c.model==='drama-3-preview')throw Error('这个模型尚未列入 Fish 兼容通道，请选择 S2 或 S1');
+ if(engine==='mimo'&&!route.voice?.trim()){const mode=P.mimoMode(c.model);throw Error(mode==='design'?'请先在角色里填写音色描述':mode==='clone'?'请先在角色里填写克隆样本的名字':'请先选择角色音色');}
  if(!route.voice?.trim()&&!(engine==='fish'&&c.params.references.length)&&!(engine==='mini'&&c.params.timbre_weights.length))throw Error('请先选择角色音色');
  // The 情绪 field becomes the model's own opening tag (Fish, Eleven v3/v4) unless the text already starts with one.
  const request=P.requestPreview(engine,c,route.voice,P.emotionTag(engine,c.model,line.emotion,line.text),c.model);
  if(engine==='fish'&&c.params.references.length){request.body.provider.options['fish-audio'].references=c.params.references.map(r=>{const audio=references.get(r.audio);if(typeof audio!=='string'||!audio)throw Error('请在引擎设置重新选择参考音频：'+r.audio);return {audio,text:r.text};});}
  // MiniMax takes a fixed emotion list: Chinese or English words map onto it; anything else lets the model choose.
  if(engine==='mini'&&!request.body.voice_setting.emotion){const emotion=P.miniEmotion(c.model,line.emotion);if(emotion)request.body.voice_setting.emotion=emotion;else delete request.body.voice_setting.emotion;}
+ // MiMo voice clone: the role's 音色 names an uploaded sample, sent as a data URI (mp3 or wav, at most 10 MB once encoded).
+ if(engine==='mimo'&&P.mimoMode(c.model)==='clone'){const name=route.voice.trim(),sample=c.params.samples.find(x=>String(x.name).trim()===name);if(!sample)throw Error('找不到名叫「'+name+'」的克隆样本，请在 MiMo 引擎里上传');const audio=references.get(sample.audio);if(typeof audio!=='string'||!audio)throw Error('请在引擎设置重新选择克隆样本：'+name);if(audio.length>10*1024*1024)throw Error('克隆样本「'+name+'」太大：编码后不能超过 10 MB，换一段短一点的');const type=audio.startsWith('UklGR')?'audio/wav':/^(SUQz|\/\/)/.test(audio)?'audio/mpeg':'';if(!type)throw Error('克隆样本「'+name+'」不是 mp3 或 wav');request.body.audio.voice='data:'+type+';base64,'+audio;}
  if(engine==='eleven'&&!request.body.language_code&&c.model!=='eleven_multilingual_v2'){const code=languageCode(route.language).split('-')[0];if(/^[a-z]{2,3}$/.test(code))request.body.language_code=code;}
  const url=new URL(request.url);for(const [k,v] of Object.entries(request.query||{}))url.searchParams.set(k,String(v));
- return {engine,url:url.href,body:request.body,format:engine==='fish'?c.params.format:engine==='mini'?c.params['audio_setting.format']:c.params.output_format,sampleRate:engine==='fish'?c.params.sample_rate:engine==='mini'?c.params['audio_setting.sample_rate']:Number(c.params.output_format.split('_')[1]),channels:engine==='mini'?c.params['audio_setting.channel']:1};
+ return {engine,url:url.href,body:request.body,format:engine==='mimo'?'wav':engine==='fish'?c.params.format:engine==='mini'?c.params['audio_setting.format']:c.params.output_format,sampleRate:engine==='mimo'?24000:engine==='fish'?c.params.sample_rate:engine==='mini'?c.params['audio_setting.sample_rate']:Number(c.params.output_format.split('_')[1]),channels:engine==='mini'?c.params['audio_setting.channel']:1};
 }
 export function hexBytes(hex){if(typeof hex!=='string'||!hex.length||hex.length%2||!/^[\da-f]+$/i.test(hex))throw Error('返回的音频数据无效');return Uint8Array.from(hex.match(/../g),x=>parseInt(x,16));}
 export function wavePCM(bytes,rate=24000,channels=1){if(bytes.length%2||!Number.isFinite(rate)||rate<8000||rate>192000||![1,2].includes(channels))throw Error('PCM 音频参数无效');const out=new Uint8Array(44+bytes.length),v=new DataView(out.buffer),ascii=(p,s)=>[...s].forEach((x,i)=>v.setUint8(p+i,x.charCodeAt(0)));ascii(0,'RIFF');v.setUint32(4,36+bytes.length,true);ascii(8,'WAVEfmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,channels,true);v.setUint32(24,rate,true);v.setUint32(28,rate*channels*2,true);v.setUint16(32,channels*2,true);v.setUint16(34,16,true);ascii(36,'data');v.setUint32(40,bytes.length,true);out.set(bytes,44);return out;}
@@ -57,12 +60,18 @@ export async function decodeMini(response,request,fetcher,signal){
  else{let json;try{json=JSON.parse(raw);}catch{throw Error('MiniMax 返回了无效响应');}checkMini(json);if(request.body.output_format==='url'){let url;try{url=new URL(json.data?.audio);}catch{throw Error('MiniMax 未返回音频地址');}if(url.protocol!=='https:')throw Error('音频下载地址必须使用 HTTPS');const downloaded=await fetchWithPolicy(fetcher,url.href,{},signal);if(!downloaded.ok)throw Error('音频下载失败：HTTP '+downloaded.status);return audioBlob(await limitedBytes(downloaded),request);}chunks=[hexBytes(json.data?.audio)];}
  const bytes=new Uint8Array(chunks.reduce((n,c)=>n+c.length,0));let at=0;for(const c of chunks){bytes.set(c,at);at+=c.length;}return audioBlob(bytes,request);
 }
+/** MiMo answers like OpenAI chat completions: the audio is base64 in choices[0].message.audio.data. */
+export async function decodeMimo(response,request){let json;try{json=JSON.parse(new TextDecoder().decode(await limitedBytes(response)));}catch{throw Error('小米 MiMo 返回了无效响应');}
+ if(json.error)throw Error('小米 MiMo：'+(json.error.message||'请求失败'));const message=json.choices?.[0]?.message,data=message?.audio?.data;
+ if(typeof data!=='string'||!data)throw Error('小米 MiMo 没有返回音频'+(typeof message?.content==='string'&&message.content?'：'+message.content.slice(0,100):''));
+ let bytes;try{bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));}catch{throw Error('小米 MiMo 返回的音频数据无效');}return audioBlob(bytes,request);}
 // What a failed request means, from the error code the service sends back (ElevenLabs: detail.code / detail.status).
 const REASONS={
  detected_unusual_activity:'免费账户被判定为异常使用（最常见的原因是开着 VPN 或代理），ElevenLabs 停用了这个账户的免费 API。换一个网络环境再试，或者升级到付费档。',
  missing_permissions:'这把密钥没有开对应的权限：试听要「文字转语音」，读取音色列表要「音色」读取，查额度要「用户」读取。在 ElevenLabs 的 API Keys 页面编辑这把密钥的权限，或者新建一把不限权限的密钥。',
  insufficient_permissions:'这把密钥没有开对应的权限：试听要「文字转语音」，读取音色列表要「音色」读取，查额度要「用户」读取。在 ElevenLabs 的 API Keys 页面编辑这把密钥的权限，或者新建一把不限权限的密钥。',
  invalid_api_key:'密钥无效。请重新完整复制密钥，注意不要带空格。',
+ invalid_key:'密钥无效。请重新完整复制密钥，注意不要带空格。',
  missing_api_key:'没有带上密钥，请在引擎卡片里重新保存密钥。',
  paid_plan_required:'免费账户不能通过 API 使用音色库（Voice Library）里的音色。换成「我的音色」里自己的或默认的音色，或者升级到付费档。',
  payment_required:'这个功能或音色需要付费档。免费账户不能通过 API 使用音色库里的音色，换成自己的或默认的音色试试。',
@@ -91,7 +100,7 @@ const FALLBACK={400:'请求里有服务不接受的内容',401:'密钥没有通�
 export async function httpError(engine,response,what='',secrets=[]){
  let detail={};
  try{const text=(await response.text()).slice(0,4000);try{const json=JSON.parse(text);const d=json.detail??json.error??json;detail=typeof d==='string'?{message:d}:Array.isArray(d)?{message:d.map(x=>x.msg||x.message).filter(Boolean).join('；')}:d||{};if(!detail.message&&json.message)detail.message=json.message;}catch{detail={message:text.trim()};}}catch{}
- const code=[detail.code,detail.status].find(x=>typeof x==='string'&&REASONS[x])||(typeof detail.code==='string'?detail.code:typeof detail.status==='string'?detail.status:'');
+ const code=[detail.code,detail.status,detail.type].find(x=>typeof x==='string'&&REASONS[x])||(typeof detail.code==='string'?detail.code:typeof detail.status==='string'?detail.status:'');
  // 「Providing X is not supported with the 'M' model」names the field: say that plainly.
  const refused=typeof detail.message==='string'&&detail.message.match(/Providing (\S+) is not supported with the '([^']+)' model/);
  const reason=refused?`${refused[2]} 不接受 ${refused[1]} 这一项设置`:REASONS[code]||FALLBACK[response.status]||'请求失败';
@@ -125,9 +134,13 @@ export class Providers{
   }
   // A new audio was paid for: the balance shown on the engine card is out of date.
   try{this.onSpend?.(request.engine);}catch{}
+  if(request.engine==='mimo')return decodeMimo(response,request);
   if(request.engine==='mini')return decodeMini(response,request,this.fetcher,signal);if(response.headers.get('Content-Type')?.includes('json'))throw Error(names[request.engine]+' 未返回音频');return audioBlob(await limitedBytes(response),request);}
  post(request,body,signal){return this.fetch(request.url,{method:'POST',headers:{...this.headers(request.engine),'Content-Type':'application/json'},body:JSON.stringify(body)},signal);}
- async voices(engine,c,{search='',page=0,token=''}={}){const headers=this.headers(engine);let url,init={headers};if(engine==='fish'){url=new URL('https://api.fish.audio/model');url.searchParams.set('page_size','50');url.searchParams.set('page_number',String(page+1));if(search)url.searchParams.set('title',search);}else if(engine==='mini'){url=miniBase(c)+'/v1/get_voice';init={method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({voice_type:'all'})};}else{url=new URL('https://api.elevenlabs.io/v2/voices');url.searchParams.set('page_size','100');if(search)url.searchParams.set('search',search);if(token)url.searchParams.set('next_page_token',token);}
+ async voices(engine,c,{search='',page=0,token=''}={}){
+  if(engine==='mimo'){const mode=P.mimoMode(c.model),q=search.trim().toLowerCase();const all=mode==='preset'?P.vocab.MIMO_VOICES.map(([id,name])=>({id,name})):mode==='clone'?c.params.samples.filter(x=>String(x.name).trim()).map(x=>({id:String(x.name).trim(),name:String(x.name).trim()+' · 克隆样本'})):[];
+   return {voices:q?all.filter(v=>v.name.toLowerCase().includes(q)):all,more:false,token:'',note:mode==='design'?'音色设计模型没有音色列表：在「音色」一栏写音色描述':mode==='clone'?'克隆样本在 MiMo 引擎里上传':'MiMo 内置音色'};}
+  const headers=this.headers(engine);let url,init={headers};if(engine==='fish'){url=new URL('https://api.fish.audio/model');url.searchParams.set('page_size','50');url.searchParams.set('page_number',String(page+1));if(search)url.searchParams.set('title',search);}else if(engine==='mini'){url=miniBase(c)+'/v1/get_voice';init={method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({voice_type:'all'})};}else{url=new URL('https://api.elevenlabs.io/v2/voices');url.searchParams.set('page_size','100');if(search)url.searchParams.set('search',search);if(token)url.searchParams.set('next_page_token',token);}
  const response=await this.fetch(String(url),init);if(!response.ok)throw await httpError(engine,response,'音色读取失败',[this.keys.get(engine)]);const data=await response.json();if(engine==='mini')checkMini(data);const source=engine==='fish'?data.items:engine==='mini'?[...(data.system_voice||[]),...(data.voice_cloning||[]),...(data.voice_generation||[])]:data.voices;if(!Array.isArray(source))throw Error('音色列表格式不符');return {voices:source.map(v=>({id:v._id||v.voice_id,name:v.title||v.voice_name||v.name||v.voice_id})).filter(v=>typeof v.id==='string'),more:engine==='fish'?source.length===50:!!data.has_more,token:data.next_page_token||'',note:engine==='fish'?'已读取公开音色；此结果不能确认密钥有效':'音色列表已读取'};}
  /**
   * What is left on the account. ElevenLabs: {kind:'characters', used, limit, left, resetAt, tier, status} from

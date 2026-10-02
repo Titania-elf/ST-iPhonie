@@ -118,7 +118,7 @@ export function enginesApp(ctx) {
 
   function renderList() {
     delete v.root.dataset.engine;
-    v.draw(heading('引擎', help('每个服务一张卡：文字模型、三家语音引擎，加上绘图用的 NovelAI。点一张卡片把它抽到最前面，再点一下打开，查看连接和全部参数。ElevenLabs 和 Fish 的卡片上显示剩余额度。\n卡片只显示密钥是否保存，不显示内容；“已保存”不代表鉴权成功。'), 'Wallet · 05')
+    v.draw(heading('引擎', help('每个服务一张卡：文字模型、四家语音引擎（Fish Audio、MiniMax、ElevenLabs、小米 MiMo），加上绘图用的 NovelAI。点一张卡片把它抽到最前面，再点一下打开，查看连接和全部参数。ElevenLabs 和 Fish 的卡片上显示剩余额度。\n卡片只显示密钥是否保存，不显示内容；“已保存”不代表鉴权成功。'), 'Wallet · 05')
       + `<div class="wallet">${order.map(id => card(id)).join('')}</div>`);
     for (const id of PRICED) if (!balances.has(id)) loadBalance(id);
   }

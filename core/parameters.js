@@ -33,7 +33,15 @@ const eleven={model:'eleven_v4',models:['eleven_v4','eleven_v3','eleven_multilin
  group('dictionary','发音词典',[refs('pronunciation_dictionary_locators','平台词典','pronunciation_dictionary_id','version_id',true)]),
  group('request','请求选项',[b('enable_logging','保留生成记录',true,'关闭为零保留模式，仅 Enterprise 账户可用；不能用于前后请求拼接。'),s('optimize_streaming_latency','延迟优化（旧版）','',[['','默认'],[0,'0 · 关闭'],[1,'1 · 普通'],[2,'2 · 较强'],[3,'3 · 最大'],[4,'4 · 最大并关闭文字规范化']],'官网已弃用，保留为可选旧版参数。'),b('use_pvc_as_ivc','使用即时克隆版本（旧版）',false,'官网已弃用的临时选项。')])
 ]};
-const catalogs={fish,mini,eleven};
+// Xiaomi MiMo-V2.5 TTS (2026-10-02): OpenAI-style /chat/completions. The line is the assistant message; the user message carries
+// the 风格说明 (and, for voice design, the role's voice description). Answers base64 WAV, 24 kHz mono.
+const MIMO_VOICES=[['冰糖','冰糖 · 中文女声'],['茉莉','茉莉 · 中文女声'],['苏打','苏打 · 中文男声'],['白桦','白桦 · 中文男声'],['Mia','Mia · 英文女声'],['Chloe','Chloe · 英文女声'],['Milo','Milo · 英文男声'],['Dean','Dean · 英文男声'],['mimo_default','默认音色']];
+const mimo={model:'mimo-v2.5-tts',models:['mimo-v2.5-tts','mimo-v2.5-tts-voicedesign','mimo-v2.5-tts-voiceclone'],source:'https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/audio/speech-synthesis-v2.5',groups:[
+ group('common','常用设置',[t('style','风格说明','每句都带上的整体表演要求，如「温柔，语速稍慢，像在耳边说话」，留空不发。音色设计模型会把它接在角色的音色描述后面。','textarea')]),
+ group('clone','克隆样本',[rows('samples','克隆样本',[{...t('audio','音频文件'),type:'file'},t('name','名字')],20,'声音克隆模型用：上传 mp3 或 wav（编码后不超过 10 MB），起个名字，角色的音色填这个名字。文件保存在当前浏览器。')])
+]};
+const mimoMode=model=>model.endsWith('voicedesign')?'design':model.endsWith('voiceclone')?'clone':'preset';
+const catalogs={fish,mini,eleven,mimo};
 function defaults(key){return Object.fromEntries(catalogs[key].groups.flatMap(g=>g.fields.map(f=>[f.key,structuredClone(f.value)])));}
 function allowed(key,field,c){let list=field.options||[];const p=c.params;
  if(key==='fish'&&field.key==='sample_rate'){const rates=p.format==='mp3'?[32000,44100]:p.format==='opus'?[48000]:[8000,16000,24000,32000,44100];list=list.filter(([v])=>rates.includes(v));}
@@ -78,6 +86,9 @@ function setPath(target,key,value){const parts=key.split('.');let node=target;fo
 const ELEVEN_DEFAULTS={apply_text_normalization:'auto',apply_language_text_normalization:false,use_pvc_as_ivc:false,enable_logging:true};
 function requestPreview(key,c,voice='角色音色 ID',text='雨还没停。再坐一会儿吧。',model=c.model){c=structuredClone(c);c.model=model;normalize(key,c);const values=activeParameters(key,c);let body={},query={};for(let [k,v] of Object.entries(values)){if(['dictionary_mode','inline_dictionary'].includes(k))continue;if(key==='eleven'&&Object.hasOwn(ELEVEN_DEFAULTS,k)&&ELEVEN_DEFAULTS[k]===v)continue;if(key==='eleven'&&['output_format','enable_logging','optimize_streaming_latency'].includes(k)){query[k]=v;continue;}const f=catalogs[key].groups.flatMap(g=>g.fields).find(f=>f.key===k);if(f?.type==='lines')v=String(v).split('\n').map(x=>x.trim()).filter(Boolean);setPath(body,k,v);}
  if(key==='fish'){if(c.params.dictionary_mode==='inline'&&c.params.inline_dictionary.length)body.pronunciation_dictionary=[{items:c.params.inline_dictionary}];if(body.references)body.references=body.references.map(r=>({audio:'[本地参考音频：'+r.audio+']',text:r.text}));const format=body.format;delete body.format;return {url:'https://api.fish.audio/compat/v1/audio/speech',body:{model:'fish-audio/'+model,input:text,voice:body.references?'':voice,response_format:format,provider:{options:{'fish-audio':body}}}};}
+ if(key==='mimo'){const mode=mimoMode(model),style=[mode==='design'?voice:'',c.params.style].map(x=>String(x||'').trim()).filter(Boolean).join('\n'),audio={format:'wav'};
+  if(mode==='preset')audio.voice=voice;else if(mode==='clone')audio.voice='[克隆样本：'+voice+']';
+  return {url:'https://api.xiaomimimo.com/v1/chat/completions',body:{model,messages:[...(style?[{role:'user',content:style}]:[]),{role:'assistant',content:text}],audio}};}
  if(key==='mini'){body.model=model;body.text=text;body.voice_setting??={};body.voice_setting.voice_id=body.timbre_weights?.length?'':voice;return {url:'https://'+(c.region==='cn'?'api.minimaxi.com':c.region==='uw'?'api-uw.minimax.io':'api.minimax.io')+'/v1/t2a_v2',body};}
  if(model.startsWith('eleven_v3')&&typeof body.voice_settings?.stability==='number')body.voice_settings.stability=[0,.5,1].reduce((a,b)=>Math.abs(b-body.voice_settings.stability)<Math.abs(a-body.voice_settings.stability)?b:a);
  body.model_id=model;body.text=text;return {url:'https://api.elevenlabs.io/v1/text-to-speech/'+encodeURIComponent(voice),query,body};
@@ -90,13 +101,16 @@ const FISH_S1_TONES=['in a hurry tone','shouting','screaming','whispering','soft
 const FISH_S1_SOUNDS=['laughing','chuckling','sobbing','crying loudly','sighing','groaning','panting','gasping','yawning','snoring','break','long-break'];
 const MINI_SOUNDS=['laughs','chuckle','coughs','clear-throat','groans','breath','pant','inhale','exhale','gasps','sniffs','sighs','snorts','burps','lip-smacking','humming','hissing','emm','sneezes'];
 const ELEVEN_TAGS=['laughs','laughs harder','starts laughing','whispers','sighs','exhales','sarcastic','curious','excited','crying','mischievously','shouting','nervous','sad','angry'];
+const MIMO_STYLES=['开心','悲伤','愤怒','恐惧','惊讶','兴奋','委屈','平静','冷漠','怅然','欣慰','无奈','愧疚','释然','嫉妒','厌倦','忐忑','动情','温柔','高冷','活泼','严肃','慵懒','俏皮','深沉','干练','凌厉'];
+const MIMO_SOUNDS=['吸气','深呼吸','叹气','长叹一口气','喘息','屏息','紧张','害怕','激动','疲惫','撒娇','心虚','震惊','不耐烦','颤抖','声音颤抖','变调','破音','鼻音','气声','沙哑','笑','轻笑','大笑','冷笑','抽泣','呜咽','哽咽','嚎啕大哭'];
 const fishS1=model=>model==='s1';
 const elevenTagged=model=>/^eleven_v[34]/.test(model);
-function tags(key,model){return key==='mini'?['happy','sad','angry','fearful','disgusted','surprised','calm',...(model.startsWith('speech-2.6')?['fluent','whisper']:[])]:key==='eleven'?(elevenTagged(model)?ELEVEN_TAGS:['通过文字和标点表达情绪']):fishS1(model)?FISH_S1_EMOTIONS:['自然语言描述，如 happy、whispers sweetly、slightly sad'];}
+function tags(key,model){return key==='mimo'?MIMO_STYLES:key==='mini'?['happy','sad','angry','fearful','disgusted','surprised','calm',...(model.startsWith('speech-2.6')?['fluent','whisper']:[])]:key==='eleven'?(elevenTagged(model)?ELEVEN_TAGS:['通过文字和标点表达情绪']):fishS1(model)?FISH_S1_EMOTIONS:['自然语言描述，如 happy、whispers sweetly、slightly sad'];}
 // What the 情绪 field of a line may say, in Chinese or English, and the MiniMax emotion it means.
 const MINI_EMOTION_WORDS={happy:['happy','joyful','excited','cheerful','delighted','开心','高兴','快乐','喜悦','兴奋','愉快','欣喜','得意','雀跃','幸福','激动'],sad:['sad','upset','depressed','sorrowful','crying','难过','伤心','悲伤','沮丧','失落','委屈','哭泣','哽咽','低落','心疼'],angry:['angry','furious','annoyed','mad','生气','愤怒','恼火','不满','暴怒','气愤','不耐烦','烦躁'],fearful:['fearful','scared','afraid','nervous','anxious','害怕','恐惧','紧张','担心','不安','惊恐','慌张','焦虑'],disgusted:['disgusted','contemptuous','disdainful','厌恶','嫌弃','恶心','鄙视','轻蔑','不屑'],surprised:['surprised','shocked','astonished','惊讶','吃惊','震惊','意外','诧异','惊喜'],calm:['calm','gentle','neutral','soft','relaxed','平静','冷静','温柔','淡然','冷淡','平淡','轻声','温和','沉稳','认真','严肃'],fluent:['fluent','流畅','生动'],whisper:['whisper','whispering','whispers','低语','耳语','悄悄','小声']};
 /** One line for the engine card: how this model reads emotion and tags. */
 function tagNote(key,model){
+ if(key==='mimo')return '台词的情绪会自动写成句首的圆括号标签，如 (开心)，中文最准；原文里还可以在任意位置插方括号的细节标签，如 [轻笑]、[叹气]。'+(mimoMode(model)==='design'?'音色设计模型：角色的「音色」一栏写音色描述。':mimoMode(model)==='clone'?'声音克隆模型：角色的「音色」一栏写克隆样本的名字。':'');
  if(key==='mini')return '台词里的情绪会自动对应到下面这几个（中文也行）；对应不上时由模型自己判断。'+(model.startsWith('speech-2.8')?'原文里还能插下面这些圆括号语气声。':'');
  if(key==='eleven')return elevenTagged(model)?'原文里用方括号英文标签控制语气，如 [whispers]、[sarcastic]；台词的情绪会自动放在开头。'+(model==='eleven_v4'?'v4 只用稳定性和音色相似度两项设置。':''):'这个模型不读语气标签，情绪靠措辞和标点表达。';
  return fishS1(model)?'圆括号固定标签：情绪放句首，如 (sad)；语气和声音可以放在句中，如 (whispering)、(laughing)。台词的情绪会自动写成句首标签。':'方括号里写英文自然语言描述，放在任意位置都行，如 [whispers sweetly]、[slightly sad]，一句最多三个。台词的情绪会自动放在开头。';
@@ -106,9 +120,11 @@ function miniEmotion(model,emotion){const word=String(emotion||'').trim().toLowe
 /** Puts a line's 情绪 at the start of the text as the model's own tag, when the model reads tags and the text has none there. */
 const ENGLISH={fearful:'scared',whisper:'whispering',fluent:''};
 function emotionTag(key,model,emotion,text){let word=String(emotion||'').trim();if(!word||/^\s*[[(]/.test(text))return text;
+ // MiMo reads Chinese style words best: the 情绪 goes in as written.
+ if(key==='mimo')return /^\s*[（]/.test(text)||word.length>20||/[()（）[\]]/.test(word)?text:`(${word})${text}`;
  // A Chinese 情绪 becomes the nearest English word, which both engines read best.
  if(!/^[a-z]/i.test(word)){const found=Object.entries(MINI_EMOTION_WORDS).find(([,words])=>words.some(w=>word.includes(w)))?.[0];word=found?ENGLISH[found]??found:'';if(!word)return text;}
  if(key==='fish'&&fishS1(model)){const w=word.toLowerCase();return FISH_S1_EMOTIONS.includes(w)||FISH_S1_TONES.includes(w)?`(${w}) ${text}`:text;}
  if(key==='fish'||key==='eleven'&&elevenTagged(model))return /^[a-z][a-z ,'-]{1,40}$/i.test(word)?`[${word.toLowerCase()}] ${text}`:text;
  return text;}
-export const TTSParameters={catalogs,defaults,allowed,unavailable,normalize,activeParameters,requestPreview,validate,tags,tagNote,miniEmotion,emotionTag,vocab:{FISH_S1_EMOTIONS,FISH_S1_TONES,FISH_S1_SOUNDS,MINI_SOUNDS,ELEVEN_TAGS}};
+export const TTSParameters={catalogs,defaults,allowed,unavailable,normalize,activeParameters,requestPreview,validate,tags,tagNote,miniEmotion,emotionTag,vocab:{FISH_S1_EMOTIONS,FISH_S1_TONES,FISH_S1_SOUNDS,MINI_SOUNDS,ELEVEN_TAGS,MIMO_STYLES,MIMO_SOUNDS,MIMO_VOICES},mimoMode};
