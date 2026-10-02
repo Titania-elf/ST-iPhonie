@@ -157,13 +157,13 @@ export class Providers{
  async voices(engine,c,{search='',page=0,token=''}={}){
   if(engine==='mimo'){const mode=P.mimoMode(c.model),q=search.trim().toLowerCase();const all=mode==='preset'?P.vocab.MIMO_VOICES.map(([id,name])=>({id,name})):mode==='clone'?c.params.samples.filter(x=>String(x.name).trim()).map(x=>({id:String(x.name).trim(),name:String(x.name).trim()+' · 克隆样本'})):[];
    return {voices:q?all.filter(v=>v.name.toLowerCase().includes(q)):all,more:false,token:'',note:mode==='design'?'音色设计模型没有音色列表：在「音色」一栏写音色描述':mode==='clone'?'克隆样本在 MiMo 引擎里上传':'MiMo 内置音色'};}
-  const headers=this.headers(engine);let url,init={headers};if(engine==='fish'){url=new URL('https://api.fish.audio/model');url.searchParams.set('page_size','50');url.searchParams.set('page_number',String(page+1));if(search)url.searchParams.set('title',search);}else if(engine==='mini'){url=miniBase(c)+'/v1/get_voice';init={method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({voice_type:'all'})};}else{url=new URL('https://api.elevenlabs.io/v2/voices');url.searchParams.set('page_size','100');if(search)url.searchParams.set('search',search);if(token)url.searchParams.set('next_page_token',token);}
+  const headers=this.headers(engine);let url,init={headers};if(engine==='fish'){url=new URL(P.fishBase(c)+'/model');url.searchParams.set('page_size','50');url.searchParams.set('page_number',String(page+1));if(search)url.searchParams.set('title',search);}else if(engine==='mini'){url=miniBase(c)+'/v1/get_voice';init={method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({voice_type:'all'})};}else{url=new URL('https://api.elevenlabs.io/v2/voices');url.searchParams.set('page_size','100');if(search)url.searchParams.set('search',search);if(token)url.searchParams.set('next_page_token',token);}
  const response=await this.fetch(String(url),init);if(!response.ok)throw await httpError(engine,response,'音色读取失败',[this.currentKey(engine)]);const data=await response.json();if(engine==='mini')checkMini(data);const source=engine==='fish'?data.items:engine==='mini'?[...(data.system_voice||[]),...(data.voice_cloning||[]),...(data.voice_generation||[])]:data.voices;if(!Array.isArray(source))throw Error('音色列表格式不符');return {voices:source.map(v=>({id:v._id||v.voice_id,name:v.title||v.voice_name||v.name||v.voice_id})).filter(v=>typeof v.id==='string'),more:engine==='fish'?source.length===50:!!data.has_more,token:data.next_page_token||'',note:engine==='fish'?'已读取公开音色；此结果不能确认密钥有效':'音色列表已读取'};}
  /**
   * What is left on the account. ElevenLabs: {kind:'characters', used, limit, left, resetAt, tier, status} from
   * /v1/user/subscription (credits of the current period). Fish: {kind:'credit', credit, free} from /wallet/self/api-credit.
   */
- async balance(engine){
+ async balance(engine,c={}){
   if(!['eleven','fish'].includes(engine))throw Error('这家引擎没有提供余额查询');
   const headers=this.headers(engine),key=this.currentKey(engine);
   if(engine==='eleven'){
@@ -173,12 +173,22 @@ export class Providers{
    return {engine,kind:'characters',used,limit,left:Math.max(0,limit-used),resetAt:Number(d.next_character_count_reset_unix)>0?Number(d.next_character_count_reset_unix)*1000:null,tier:String(d.tier||''),status:String(d.status||'')};
   }
   if(engine==='fish'){
-   const response=await this.fetch('https://api.fish.audio/wallet/self/api-credit?check_free_credit=true',{headers});
+   const response=await this.fetch(P.fishBase(c)+'/wallet/self/api-credit?check_free_credit=true',{headers});
    if(!response.ok)throw await httpError(engine,response,'余额读取失败',[key]);
    const d=await response.json(),credit=Number(d.credit);
    if(!Number.isFinite(credit))throw Error('Fish Audio 返回的余额格式不符');
    return {engine,kind:'credit',credit,free:d.has_free_credit===true};
   }
+ }
+ /**
+  * Checks a Fish relay (or Fish itself): the speech path with an empty request (400/422 means it is there and read the
+  * request) and the voice list. status 0: no answer at all (wrong address, no CORS, http from an https page).
+  */
+ async probeFish(c){
+  const base=P.fishBase(c),headers=this.headers('fish'),status=async(url,init)=>{try{const r=await this.fetch(url,init);return {status:r.status,ok:r.ok};}catch{return {status:0,ok:false};}};
+  const speech=await status(base+'/compat/v1/audio/speech',{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:'{}'});
+  const voices=await status(base+'/model?page_size=1',{headers});
+  return {relay:base!==P.fishBase({}),base,speech,voices};
  }
  clear(){this.keys.clear();this.references.clear();this.refused.clear();this.pools.clear();}
 }

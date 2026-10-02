@@ -534,6 +534,13 @@ details>div{padding-bottom:10px}
 .vibe-grid.vibe-scroll{max-height:min(56dvh,440px)}
 .vibe-grid.small.vibe-scroll{max-height:min(40dvh,260px)}
 .vibe-scroll [hidden]{display:none!important}
+/* Multi-select: a round check on each tile and group row; picked ones are outlined. */
+.vibe-tile{position:relative}
+.vibe-check{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;flex:0 0 auto;border:2px solid var(--ink2);background:var(--card);color:#fff}
+.vibe-check.on{border-color:var(--accent);background:var(--accent)}.vibe-check svg{width:14px;height:14px}
+.vibe-tile .vibe-check{position:absolute;top:10px;right:10px;z-index:1;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.vibe-tile.picked,.vibe-group.picked{border-color:var(--accent);box-shadow:0 0 0 1.5px var(--accent) inset}
+.vibe-selectbar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:10px 4px 6px;font-size:13px}
 .vibe-search{display:flex;align-items:center;gap:8px;margin:10px 0 2px;padding:0 12px;border-radius:14px;background:var(--card);border:1px solid var(--line)}
 .vibe-search svg{width:16px;height:16px;flex:0 0 auto;color:var(--ink2)}
 .vibe-search input{flex:1;min-width:0;border:0;background:transparent;padding:10px 0;font:inherit;color:inherit;outline:none}

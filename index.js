@@ -220,7 +220,7 @@ function connect(source){
   diagnose:()=>{check();return diagnose();},
   tavernAvatars:()=>{check();return tavernAvatars();},
   chatu8Vibes:()=>{check();return chatu8Count();},
-  importChatu8:async()=>{check();return owner.importVibes([new File([JSON.stringify(await chatu8Vibes())],'智绘姬.json',{type:'application/json'})]);},
+  importChatu8:async()=>{check();return owner.importVibes([new File([JSON.stringify(await chatu8Vibes())],'智绘姬.json',{type:'application/json'})],{names:true});},
   panelFloating:()=>{check();return !!panel?.classList.contains('floating');},
   panelDrag:(phase,sx,sy)=>{check();return panelDrag(phase,sx,sy);},
   panelSize:()=>{check();return panelSize();},

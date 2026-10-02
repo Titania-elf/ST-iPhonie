@@ -182,7 +182,8 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
   stageBar.addEventListener('dblclick', e => { if (!e.target.closest('button')) api.panelDrag?.('reset'); }, {signal});
   // 来电: one layer over everything, drawn from what the tavern side reports.
   const calls = callScreen(ctx, screen);
-  const callState = () => { try { calls.update(api.callStatus?.() || null); } catch { /* not in the tavern */ } };
+  // Opening the phone shows a call still going on; one that already ended (the host keeps it) is not shown again.
+  const callState = () => { try { const c = api.callStatus?.() || null; calls.update(c?.state === 'ended' ? null : c); } catch { /* not in the tavern */ } };
 
   // ---------- Navigation ----------
   function open(name, roleId) {

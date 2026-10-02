@@ -14,7 +14,7 @@ import { Providers, buildRequest } from './providers.js';
 import { AudioCache } from './cache.js';
 import { DialoguePlayer } from './player.js';
 import { LocalLibrary, PHONE_APPS, PHONE_WALLPAPERS, PHONE_GLYPHS, PHONE_SKINS } from './library.js';
-import { NovelAIClient, relayUrl, NAI_MODELS, NAI_MODEL_NAMES, NAI_SAMPLERS, NAI_SCHEDULES, buildImageRequest, guardParams, isFree, isV5, normalizeDrawParams } from './novelai.js';
+import { NovelAIClient, relayUrl, FISH_PATHS, NAI_MODELS, NAI_MODEL_NAMES, NAI_SAMPLERS, NAI_SCHEDULES, buildImageRequest, guardParams, isFree, isV5, normalizeDrawParams } from './novelai.js';
 import { PIC_TAG_FORMAT, DEFAULT_DRAW_RULE, DRAW_COUNT_MAX, drawPromptPlan, planRequest, validateDrawPreset, normalizeDraw, defaultDraw, normalizeVibeSettings } from './draw.js';
 import { defaultChat, normalizeChatPreset, normalizeContact, validateChatPreset, validateContact, chatContacts, buildChatRequest, activeChatPreset, normalizeVoiceText, normalizeProfile , normalizeAvatars } from './chat.js';
 import { ChatStore } from './chats.js';
@@ -243,8 +243,12 @@ export class TTSBackend {
     saveConnection(engine, patch) {
         engineCheck(engine);
         if (!patch || typeof patch !== 'object' || Array.isArray(patch) || ('params' in patch && (!patch.params || typeof patch.params !== 'object' || Array.isArray(patch.params)))) throw Error('引擎设置格式无效');
+        patch = clone(patch);
+        // Fish relay: an address checked like the NovelAI one ('' = straight to Fish). A new address: the balance is read again.
+        if (engine === 'fish' && 'relay' in patch) { patch.relay = relayUrl(patch.relay, undefined, FISH_PATHS); if (patch.relay !== this.settings.connections.fish.relay) this.balances.delete('fish'); }
+        else delete patch.relay;
         const next = this.getState();
-        next.connections[engine] = { ...next.connections[engine], ...clone(patch), params: { ...next.connections[engine].params, ...clone(patch.params || {}) } };
+        next.connections[engine] = { ...next.connections[engine], ...patch, params: { ...next.connections[engine].params, ...clone(patch.params || {}) } };
         this.save(next);
         return clone(this.settings.connections[engine]);
     }
@@ -334,7 +338,7 @@ export class TTSBackend {
         if (!this.keyStatus(engine)) return null;
         const cached = this.balances.get(engine);
         if (!refresh && cached && Date.now() - cached.checkedAt < 60 * 1000) return clone(cached.value);
-        const value = await this.providers.balance(engine);
+        const value = await this.providers.balance(engine, this.settings.connections[engine]);
         this.balances.set(engine, { value, checkedAt: Date.now() });
         this.emit('balance', { engine, balance: clone(value) });
         return clone(value);
@@ -565,18 +569,23 @@ export class TTSBackend {
     }
     /**
      * Imports vibe files (.naiv4vibe, .naiv4vibebundle, 智绘姬 exports) and pictures. A vibe already saved gains what it
-     * lacked (encodings, image); groups in the files become groups here. {added, updated, groups, errors: [{name, message}]}.
+     * lacked (encodings, image); groups in the files become groups here. names: a vibe already saved also takes the name
+     * 智绘姬 gives it (importing from 智绘姬 again). {added, updated, renamed, groups, errors: [{name, message}]}.
      */
-    async importVibes(files) {
+    async importVibes(files, { names = false } = {}) {
         this.assertOpen();
-        const result = { added: 0, updated: 0, groups: 0, errors: [] }, groups = [];
+        const result = { added: 0, updated: 0, renamed: 0, groups: 0, errors: [] }, groups = [];
         for (const file of [...(files || [])]) {
             const name = String(file?.name || 'vibe');
             try {
                 const picture = /^image\//.test(file.type || '') && !/\.naiv4vibe/i.test(name) || /\.(png|jpe?g|webp|avif|gif)$/i.test(name) && !/\.naiv4vibe/i.test(name);
                 const found = picture ? { vibes: [await imageVibe(name, await this.base64(file))], groups: [] } : await readVibeFile(name, await file.text());
                 for (const doc of found.vibes) {
-                    if (this.vibes.has(doc.id)) { await this.storeVibe(mergeVibe(await this.vibeDoc(doc.id), doc)); result.updated++; }
+                    if (this.vibes.has(doc.id)) {
+                        const merged = mergeVibe(await this.vibeDoc(doc.id), doc);
+                        if (names && found.named?.includes(doc.id) && merged.name !== doc.name) { merged.name = doc.name; result.renamed++; }
+                        await this.storeVibe(merged); result.updated++;
+                    }
                     else { await this.storeVibe(doc); result.added++; }
                 }
                 groups.push(...found.groups);
@@ -587,6 +596,9 @@ export class TTSBackend {
             for (const group of groups) {
                 const same = next.draw.vibe.groups.some(g => g.name === group.name && JSON.stringify(g.items.map(i => [i.vibe, i.strength])) === JSON.stringify(group.items.map(i => [i.id, i.strength])));
                 if (same) continue;
+                // A group of that name left empty (its vibes were deleted, to import them again): fill it rather than make a copy.
+                const empty = next.draw.vibe.groups.find(g => g.name === group.name && !g.items.length);
+                if (empty) { empty.items = group.items.map(i => ({ vibe: i.id, strength: i.strength })); result.groups++; continue; }
                 let name = group.name, n = 1;
                 while (taken.has(name)) name = `${group.name} (${++n})`;
                 taken.add(name);
@@ -609,13 +621,18 @@ export class TTSBackend {
         return clone(summary);
     }
     /** Deletes a vibe, and takes it out of every group (and out of use). */
-    async deleteVibe(id) {
-        await this.library.deleteVibe(id); this.vibes.delete(id);
+    async deleteVibe(id) { await this.deleteVibes([id]); }
+    /** Deletes several vibes at once (one save, one redraw). Returns how many were deleted. */
+    async deleteVibes(ids) {
+        this.assertOpen();
+        const gone = new Set([...(ids || [])].map(String).filter(id => this.vibes.has(id)));
+        for (const id of gone) { await this.library.deleteVibe(id); this.vibes.delete(id); }
         const next = this.getState(), v = next.draw.vibe;
-        for (const group of v.groups) group.items = group.items.filter(item => item.vibe !== id);
-        if (v.use.kind === 'vibe' && v.use.id === id) v.use = { kind: '', id: '' };
+        for (const group of v.groups) group.items = group.items.filter(item => !gone.has(item.vibe));
+        if (v.use.kind === 'vibe' && gone.has(v.use.id)) v.use = { kind: '', id: '' };
         this.save(next);
         this.emit('draw', { vibes: true });
+        return gone.size;
     }
     /** A file to save: {vibe: id} → .naiv4vibe; {group: id} → .naiv4vibebundle; {all: true} → everything, in the 智绘姬 form. */
     async exportVibes(target = {}) {
@@ -951,8 +968,8 @@ export class TTSBackend {
             voiceBalance: (engine, refresh) => this.voiceBalance(engine, refresh), keyStatus: engine => this.keyStatus(engine), keyHint: engine => this.keyHint(engine), keyPool: engine => this.keyPool(engine), keyList: engine => this.keyList(engine), addKeys: (engine, value) => this.addKeys(engine, value), removeKey: (engine, index) => this.removeKey(engine, index), setKey: (engine, key) => this.setKey(engine, key), clearKey: engine => this.clearKey(engine),
             saveDraw: patch => this.saveDraw(patch), saveStyle: style => this.saveStyle(style), deleteStyle: id => this.deleteStyle(id),
             saveDrawPreset: preset => this.saveDrawPreset(preset), deleteDrawPreset: id => this.deleteDrawPreset(id), previewDrawPrompt: preset => this.previewDrawPrompt(preset),
-            naiSubscription: refresh => this.naiSubscription(refresh), naiProbe: () => this.naiProbe(),
-            listVibes: () => this.listVibes(), importVibes: files => this.importVibes(files), updateVibe: (id, patch) => this.updateVibe(id, clone(patch || {})), deleteVibe: id => this.deleteVibe(id), exportVibes: target => this.exportVibes(clone(target || {})), vibePlan: model => clone(this.vibePlan(model || this.settings.draw.params.model)), drawQuote: params => this.drawQuote(params),
+            naiSubscription: refresh => this.naiSubscription(refresh), naiProbe: () => this.naiProbe(), fishProbe: () => { this.assertOpen(); keyCheck('fish'); return this.providers.probeFish(clone(this.settings.connections.fish)); },
+            listVibes: () => this.listVibes(), importVibes: (files, options) => this.importVibes(files, clone(options || {})), updateVibe: (id, patch) => this.updateVibe(id, clone(patch || {})), deleteVibe: id => this.deleteVibe(id), deleteVibes: ids => this.deleteVibes([...(ids || [])]), exportVibes: target => this.exportVibes(clone(target || {})), vibePlan: model => clone(this.vibePlan(model || this.settings.draw.params.model)), drawQuote: params => this.drawQuote(params),
             generateImage: input => this.generateImage(input).then(({ blob, ...result }) => result),
             drawQueue: () => this.drawQueue.list(), cancelDraw: key => this.drawQueue.cancel(key), cancelAllDraws: () => this.drawQueue.cancelAll(),
             cloudQueueError: () => this.drawQueue.remoteError, testCloudQueue: value => this.testCloudQueue(value), newRoomCode: () => newRoomCode(),

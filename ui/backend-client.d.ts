@@ -26,6 +26,8 @@ export type RequestRoute = Pick<Route, 'voice'> & Partial<Omit<Route, 'voice'>>;
 export interface Connection {
     model: string;
     region?: 'cn' | 'uw' | 'global';
+    /** Fish Audio only: a relay address in front of api.fish.audio ('' = straight to Fish). */
+    relay?: string;
     /** Keys are the engine schema field keys, including dotted names. */
     params: Record<string, unknown>;
     parametersVersion?: number;
@@ -430,10 +432,12 @@ export interface BackendFacade {
     /** Saved vibes (summaries, newest first). */
     listVibes(): VibeSummary[];
     /** Imports .naiv4vibe, .naiv4vibebundle, 智绘姬 exports and pictures; groups in the files become groups. */
-    importVibes(files: ArrayLike<File>): Promise<{ added: number; updated: number; groups: number; errors: Array<{ name: string; message: string }> }>;
+    importVibes(files: ArrayLike<File>, options?: { names?: boolean }): Promise<{ added: number; updated: number; renamed: number; groups: number; errors: Array<{ name: string; message: string }> }>;
     updateVibe(id: string, patch: { name?: string; strength?: number }): Promise<VibeSummary>;
     /** Deletes a vibe and takes it out of every group. */
     deleteVibe(id: string): Promise<void>;
+    /** Deletes several vibes at once; returns how many were deleted. */
+    deleteVibes(ids: string[]): Promise<number>;
     /** {vibe} → .naiv4vibe, {group} → .naiv4vibebundle, {all} → everything in the 智绘姬 form. */
     exportVibes(target: { vibe?: string; group?: string; all?: boolean }): Promise<{ name: string; blob: Blob }>;
     vibePlan(model?: string): VibePlan;
@@ -512,6 +516,8 @@ export interface BackendFacade {
     /** Model ids the custom text API lists (a free connection check); `draft` are options not saved yet. */
     textModels(draft?: TextPatch): Promise<string[]>;
     /** Checks NovelAI or the relay: the drawing route (an empty request, nothing drawn, no Anlas) and the subscription. */
+    /** Checks the Fish relay (or Fish itself): the speech path and the voice list; status 0 = no answer (address, CORS, HTTPS). */
+    fishProbe(): Promise<{ relay: boolean; base: string; speech: { status: number; ok: boolean }; voices: { status: number; ok: boolean } }>;
     naiProbe(): Promise<{ relay: boolean; draw: { ok: boolean; status: number }; subscription: { ok: true; tier: number } | { ok: false; status: number; message: string } }>;
     saveMoments(patch: Partial<Pick<MomentsSettings, 'auto' | 'every' | 'dailyMax' | 'images' | 'replyToMe'>>): MomentsSettings;
     /** Newest first. */
@@ -616,7 +622,7 @@ export interface BackendAPI extends BackendFacade {
     /** How many single vibes and groups 智绘姬 (st-chatu8) has in this tavern; 0 when it is not installed. */
     chatu8Vibes(): number;
     /** Imports every vibe and group 智绘姬 keeps (read only: nothing of 智绘姬's changes). */
-    importChatu8(): Promise<{ added: number; updated: number; groups: number; errors: Array<{ name: string; message: string }> }>;
+    importChatu8(): Promise<{ added: number; updated: number; renamed: number; groups: number; errors: Array<{ name: string; message: string }> }>;
     /** On a computer the phone is a floating window beside the story (false when it is full screen). */
     panelFloating(): boolean;
     /** Moves the floating phone by its top bar, in screen coordinates; 'reset' puts it back at the right edge. */

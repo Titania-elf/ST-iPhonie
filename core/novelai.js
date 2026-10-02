@@ -8,14 +8,17 @@ export const NAI_HOST = 'https://image.novelai.net';
  * A relay the user runs in front of NovelAI: the same paths (/ai/generate-image, /user/subscription) and whatever key it
  * asks for. '' means NovelAI itself. A page opened over HTTPS cannot reach an http:// relay (except on this computer).
  */
-export function relayUrl(value, pageProtocol = globalThis.location?.protocol) {
+const NAI_PATHS = /\/(ai\/generate-image(-stream)?|user\/subscription)$/i;
+/** Fish Audio paths the plugin adds; a pasted full address keeps only what comes before them. */
+export const FISH_PATHS = /\/(compat\/v1\/audio\/speech|v1\/tts|model|wallet\/self\/api-credit)$/i;
+export function relayUrl(value, pageProtocol = globalThis.location?.protocol, strip = NAI_PATHS) {
   const raw = String(value ?? '').trim();
   if (!raw) return '';
   let url; try { url = new URL(raw); } catch { throw Error('中转地址格式不对，要以 https:// 开头'); }
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw Error('中转地址格式不对：以 https:// 开头，不带 ? 和 #');
   if (url.protocol === 'http:' && pageProtocol === 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) throw Error('酒馆是用 HTTPS 打开的，浏览器不允许连 http:// 的中转，请给中转配上 HTTPS');
   // A pasted full address (…/ai/generate-image, …/user/subscription) keeps only the part before the path the plugin adds.
-  return (url.origin + url.pathname).replace(/\/+$/, '').replace(/\/(ai\/generate-image(-stream)?|user\/subscription)$/i, '');
+  return (url.origin + url.pathname).replace(/\/+$/, '').replace(strip, '');
 }
 export const NAI_MODELS = ['nai-diffusion-5-full', 'nai-diffusion-5-curated', 'nai-diffusion-4-5-full', 'nai-diffusion-4-5-curated', 'nai-diffusion-4-full', 'nai-diffusion-4-curated-preview', 'nai-diffusion-3'];
 export const NAI_MODEL_NAMES = {

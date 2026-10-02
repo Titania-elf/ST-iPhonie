@@ -22,7 +22,9 @@ function filterList(box, query) {
 export function vibePanel({ctx, api, root, rerender}) {
   const state = () => api.getState().draw.vibe;
   const vibes = () => api.listVibes();
-  let query = '';
+  let query = '', selecting = false;
+  /** Multi-select: the vibes and groups picked. */
+  const picked = {vibes: new Set(), groups: new Set()};
 
   /** One line saying what the next picture will use and what it costs. */
   function planText() {
@@ -43,26 +45,66 @@ export function vibePanel({ctx, api, root, rerender}) {
 
   function html() {
     const v = state(), list = vibes(), byId = new Map(list.map(s => [s.id, s]));
+    const check = on => selecting ? `<span class="vibe-check${on ? ' on' : ''}">${on ? icon('check') : ''}</span>` : '';
     const groupRows = v.groups.map(g => {
-      const using = v.use.kind === 'group' && v.use.id === g.id, thumbs = g.items.slice(0, 3).map(i => byId.get(i.vibe)).filter(Boolean);
-      return `<div class="vibe-group${using ? ' using' : ''}" data-name="${esc(g.name)}"${matches(g.name, query) ? '' : ' hidden'}><button type="button" class="vibe-group-main" data-action="vibe-use-group" data-id="${esc(g.id)}" aria-pressed="${using}">
-        <span class="vibe-stack">${thumbs.map(tileImage).join('') || `<span class="vibe-blank">${icon('layers')}</span>`}</span>
+      const using = v.use.kind === 'group' && v.use.id === g.id, thumbs = g.items.slice(0, 3).map(i => byId.get(i.vibe)).filter(Boolean), on = picked.groups.has(g.id);
+      return `<div class="vibe-group${using ? ' using' : ''}${on ? ' picked' : ''}" data-name="${esc(g.name)}"${matches(g.name, query) ? '' : ' hidden'}><button type="button" class="vibe-group-main" data-action="${selecting ? 'vibe-pick' : 'vibe-use-group'}" data-kind="groups" data-id="${esc(g.id)}" aria-pressed="${selecting ? on : using}">
+        ${check(on)}<span class="vibe-stack">${thumbs.map(tileImage).join('') || `<span class="vibe-blank">${icon('layers')}</span>`}</span>
         <span class="grow"><strong>${esc(g.name)}</strong><small>${using ? '使用中 · ' : ''}${g.items.length} 个${g.items.length > MAX_FREE ? ` · 守卫只用前 ${MAX_FREE} 个` : ''}</small></span></button>
-        <button type="button" class="nav-button" data-action="vibe-group-menu" data-id="${esc(g.id)}" aria-label="编辑「${esc(g.name)}」">${icon('more')}</button></div>`;
+        ${selecting ? '' : `<button type="button" class="nav-button" data-action="vibe-group-menu" data-id="${esc(g.id)}" aria-label="编辑「${esc(g.name)}」">${icon('more')}</button>`}</div>`;
     }).join('');
     const tiles = list.map(s => {
-      const using = v.use.kind === 'vibe' && v.use.id === s.id;
-      return `<button type="button" class="vibe-tile${using ? ' using' : ''}" data-name="${esc(s.name)}"${matches(s.name, query) ? '' : ' hidden'} data-action="vibe-open" data-id="${esc(s.id)}" aria-label="${esc(s.name)}">${tileImage(s)}<span class="vibe-name">${esc(s.name)}</span><small>${using ? '使用中' : encodedNote(s)}</small></button>`;
+      const using = v.use.kind === 'vibe' && v.use.id === s.id, on = picked.vibes.has(s.id);
+      return `<button type="button" class="vibe-tile${using ? ' using' : ''}${on ? ' picked' : ''}" data-name="${esc(s.name)}"${matches(s.name, query) ? '' : ' hidden'} data-action="${selecting ? 'vibe-pick' : 'vibe-open'}" data-kind="vibes" data-id="${esc(s.id)}" aria-label="${esc(s.name)}"${selecting ? ` aria-pressed="${on}"` : ''}>${check(on)}${tileImage(s)}<span class="vibe-name">${esc(s.name)}</span><small>${using ? '使用中' : encodedNote(s)}</small></button>`;
     }).join('');
+    // Select all / none, for the names the search shows.
+    const pickAll = (kind, items) => {
+      if (!selecting || !items.length) return '';
+      const shown = items.filter(x => matches(x.name, query)), all = shown.length && shown.every(x => picked[kind].has(x.id));
+      return btn('vibe-pick-all', all ? '全不选' : query ? '全选搜到的' : '全选', 'text-button', `data-kind="${kind}"`);
+    };
+    const count = picked.vibes.size + picked.groups.size;
+    const buttons = selecting
+      ? `<div class="vibe-selectbar"><strong>已选 ${picked.vibes.size} 个 Vibe${picked.groups.size ? `、${picked.groups.size} 个组` : ''}</strong>${btn('vibe-pick-done', '完成', 'chip-button')}</div>
+        <div class="actions" style="margin-top:0">${btn('vibe-pick-group', icon('add') + '加入组', 'secondary', picked.vibes.size ? '' : 'disabled')}${btn('vibe-pick-delete', icon('trash') + '删除', 'danger', count ? '' : 'disabled')}</div>`
+      : `<div class="actions" style="margin-top:0">${btn('vibe-import', icon('import') + '导入', 'secondary')}${btn('vibe-new-group', icon('add') + '新建组', 'secondary')}${list.length + v.groups.length ? btn('vibe-select', icon('check') + '多选', 'secondary') : ''}${list.length ? btn('vibe-export-all', icon('download') + '全部导出', 'secondary') : ''}${api.chatu8Vibes?.() ? btn('vibe-chatu8', icon('import') + '从智绘姬导入', 'secondary') : ''}</div>`;
+    const tools = (kind, items, info) => `<span class="title-tools">${pickAll(kind, items)}${help(info)}</span>`;
     return `<div class="group">${toggle('vibeEnabled', '使用 Vibe', v.enabled, '打开后，不管用哪个画风或画师串，绘图 App 和正文出图的每张图都会带上选中的 Vibe（一个组，或者单个 Vibe）。\n\n只有 V4 / V4.5 模型能用，V5 还不支持，会自动跳过。\n\n费用：一张图片第一次用要编码，扣 2 Anlas，编码存下来以后再用就不扣了；一次最多 4 个不额外收费，第 5 个起每多一个扣 2 Anlas。免费档守卫打开时只用前 4 个。')}</div>
       <p class="hint vibe-plan">${planText()}</p>
-      <div class="actions" style="margin-top:0">${btn('vibe-import', icon('import') + '导入', 'secondary')}${btn('vibe-new-group', icon('add') + '新建组', 'secondary')}${list.length ? btn('vibe-export-all', icon('download') + '全部导出', 'secondary') : ''}${api.chatu8Vibes?.() ? btn('vibe-chatu8', icon('import') + '从智绘姬导入', 'secondary') : ''}</div>
+      ${buttons}
       <input type="file" data-vibe-file multiple hidden accept=".naiv4vibe,.naiv4vibebundle,.json,image/png,image/jpeg,image/webp">
       ${list.length + v.groups.length > SEARCH_FROM ? `<div class="vibe-search">${icon('search')}<input type="search" data-vibe-search value="${esc(query)}" placeholder="搜索组和 Vibe 的名字" aria-label="搜索 Vibe"></div>` : ''}
-      ${groupTitle(`Vibe 组 · ${v.groups.length}`, help('点一个组就用这个组。组里每个 Vibe 有自己的强度；强度加起来超过 1 时会按比例缩回 1。\n\n导入官网的 .naiv4vibebundle 或智绘姬导出的 Vibe 组，会自动建好组。'))}
+      ${groupTitle(`Vibe 组 · ${v.groups.length}`, tools('groups', v.groups, '点一个组就用这个组。组里每个 Vibe 有自己的强度；强度加起来超过 1 时会按比例缩回 1。\n\n导入官网的 .naiv4vibebundle 或智绘姬导出的 Vibe 组，会自动建好组。\n\n「多选」可以一次删除好几个组。'))}
       ${v.groups.length ? `<div class="vibe-groups vibe-scroll" data-list="groups" data-keep-scroll="vibe-groups">${groupRows}</div><p class="hint" data-none="groups"${v.groups.some(g => matches(g.name, query)) ? ' hidden' : ''}>没有名字里带「${esc(query)}」的组。</p>` : '<p class="hint">还没有组。导入组文件，或者点「新建组」。</p>'}
-      ${groupTitle(`单个 Vibe · ${list.length}`, help('可以导入：官网的 .naiv4vibe（单个）、.naiv4vibebundle（一组）、智绘姬「导出全部」的 Vibe 组文件，以及普通图片（第一次用时编码）。已经有的 Vibe 不会重复添加。\n\nVibe 保存在当前浏览器里，换设备要先导出再导入。'))}
+      ${groupTitle(`单个 Vibe · ${list.length}`, tools('vibes', list, '可以导入：官网的 .naiv4vibe（单个）、.naiv4vibebundle（一组）、智绘姬「导出全部」的 Vibe 组文件，以及普通图片（第一次用时编码）。已经有的 Vibe 不会重复添加。再点一次「从智绘姬导入」，已经有的 Vibe 会改成智绘姬里的名字。\n\n「多选」可以一次删除好几个，或者一起加进一个组。\n\nVibe 保存在当前浏览器里；换设备用 设置 → 备份与恢复（勾「Vibe 和 Vibe 组」），或者先导出再导入。'))}
       ${list.length ? `<div class="vibe-grid vibe-scroll" data-list="vibes" data-keep-scroll="vibe-grid">${tiles}</div><p class="hint" data-none="vibes"${list.some(s => matches(s.name, query)) ? ' hidden' : ''}>没有名字里带「${esc(query)}」的 Vibe。</p>` : '<p class="hint">还没有 Vibe。点「导入」。</p>'}`;
+  }
+
+  /** Several vibes into one group (a new one, or one that is there), each with its own strength. */
+  function pickToGroup() {
+    const groups = state().groups, ids = [...picked.vibes];
+    const d = ctx.dialog(`加入组 · ${ids.length} 个 Vibe`, `<div class="group pad">${field('加到', `<span class="select"><select data-field="pick-group" aria-label="加到">${groups.map(g => `<option value="${esc(g.id)}">${esc(g.name)}（${g.items.length} 个）</option>`).join('')}<option value="">新建一个组</option></select></span>`)}
+      ${field('新组的名字', input('pick-name', '新组 ' + (groups.length + 1), 'text', 'maxlength="40"'))}
+      <p class="hint" style="padding:0">已经在组里的不会重复加；一个组最多 50 个。每个 Vibe 用它自己的强度，加进去以后可以在组里调。</p></div>
+      <div class="actions">${btn('pick-group-ok', '加入', 'primary')}</div>`);
+    const nameField = () => d.body.querySelector('[data-field=pick-name]').closest('.field');
+    const sync = () => { nameField().style.display = d.body.querySelector('[data-field=pick-group]').value ? 'none' : ''; };
+    sync();
+    d.body.addEventListener('change', sync);
+    d.body.addEventListener('click', e => {
+      if (!e.target.closest('[data-action=pick-group-ok]')) return;
+      try {
+        const all = structuredClone(state().groups), gid = d.body.querySelector('[data-field=pick-group]').value;
+        let g = all.find(x => x.id === gid);
+        if (!g) { g = {id: crypto.randomUUID(), name: d.body.querySelector('[data-field=pick-name]').value.trim() || '新组 ' + (all.length + 1), items: []}; all.push(g); }
+        const strengthOf = new Map(vibes().map(s => [s.id, s.strength]));
+        let added = 0;
+        for (const id of ids) { if (g.items.length >= 50) break; if (g.items.some(i => i.vibe === id)) continue; g.items.push({vibe: id, strength: strengthOf.get(id) ?? 0.6}); added++; }
+        api.saveDraw({vibe: {groups: all}});
+        d.close(); selecting = false; picked.vibes.clear(); picked.groups.clear(); rerender();
+        ctx.notify(`已把 ${added} 个 Vibe 加进「${g.name}」${added < ids.length ? `（${ids.length - added} 个已经在里面或者超过 50 个）` : ''}`);
+      } catch (error) { ctx.notify(error.message, {error: true}); }
+    });
   }
 
   async function save(file) { ctx.notify('已下载 ' + await saveFile(ctx.doc, file.blob, file.name)); }
@@ -171,6 +213,32 @@ export function vibePanel({ctx, api, root, rerender}) {
       }
       case 'vibe-export-all': await save(await api.exportVibes({all: true})); return true;
       case 'vibe-chatu8': report(await api.importChatu8()); return true;
+      case 'vibe-select': selecting = true; picked.vibes.clear(); picked.groups.clear(); rerender(); return true;
+      case 'vibe-pick-done': selecting = false; picked.vibes.clear(); picked.groups.clear(); rerender(); return true;
+      case 'vibe-pick': { const set = picked[el.dataset.kind]; if (set) { if (set.has(el.dataset.id)) set.delete(el.dataset.id); else set.add(el.dataset.id); rerender(); } return true; }
+      case 'vibe-pick-all': {
+        const kind = el.dataset.kind, set = picked[kind], items = kind === 'groups' ? state().groups : vibes();
+        if (!set) return true;
+        const shown = items.filter(x => matches(x.name, query)).map(x => x.id);
+        if (shown.length && shown.every(id => set.has(id))) shown.forEach(id => set.delete(id)); else shown.forEach(id => set.add(id));
+        rerender();
+        return true;
+      }
+      case 'vibe-pick-group': if (picked.vibes.size) pickToGroup(); return true;
+      case 'vibe-pick-delete': {
+        const nv = picked.vibes.size, ng = picked.groups.size;
+        if (!nv && !ng) return true;
+        const what = [nv && `${nv} 个 Vibe`, ng && `${ng} 个组`].filter(Boolean).join('和');
+        if (!await ctx.confirm(`删除 ${what}？`, `${nv ? '删掉的 Vibe 会从这台设备删除，也会从所有组里去掉。' : ''}${ng ? '删掉组不会删组里的 Vibe。' : ''}想留着可以先「全部导出」或者备份一次。`)) return true;
+        if (ng) {
+          const v = state();
+          api.saveDraw({vibe: {groups: v.groups.filter(g => !picked.groups.has(g.id)), use: v.use.kind === 'group' && picked.groups.has(v.use.id) ? {kind: '', id: ''} : v.use}});
+        }
+        if (nv) await api.deleteVibes([...picked.vibes]);
+        selecting = false; picked.vibes.clear(); picked.groups.clear(); rerender();
+        ctx.notify(`已删除 ${what}`);
+        return true;
+      }
     }
     return false;
   }
@@ -181,7 +249,7 @@ export function vibePanel({ctx, api, root, rerender}) {
   }
   function report(r) {
     rerender();
-    const done = [r.added && `新增 ${r.added} 个 Vibe`, r.updated && `${r.updated} 个已经有了`, r.groups && `${r.groups} 个组`].filter(Boolean).join('，');
+    const done = [r.added && `新增 ${r.added} 个 Vibe`, r.updated && `${r.updated} 个已经有了`, r.renamed && `${r.renamed} 个改成了智绘姬里的名字`, r.groups && `${r.groups} 个组`].filter(Boolean).join('，');
     if (r.errors.length) ctx.notify((done ? done + '；' : '') + r.errors.map(x => `${x.name}：${x.message}`).join('；'), {error: true});
     else ctx.notify(done ? '已导入：' + done : '没有导入任何内容');
   }
