@@ -18,7 +18,7 @@ import {TIER_NAMES, NAI_MODEL_NAMES} from './core/novelai.js';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const versionsOf = record => !record ? [] : Array.isArray(record.versions) ? record.versions : record.url ? [{...record}] : [];
 
-export function createPictureHost({context, settings, backend, marker, scheduleRender, openDraw, notice}) {
+export function createPictureHost({context, redrawMessage = (id, message) => context().updateMessageBlock?.(id, message), settings, backend, marker, scheduleRender, openDraw, notice}) {
   const jobs = new Map(); // queue key -> {state: 'generating'|'error', message}
   const folds = new Map(); // `${id}:${hash}` -> true/false, this session's fold choice per picture
   // The latest single tap on a picture: {key, id, message, tag, was, at, rect, timer, done}. It folds or unfolds the
@@ -133,7 +133,7 @@ export function createPictureHost({context, settings, backend, marker, scheduleR
       message.mes = text;
       if (Array.isArray(message.swipes)) message.swipes[message.swipe_id ?? 0] = text;
       await ctx.saveChat();
-      ctx.updateMessageBlock?.(id, message);
+      redrawMessage(id, message);
       scheduleRender();
       return true;
     } finally { planning.delete(id); }
