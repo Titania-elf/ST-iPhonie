@@ -50,7 +50,7 @@ export function buildRequest(engine,connection,route,line,references=new Map()){
   if(c.params.references.length)throw Error('这个中转是 OpenAI 格式，不能带参考音频：在 Fish 引擎里去掉参考音频，角色的「音色」填 Fish 的音色 ID');
   const fish=request.body.provider?.options?.['fish-audio']||{},speed=Number(fish.prosody?.speed);
   official={url:request.url,body:request.body};
-  request.url=P.fishBase(c)+'/v1/audio/speech';
+  request.url=P.openaiSpeech(P.fishBase(c));
   request.body={model:c.model,input:request.body.input,voice:request.body.voice,response_format:request.body.response_format,...(Number.isFinite(speed)&&speed!==1?{speed}:{})};
  }
  const url=new URL(request.url);for(const [k,v] of Object.entries(request.query||{}))url.searchParams.set(k,String(v));
@@ -206,13 +206,13 @@ export class Providers{
   */
  async probeFish(c){
   const base=P.fishBase(c),headers=this.headers('fish'),status=async(url,init)=>{try{const r=await this.fetch(url,init);return {status:r.status,ok:r.ok};}catch{return {status:0,ok:false};}};
-  const post=path=>status(base+path,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:'{}'}),there=r=>r.status!==0&&r.status!==404;
+  const post=path=>status(path.startsWith('http')?path:base+path,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:'{}'}),there=r=>r.status!==0&&r.status!==404;
   const compat=await post('/compat/v1/audio/speech'),relay=base!==P.fishBase({});
   // A relay without Fish's path may speak OpenAI's: /v1/audio/speech.
-  const openai=relay&&!there(compat)?await post('/v1/audio/speech'):{status:0,ok:false};
+  const openai=relay&&!there(compat)?await post(P.openaiSpeech(base)):{status:0,ok:false};
   const detected=there(compat)?'fish':there(openai)?'openai':'';
   const voices=detected==='openai'?{status:0,ok:false}:await status(base+'/model?page_size=1',{headers});
-  return {relay,base,api:P.fishOpenAI(c)?'openai':'fish',detected,speech:detected==='openai'?openai:compat,compat,openai,voices};
+  return {relay,base,openaiUrl:P.openaiSpeech(base),api:P.fishOpenAI(c)?'openai':'fish',detected,speech:detected==='openai'?openai:compat,compat,openai,voices};
  }
  clear(){this.keys.clear();this.references.clear();this.refused.clear();this.pools.clear();}
 }

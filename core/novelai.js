@@ -10,7 +10,7 @@ export const NAI_HOST = 'https://image.novelai.net';
  */
 const NAI_PATHS = /\/(ai\/generate-image(-stream)?|user\/subscription)$/i;
 /** Fish Audio paths the plugin adds; a pasted full address keeps only what comes before them. */
-export const FISH_PATHS = /\/(compat\/v1\/audio\/speech|v1\/tts|model|wallet\/self\/api-credit)$/i;
+export const FISH_PATHS = /\/(compat\/v1\/audio\/speech|v1\/audio\/speech|audio\/speech|v1\/tts|v1\/models|model|wallet\/self\/api-credit)$/i;
 export function relayUrl(value, pageProtocol = globalThis.location?.protocol, strip = NAI_PATHS) {
   const raw = String(value ?? '').trim();
   if (!raw) return '';

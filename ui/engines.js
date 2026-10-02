@@ -168,7 +168,7 @@ export function enginesApp(ctx) {
     const where = r.relay ? '中转' : 'Fish Audio', path = p => `「${esc(r.base)}${p}」`;
     const speech = r.speech.status === 0 ? `✗ 连不上${where}：地址不对，或${r.relay ? '中转没有允许跨域（CORS）；酒馆用 HTTPS 打开时中转也要用 HTTPS' : '网络不通'}`
       : [401, 403].includes(r.speech.status) ? `✗ ${where}拒绝了密钥（${r.speech.status}）：请填写${r.relay ? '中转要求的' : '正确的'}密钥`
-      : r.speech.status === 404 ? `✗ 合成接口 404：试过${path('/compat/v1/audio/speech')}${r.relay ? `和${path('/v1/audio/speech')}` : ''}，${where}都不认。中转地址只填到这些路径前面为止；如果这个中转用的是别的路径，把它的说明发给插件作者。`
+      : r.speech.status === 404 ? `✗ 合成接口 404：试过${path('/compat/v1/audio/speech')}${r.relay ? `和「${esc(r.openaiUrl || r.base + '/v1/audio/speech')}」` : ''}，${where}都不认。中转地址只填到这些路径前面为止；如果这个中转用的是别的路径，把它的说明发给插件作者。`
       : r.speech.status === 402 ? `✓ 合成接口通了，但${where}说额度不够（402）`
       : r.speech.status === 429 ? `✓ 合成接口通了，现在请求太多（429），稍后再试`
       : r.speech.status >= 500 ? `✗ ${where}自己出错了（HTTP ${r.speech.status}），稍后再试或者问问站长`
