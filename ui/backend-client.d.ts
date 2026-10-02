@@ -411,6 +411,8 @@ export interface BackendFacade {
     addKeys(engine: Engine, value: string): number;
     /** Deletes the saved key at this place in keyList (0-based). */
     removeKey(engine: Engine, index: number): void;
+    /** Uses this saved key from now on and moves it to the front, so it is used first next time too. */
+    useKey(engine: Engine, index: number): void;
     setKey(engine: KeyEngine, key: string): void;
     clearKey(engine: KeyEngine): void;
     saveDraw(patch: DrawSettingsPatch): DrawSettings;

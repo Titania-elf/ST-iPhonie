@@ -38,7 +38,7 @@ export function enginesApp(ctx) {
   const keyRows = id => {
     const list = api.keyList?.(id) || [];
     if (!list.length) return '';
-    return `<div class="key-list">${list.map((k, i) => `<div class="key-row${k.current ? ' current' : ''}"><span class="key-no" aria-label="第 ${i + 1} 个">${i + 1}</span><span class="mono">•••• ${esc(k.tail)}</span>${k.current ? plate('正在用') : ''}${k.refused ? '<small class="error-copy">这次被拒</small>' : ''}<button class="text-button" data-action="remove-key" data-index="${i}" aria-label="删除第 ${i + 1} 个密钥">删除</button></div>`).join('')}</div>`;
+    return `<div class="key-list">${list.map((k, i) => `<div class="key-row${k.current ? ' current' : ''}"><span class="key-no" aria-label="第 ${i + 1} 个">${i + 1}</span><span class="mono">•••• ${esc(k.tail)}</span>${k.current ? plate('正在用') : ''}${k.refused ? '<small class="error-copy">这次被拒</small>' : ''}${!k.current && list.length > 1 ? `<button class="text-button" data-action="use-key" data-index="${i}" aria-label="改用第 ${i + 1} 个密钥">用这个</button>` : ''}<button class="text-button" data-action="remove-key" data-index="${i}" aria-label="删除第 ${i + 1} 个密钥">删除</button></div>`).join('')}</div>`;
   };
   /** The text model preset being edited (the draft's active one). */
   const textPreset = () => textDraft.presets.find(p => p.id === textDraft.active) || textDraft.presets[0];
@@ -218,7 +218,7 @@ export function enginesApp(ctx) {
       + `<div class="group pad">
           <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? keyState(engine) : '还没有填写'}</span></div>
           ${keyRows(engine)}
-          ${field(saved ? '添加密钥' : 'API Key', textArea('key', '', `rows="2" class="code" autocomplete="off" spellcheck="false" placeholder="${saved ? '粘贴新的密钥，会加在后面' : '粘贴密钥；有多个账号可以每行一个'}"`), '可以保存多个账号的密钥，新加的排在后面，不用的可以单独删掉。先用排在前面的；某个密钥被拒（401、403）、额度用完（402）或请求太频繁（429）时，自动换下一个重试，这次打开页面里不再用它。\n\n密钥只保存在当前浏览器和酒馆地址，按账户分别保存。')}
+          ${field(saved ? '添加密钥' : 'API Key', textArea('key', '', `rows="2" class="code" autocomplete="off" spellcheck="false" placeholder="${saved ? '粘贴新的密钥，会加在后面' : '粘贴密钥；有多个账号可以每行一个'}"`), '可以保存多个账号的密钥，新加的排在后面，不用的可以单独删掉。先用排在前面的；某个密钥被拒（401、403）、额度用完（402）或请求太频繁（429）时，自动换下一个重试，这次打开页面里不再用它。想手动换，点那个密钥的「用这个」：马上改用它，并把它排到第一个，以后打开也先用它。\n\n密钥只保存在当前浏览器和酒馆地址，按账户分别保存。')}
           <div class="key-actions">${btn('add-key', icon('key') + (saved ? '添加' : '保存密钥'), 'primary')}${saved ? btn('clear-key', '全部清除', 'danger') : ''}</div>
           ${field('默认模型', select('model', c.model, schema.models.map(m => [m.id, m.id, !m.supported])), unsupported || '角色没有单独指定模型时使用这里的模型。')}
           ${engine === 'mini' ? field('服务区域', select('region', c.region, [['cn', '国内'], ['global', '国际'], ['uw', '国际 · 低延迟入口']])) : ''}
@@ -393,6 +393,13 @@ export function enginesApp(ctx) {
       case 'add-key': {
         const added = api.addKeys(engine, v.root.querySelector('[data-field=key]').value);
         balances.delete(engine); render(); ctx.notify(added > 1 ? `已添加 ${added} 个密钥` : '密钥已保存'); loadBalance(engine, true);
+        break;
+      }
+      case 'use-key': {
+        const index = Number(el.dataset.index), k = api.keyList(engine)[index];
+        if (!k) break;
+        api.useKey(engine, index); balances.delete(engine); render(); loadBalance(engine, true);
+        ctx.notify(`已改用末尾 ${k.tail} 的密钥${index > 0 ? '，它排到了第一个，以后打开也先用它' : ''}`);
         break;
       }
       case 'remove-key': {

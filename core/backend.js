@@ -312,6 +312,18 @@ export class TTSBackend {
         saved.splice(index, 1);
         if (saved.length) this.setKey(engine, saved.join('\n')); else this.clearKey(engine);
     }
+    /**
+     * The user picks the key to use: it is used at once and moved to the front of the list, so it is still the one used
+     * after the page is opened again. The others keep their order and still take over when it is refused.
+     */
+    useKey(engine, index) {
+        engineCheck(engine);
+        const saved = this.savedKeys(engine), key = saved[index];
+        if (!Number.isInteger(index) || !key) throw Error('这个密钥已经不在了');
+        if (index > 0) this.setKey(engine, [key, ...saved.filter((_, i) => i !== index)].join('\n'));
+        this.providers.useKey(engine, key); this.balances.delete(engine);
+        this.emit('keys', { engine, configured: true });
+    }
     savedKeys(engine) { return (this.providers.keys.get(engine) || '').split('\n').filter(Boolean); }
     /** The saved keys of a voice engine as the phone shows them: last characters, in use, refused this time. Never the keys. */
     keyList(engine) { engineCheck(engine); return this.providers.keyList(engine); }
@@ -967,7 +979,7 @@ export class TTSBackend {
             savePreset: preset => this.savePreset(preset), deletePreset: id => this.deletePreset(id), selectPreset: id => this.selectPreset(id),
             validatePreset: preset => { try { validatePreset(preset); return ''; } catch (error) { return message(error); } },
             previewPrompt: preset => this.previewPrompt(preset), promptPlan: () => clone(promptPlan(this.settings, modelRules(this.settings))), parse: text => this.parse(text),
-            voiceBalance: (engine, refresh) => this.voiceBalance(engine, refresh), keyStatus: engine => this.keyStatus(engine), keyHint: engine => this.keyHint(engine), keyPool: engine => this.keyPool(engine), keyList: engine => this.keyList(engine), addKeys: (engine, value) => this.addKeys(engine, value), removeKey: (engine, index) => this.removeKey(engine, index), setKey: (engine, key) => this.setKey(engine, key), clearKey: engine => this.clearKey(engine),
+            voiceBalance: (engine, refresh) => this.voiceBalance(engine, refresh), keyStatus: engine => this.keyStatus(engine), keyHint: engine => this.keyHint(engine), keyPool: engine => this.keyPool(engine), keyList: engine => this.keyList(engine), addKeys: (engine, value) => this.addKeys(engine, value), removeKey: (engine, index) => this.removeKey(engine, index), useKey: (engine, index) => this.useKey(engine, index), setKey: (engine, key) => this.setKey(engine, key), clearKey: engine => this.clearKey(engine),
             saveDraw: patch => this.saveDraw(patch), saveStyle: style => this.saveStyle(style), deleteStyle: id => this.deleteStyle(id),
             saveDrawPreset: preset => this.saveDrawPreset(preset), deleteDrawPreset: id => this.deleteDrawPreset(id), previewDrawPrompt: preset => this.previewDrawPrompt(preset),
             naiSubscription: refresh => this.naiSubscription(refresh), naiProbe: () => this.naiProbe(), fishProbe: () => { this.assertOpen(); keyCheck('fish'); return this.providers.probeFish(clone(this.settings.connections.fish)); },

@@ -107,7 +107,9 @@ const FALLBACK={400:'请求里有服务不接受的内容',401:'密钥没有通�
  * An Error that says what the service reported: our explanation of its code, then its own code and message.
  * The service's text never shows a key: `secrets` and anything shaped like a key are replaced with ***.
  */
-export async function httpError(engine,response,what='',secrets=[]){
+/** A Fish request that went through a relay (not to api.fish.audio itself). */
+const viaRelay=(engine,url)=>engine==='fish'&&typeof url==='string'&&!url.startsWith('https://api.fish.audio/');
+export async function httpError(engine,response,what='',secrets=[],relay=false){
  let detail={};
  try{const text=(await response.text()).slice(0,4000);try{const json=JSON.parse(text);const d=json.detail??json.error??json;detail=typeof d==='string'?{message:d}:Array.isArray(d)?{message:d.map(x=>x.msg||x.message).filter(Boolean).join('；')}:d||{};if(!detail.message&&json.message)detail.message=json.message;}catch{detail={message:text.trim()};}}catch{}
  const code=[detail.code,detail.status,detail.type].find(x=>typeof x==='string'&&REASONS[x])||(typeof detail.code==='string'?detail.code:typeof detail.status==='string'?detail.status:'');
@@ -116,6 +118,10 @@ export async function httpError(engine,response,what='',secrets=[]){
  const reason=refused?`${refused[2]} 不接受 ${refused[1]} 这一项设置`:REASONS[code]||FALLBACK[response.status]||'请求失败';
  const hide=text=>secrets.filter(k=>typeof k==='string'&&k.length>=4).reduce((t,k)=>t.split(k).join('***'),String(text)).replace(/[A-Za-z0-9_-]{24,}/g,t=>/\d/.test(t)&&/[A-Za-z]/.test(t)?'***':t);
  const said=hide([code,typeof detail.message==='string'?detail.message.slice(0,200):'',detail.param?'参数 '+detail.param:''].filter(Boolean).join('：'));
+ // Through a relay its own words are the reason ("no key left in the shared pool"): a general explanation of the
+ // status would point at the wrong thing.
+ const relayWords=relay&&typeof detail.message==='string'&&detail.message.trim()?hide(detail.message.trim().slice(0,300)):'';
+ if(relayWords)return Object.assign(Error(names[engine]+' 中转'+(what?' '+what:'')+'：HTTP '+response.status+' · 中转说：'+relayWords),{status:response.status,code,refusedField:'',relay:true});
  return Object.assign(Error(names[engine]+(what?' '+what:'')+'：HTTP '+response.status+' · '+reason+(said?'（'+said+'）':'')),{status:response.status,code,refusedField:refused?.[1]||''});
 }
 const KEY_SWITCH=new Set([401,402,403,429]);
@@ -134,6 +140,8 @@ export class Providers{
  keyList(engine){const {keys,p}=this.pool(engine);return keys.map(key=>({tail:keyTail(key)||'••••',current:key===p.current,refused:p.refused.has(key)}));}
  /** Marks the key in use as refused and moves to the next one not refused yet; false when every key has been refused (they are all tried again next time). */
  nextKey(engine){const {keys,p}=this.pool(engine);p.refused.add(p.current);const at=keys.indexOf(p.current);for(let i=1;i<keys.length;i++){const key=keys[(at+i)%keys.length];if(!p.refused.has(key)){p.current=key;try{this.onKeySwitch?.(engine);}catch{}return true;}}p.refused.clear();return false;}
+ /** Uses this saved key from now on (the user picked it); it is no longer counted as refused. */
+ useKey(engine,key){const {keys,p}=this.pool(engine);if(!keys.includes(key))throw Error('这个密钥已经不在了');p.refused.delete(key);if(p.current!==key){p.current=key;try{this.onKeySwitch?.(engine);}catch{}}}
  headers(engine){const key=this.currentKey(engine);if(!key)throw Error('请先填写 '+names[engine]+' 的 API Key');return engine==='eleven'?{'xi-api-key':key}:{Authorization:'Bearer '+key};}
  async fetch(url,init,signal){return fetchWithPolicy(this.fetcher,url,init,signal);}
  /**
@@ -148,16 +156,16 @@ export class Providers{
   const count=MULTI_KEY.has(request.engine)?this.keyPool(request.engine)?.count||0:0;let tried=1,exhausted=false;
   while(!response.ok&&count>1&&KEY_SWITCH.has(response.status)){if(!this.nextKey(request.engine)){exhausted=true;break;}await response.body?.cancel?.().catch(()=>{});tried++;response=await this.post(request,body,signal);}
   // Keys refused earlier while the page is open are not tried again in the same go: say that every key is used up.
-  if(!response.ok&&(tried>1||exhausted)){const error=await httpError(request.engine,response,'',this.keys.get(request.engine).split('\n'));error.message+=tried>=count?'（'+count+' 个密钥都试过了）':'（'+count+' 个密钥这次都被拒过了，下次会全部重新试）';throw error;}
+  if(!response.ok&&(tried>1||exhausted)){const error=await httpError(request.engine,response,'',this.keys.get(request.engine).split('\n'),viaRelay(request.engine,request.url));error.message+=tried>=count?'（'+count+' 个密钥都试过了）':'（'+count+' 个密钥这次都被拒过了，下次会全部重新试）';throw error;}
   if(!response.ok){
-   const error=await httpError(request.engine,response,'',this.keys.get(request.engine).split('\n'));
+   const error=await httpError(request.engine,response,'',this.keys.get(request.engine).split('\n'),viaRelay(request.engine,request.url));
    const field=error.refusedField;
    if(request.engine!=='eleven'||response.status!==400||!field||!Object.hasOwn(body,field)||field==='text'||field==='model_id')throw error;
    if(!this.refused.has(model))this.refused.set(model,new Set());
    this.refused.get(model).add(field);
    delete body[field];
    response=await this.post(request,body,signal);
-   if(!response.ok)throw await httpError(request.engine,response,'',this.keys.get(request.engine).split('\n'));
+   if(!response.ok)throw await httpError(request.engine,response,'',this.keys.get(request.engine).split('\n'),viaRelay(request.engine,request.url));
   }
   // A new audio was paid for: the balance shown on the engine card is out of date.
   try{this.onSpend?.(request.engine);}catch{}
@@ -169,7 +177,7 @@ export class Providers{
   if(engine==='mimo'){const mode=P.mimoMode(c.model),q=search.trim().toLowerCase();const all=mode==='preset'?P.vocab.MIMO_VOICES.map(([id,name])=>({id,name})):mode==='clone'?c.params.samples.filter(x=>String(x.name).trim()).map(x=>({id:String(x.name).trim(),name:String(x.name).trim()+' · 克隆样本'})):[];
    return {voices:q?all.filter(v=>v.name.toLowerCase().includes(q)):all,more:false,token:'',note:mode==='design'?'音色设计模型没有音色列表：在「音色」一栏写音色描述':mode==='clone'?'克隆样本在 MiMo 引擎里上传':'MiMo 内置音色'};}
   const headers=this.headers(engine);let url,init={headers};if(engine==='fish'){url=new URL(P.fishBase(c)+'/model');url.searchParams.set('page_size','50');url.searchParams.set('page_number',String(page+1));if(search)url.searchParams.set('title',search);}else if(engine==='mini'){url=miniBase(c)+'/v1/get_voice';init={method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({voice_type:'all'})};}else{url=new URL('https://api.elevenlabs.io/v2/voices');url.searchParams.set('page_size','100');if(search)url.searchParams.set('search',search);if(token)url.searchParams.set('next_page_token',token);}
- const response=await this.fetch(String(url),init);if(!response.ok)throw await httpError(engine,response,'音色读取失败',[this.currentKey(engine)]);const data=await response.json();if(engine==='mini')checkMini(data);const source=engine==='fish'?data.items:engine==='mini'?[...(data.system_voice||[]),...(data.voice_cloning||[]),...(data.voice_generation||[])]:data.voices;if(!Array.isArray(source))throw Error('音色列表格式不符');return {voices:source.map(v=>({id:v._id||v.voice_id,name:v.title||v.voice_name||v.name||v.voice_id})).filter(v=>typeof v.id==='string'),more:engine==='fish'?source.length===50:!!data.has_more,token:data.next_page_token||'',note:engine==='fish'?'已读取公开音色；此结果不能确认密钥有效':'音色列表已读取'};}
+ const response=await this.fetch(String(url),init);if(!response.ok)throw await httpError(engine,response,'音色读取失败',[this.currentKey(engine)],viaRelay(engine,String(url)));const data=await response.json();if(engine==='mini')checkMini(data);const source=engine==='fish'?data.items:engine==='mini'?[...(data.system_voice||[]),...(data.voice_cloning||[]),...(data.voice_generation||[])]:data.voices;if(!Array.isArray(source))throw Error('音色列表格式不符');return {voices:source.map(v=>({id:v._id||v.voice_id,name:v.title||v.voice_name||v.name||v.voice_id})).filter(v=>typeof v.id==='string'),more:engine==='fish'?source.length===50:!!data.has_more,token:data.next_page_token||'',note:engine==='fish'?'已读取公开音色；此结果不能确认密钥有效':'音色列表已读取'};}
  /**
   * What is left on the account. ElevenLabs: {kind:'characters', used, limit, left, resetAt, tier, status} from
   * /v1/user/subscription (credits of the current period). Fish: {kind:'credit', credit, free} from /wallet/self/api-credit.
@@ -186,7 +194,7 @@ export class Providers{
   if(engine==='fish'){
    if(P.fishOpenAI(c))throw Error('这个中转不提供余额查询，额度以中转网站上显示的为准');
    const response=await this.fetch(P.fishBase(c)+'/wallet/self/api-credit?check_free_credit=true',{headers});
-   if(!response.ok)throw await httpError(engine,response,'余额读取失败',[key]);
+   if(!response.ok)throw await httpError(engine,response,'余额读取失败',[key],viaRelay(engine,P.fishBase(c)+'/'));
    const d=await response.json(),credit=Number(d.credit);
    if(!Number.isFinite(credit))throw Error('Fish Audio 返回的余额格式不符');
    return {engine,kind:'credit',credit,free:d.has_free_credit===true};
