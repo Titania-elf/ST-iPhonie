@@ -159,21 +159,30 @@ export function enginesApp(ctx) {
   /** The 额度 group of the ElevenLabs and Fish cards. */
   /** Fish relay (中转): an address in front of Fish Audio, saved on its own, and a check of what it forwards. */
   function fishRelay() {
-    const relay = api.getState().connections.fish.relay || '';
+    const fish = api.getState().connections.fish, relay = fish.relay || '';
     return `${field('中转地址', input('relay', relay, 'url', 'autocomplete="off" placeholder="留空直连 Fish Audio，例如 https://fish.example.com"'), '用中转（公益站、自己搭的反代）时填这里，留空就直连 Fish Audio。\n\n插件会把请求发到「中转地址」加上 Fish 官方的路径：合成 /compat/v1/audio/speech，音色列表 /model，余额 /wallet/self/api-credit。所以只填到这些路径前面为止；把完整地址粘进来也行，会自动去掉。\n\n中转要允许网页直接访问（CORS）；酒馆用 HTTPS 打开时，中转也要是 HTTPS。密钥填中转要求的那个（可能是 Fish 的，也可能是站长发的），一样可以存好几个。')}
+      ${relay ? field('中转接口格式', select('relayApi', fish.relayApi || 'fish', [['fish', 'Fish 官方路径（/compat/v1/audio/speech）'], ['openai', 'OpenAI 格式（/v1/audio/speech）']]), '保存中转或者测试连接时会自动认出来，一般不用自己选。\n\nOpenAI 格式的中转只收文字、音色 ID、模型和语速：情绪标签写在文字里，照样有效；没有音色列表（音色 ID 手动填）、不能带参考音频、看不到余额，温度等其他参数由中转决定。') : ''}
       <div class="key-actions">${btn('save-fish-relay', relay ? '保存中转' : '使用中转', 'primary')}${btn('test-fish-relay', icon('refresh') + '测试连接', 'secondary', api.keyStatus('fish') ? '' : 'disabled')}</div>`;
   }
-  function fishProbeReport(r) {
+  function fishProbeReport(r, switched = '') {
     const where = r.relay ? '中转' : 'Fish Audio', path = p => `「${esc(r.base)}${p}」`;
     const speech = r.speech.status === 0 ? `✗ 连不上${where}：地址不对，或${r.relay ? '中转没有允许跨域（CORS）；酒馆用 HTTPS 打开时中转也要用 HTTPS' : '网络不通'}`
       : [401, 403].includes(r.speech.status) ? `✗ ${where}拒绝了密钥（${r.speech.status}）：请填写${r.relay ? '中转要求的' : '正确的'}密钥`
-      : r.speech.status === 404 ? `✗ 合成接口 404：插件请求的是${path('/compat/v1/audio/speech')}，${where}不认这个路径。中转地址只填到这个路径前面为止；如果这个中转只转发别的路径，把它的说明发给插件作者。`
+      : r.speech.status === 404 ? `✗ 合成接口 404：试过${path('/compat/v1/audio/speech')}${r.relay ? `和${path('/v1/audio/speech')}` : ''}，${where}都不认。中转地址只填到这些路径前面为止；如果这个中转用的是别的路径，把它的说明发给插件作者。`
       : r.speech.status === 402 ? `✓ 合成接口通了，但${where}说额度不够（402）`
       : r.speech.status === 429 ? `✓ 合成接口通了，现在请求太多（429），稍后再试`
       : r.speech.status >= 500 ? `✗ ${where}自己出错了（HTTP ${r.speech.status}），稍后再试或者问问站长`
       : `✓ 合成接口通了（测试请求故意是空的，返回 ${r.speech.status} 是正常的）`;
-    const voices = r.voices.ok ? '✓ 音色列表也能读' : r.voices.status === 0 ? '— 读不到音色列表（不影响合成，音色 ID 可以手动填）' : `— 音色列表返回 ${r.voices.status}（不影响合成，音色 ID 可以手动填）`;
-    return `<div class="group pad"><p class="probe-line">${speech}</p><p class="probe-line">${voices}</p></div>`;
+    const kind = switched ? `<p class="probe-line">✓ 这个中转是${switched === 'openai' ? ' OpenAI 格式（/v1/audio/speech）' : ' Fish 官方路径'}，已经自动切换</p>` : '';
+    const voices = (r.detected || r.api) === 'openai' ? '— 这种中转没有音色列表：在角色的「音色」里直接填 Fish 的音色 ID' : r.voices.ok ? '✓ 音色列表也能读' : r.voices.status === 0 ? '— 读不到音色列表（不影响合成，音色 ID 可以手动填）' : `— 音色列表返回 ${r.voices.status}（不影响合成，音色 ID 可以手动填）`;
+    return `<div class="group pad">${kind}<p class="probe-line">${speech}</p><p class="probe-line">${voices}</p></div>`;
+  }
+  /** Checks the relay and, when it speaks the other form, switches to it. Returns the form it switched to ('' if none). */
+  async function detectFish() {
+    const r = await api.fishProbe();
+    let switched = '';
+    if (r.relay && r.detected && r.detected !== r.api) { api.saveConnection('fish', {relayApi: r.detected}); draft().relayApi = r.detected; switched = r.detected; balances.delete('fish'); }
+    return {r, switched};
   }
   function balanceGroup() {
     if (!PRICED.includes(engine)) return '';
@@ -280,6 +289,7 @@ export function enginesApp(ctx) {
     if (el.dataset.field === 'guard') { api.saveDraw({guard: el.checked}); render(); return; }
     if (el.dataset.field === 'relayOpus') { api.saveDraw({relay: {assumeOpus: el.checked}}); render(); return; }
     if (el.dataset.field === 'relay') return;
+    if (el.dataset.field === 'relayApi') { api.saveConnection('fish', {relayApi: el.value}); draft().relayApi = el.value; balances.delete('fish'); render(); return; }
     draft()[el.dataset.field] = el.value; changed(); render();
   });
   const readValue = (el, f) => f.type === 'boolean' ? el.checked : f.type === 'number' ? (el.value === '' ? '' : Number(el.value)) : f.type === 'select' ? f.options.find(([key]) => String(key) === el.value)?.[0] : el.value;
@@ -367,10 +377,12 @@ export function enginesApp(ctx) {
         draft().relay = api.getState().connections.fish.relay;
         balances.delete('fish'); render();
         ctx.notify(draft().relay ? 'Fish 中转地址已保存' : '已改回直连 Fish Audio');
+        // Which form the relay speaks: checked right away when there is a key to check with.
+        if (draft().relay && api.keyStatus('fish')) await v.busy(el, async () => { const {switched} = await detectFish(); if (switched) { render(); ctx.notify(switched === 'openai' ? '这个中转是 OpenAI 格式（/v1/audio/speech），已经自动切换' : '这个中转用 Fish 官方路径，已经自动切换'); } }).catch(() => {});
         if (api.keyStatus('fish')) loadBalance('fish', true);
         break;
       }
-      case 'test-fish-relay': await v.busy(el, async () => { ctx.dialog('测试连接', fishProbeReport(await api.fishProbe())); }); break;
+      case 'test-fish-relay': await v.busy(el, async () => { const {r, switched} = await detectFish(); if (switched) render(); ctx.dialog('测试连接', fishProbeReport(r, switched)); }); break;
       case 'test-relay': await v.busy(el, async () => {
         const result = await api.naiProbe();
         await loadSubscription(false);

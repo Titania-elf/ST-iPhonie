@@ -247,6 +247,8 @@ export class TTSBackend {
         // Fish relay: an address checked like the NovelAI one ('' = straight to Fish). A new address: the balance is read again.
         if (engine === 'fish' && 'relay' in patch) { patch.relay = relayUrl(patch.relay, undefined, FISH_PATHS); if (patch.relay !== this.settings.connections.fish.relay) this.balances.delete('fish'); }
         else delete patch.relay;
+        if (engine === 'fish' && 'relayApi' in patch) { if (!['fish', 'openai'].includes(patch.relayApi)) throw Error('中转接口格式无效'); this.balances.delete('fish'); }
+        else if (engine !== 'fish') delete patch.relayApi;
         const next = this.getState();
         next.connections[engine] = { ...next.connections[engine], ...patch, params: { ...next.connections[engine].params, ...clone(patch.params || {}) } };
         this.save(next);

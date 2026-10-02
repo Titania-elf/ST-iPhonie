@@ -28,6 +28,8 @@ export interface Connection {
     region?: 'cn' | 'uw' | 'global';
     /** Fish Audio only: a relay address in front of api.fish.audio ('' = straight to Fish). */
     relay?: string;
+    /** Fish relay only: Fish's own paths ('fish') or OpenAI's /v1/audio/speech ('openai'). */
+    relayApi?: 'fish' | 'openai';
     /** Keys are the engine schema field keys, including dotted names. */
     params: Record<string, unknown>;
     parametersVersion?: number;
@@ -517,7 +519,7 @@ export interface BackendFacade {
     textModels(draft?: TextPatch): Promise<string[]>;
     /** Checks NovelAI or the relay: the drawing route (an empty request, nothing drawn, no Anlas) and the subscription. */
     /** Checks the Fish relay (or Fish itself): the speech path and the voice list; status 0 = no answer (address, CORS, HTTPS). */
-    fishProbe(): Promise<{ relay: boolean; base: string; speech: { status: number; ok: boolean }; voices: { status: number; ok: boolean } }>;
+    fishProbe(): Promise<{ relay: boolean; base: string; api: 'fish' | 'openai'; detected: '' | 'fish' | 'openai'; speech: { status: number; ok: boolean }; compat: { status: number; ok: boolean }; openai: { status: number; ok: boolean }; voices: { status: number; ok: boolean } }>;
     naiProbe(): Promise<{ relay: boolean; draw: { ok: boolean; status: number }; subscription: { ok: true; tier: number } | { ok: false; status: number; message: string } }>;
     saveMoments(patch: Partial<Pick<MomentsSettings, 'auto' | 'every' | 'dailyMax' | 'images' | 'replyToMe'>>): MomentsSettings;
     /** Newest first. */

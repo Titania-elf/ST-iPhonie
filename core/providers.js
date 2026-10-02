@@ -43,8 +43,18 @@ export function buildRequest(engine,connection,route,line,references=new Map()){
  // MiMo voice clone: the role's 音色 names an uploaded sample, sent as a data URI (mp3 or wav, at most 10 MB once encoded).
  if(engine==='mimo'&&P.mimoMode(c.model)==='clone'){const name=route.voice.trim(),sample=c.params.samples.find(x=>String(x.name).trim()===name);if(!sample)throw Error('找不到名叫「'+name+'」的克隆样本，请在 MiMo 引擎里上传');const audio=references.get(sample.audio);if(typeof audio!=='string'||!audio)throw Error('请在引擎设置重新选择克隆样本：'+name);if(audio.length>10*1024*1024)throw Error('克隆样本「'+name+'」太大：编码后不能超过 10 MB，换一段短一点的');const type=audio.startsWith('UklGR')?'audio/wav':/^(SUQz|\/\/)/.test(audio)?'audio/mpeg':'';if(!type)throw Error('克隆样本「'+name+'」不是 mp3 或 wav');request.body.audio.voice='data:'+type+';base64,'+audio;}
  if(engine==='eleven'&&!request.body.language_code&&c.model!=='eleven_multilingual_v2'){const code=languageCode(route.language).split('-')[0];if(/^[a-z]{2,3}$/.test(code))request.body.language_code=code;}
+ // A relay in OpenAI's form (/v1/audio/speech): the standard fields only. What Fish itself would get is kept, so the
+ // cache (core/cache.js requestHash) finds the same line whichever way it went.
+ let official=null;
+ if(engine==='fish'&&P.fishOpenAI(c)){
+  if(c.params.references.length)throw Error('这个中转是 OpenAI 格式，不能带参考音频：在 Fish 引擎里去掉参考音频，角色的「音色」填 Fish 的音色 ID');
+  const fish=request.body.provider?.options?.['fish-audio']||{},speed=Number(fish.prosody?.speed);
+  official={url:request.url,body:request.body};
+  request.url=P.fishBase(c)+'/v1/audio/speech';
+  request.body={model:c.model,input:request.body.input,voice:request.body.voice,response_format:request.body.response_format,...(Number.isFinite(speed)&&speed!==1?{speed}:{})};
+ }
  const url=new URL(request.url);for(const [k,v] of Object.entries(request.query||{}))url.searchParams.set(k,String(v));
- return {engine,url:url.href,body:request.body,format:engine==='mimo'?'wav':engine==='fish'?c.params.format:engine==='mini'?c.params['audio_setting.format']:c.params.output_format,sampleRate:engine==='mimo'?24000:engine==='fish'?c.params.sample_rate:engine==='mini'?c.params['audio_setting.sample_rate']:Number(c.params.output_format.split('_')[1]),channels:engine==='mini'?c.params['audio_setting.channel']:1};
+ return {engine,url:url.href,body:request.body,...(official?{official}:{}),format:engine==='mimo'?'wav':engine==='fish'?c.params.format:engine==='mini'?c.params['audio_setting.format']:c.params.output_format,sampleRate:engine==='mimo'?24000:engine==='fish'?c.params.sample_rate:engine==='mini'?c.params['audio_setting.sample_rate']:Number(c.params.output_format.split('_')[1]),channels:engine==='mini'?c.params['audio_setting.channel']:1};
 }
 export function hexBytes(hex){if(typeof hex!=='string'||!hex.length||hex.length%2||!/^[\da-f]+$/i.test(hex))throw Error('返回的音频数据无效');return Uint8Array.from(hex.match(/../g),x=>parseInt(x,16));}
 export function wavePCM(bytes,rate=24000,channels=1){if(bytes.length%2||!Number.isFinite(rate)||rate<8000||rate>192000||![1,2].includes(channels))throw Error('PCM 音频参数无效');const out=new Uint8Array(44+bytes.length),v=new DataView(out.buffer),ascii=(p,s)=>[...s].forEach((x,i)=>v.setUint8(p+i,x.charCodeAt(0)));ascii(0,'RIFF');v.setUint32(4,36+bytes.length,true);ascii(8,'WAVEfmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,channels,true);v.setUint32(24,rate,true);v.setUint32(28,rate*channels*2,true);v.setUint16(32,channels*2,true);v.setUint16(34,16,true);ascii(36,'data');v.setUint32(40,bytes.length,true);out.set(bytes,44);return out;}
@@ -155,6 +165,7 @@ export class Providers{
   if(request.engine==='mini')return decodeMini(response,request,this.fetcher,signal);if(response.headers.get('Content-Type')?.includes('json'))throw Error(names[request.engine]+' 未返回音频');return audioBlob(await limitedBytes(response),request);}
  post(request,body,signal){return this.fetch(request.url,{method:'POST',headers:{...this.headers(request.engine),'Content-Type':'application/json'},body:JSON.stringify(body)},signal);}
  async voices(engine,c,{search='',page=0,token=''}={}){
+  if(engine==='fish'&&P.fishOpenAI(c))throw Error('这个中转（OpenAI 格式）没有音色列表：在角色的「音色」里直接填 Fish 的音色 ID（fish.audio 网站上音色页面地址里那串字母数字）');
   if(engine==='mimo'){const mode=P.mimoMode(c.model),q=search.trim().toLowerCase();const all=mode==='preset'?P.vocab.MIMO_VOICES.map(([id,name])=>({id,name})):mode==='clone'?c.params.samples.filter(x=>String(x.name).trim()).map(x=>({id:String(x.name).trim(),name:String(x.name).trim()+' · 克隆样本'})):[];
    return {voices:q?all.filter(v=>v.name.toLowerCase().includes(q)):all,more:false,token:'',note:mode==='design'?'音色设计模型没有音色列表：在「音色」一栏写音色描述':mode==='clone'?'克隆样本在 MiMo 引擎里上传':'MiMo 内置音色'};}
   const headers=this.headers(engine);let url,init={headers};if(engine==='fish'){url=new URL(P.fishBase(c)+'/model');url.searchParams.set('page_size','50');url.searchParams.set('page_number',String(page+1));if(search)url.searchParams.set('title',search);}else if(engine==='mini'){url=miniBase(c)+'/v1/get_voice';init={method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({voice_type:'all'})};}else{url=new URL('https://api.elevenlabs.io/v2/voices');url.searchParams.set('page_size','100');if(search)url.searchParams.set('search',search);if(token)url.searchParams.set('next_page_token',token);}
@@ -173,6 +184,7 @@ export class Providers{
    return {engine,kind:'characters',used,limit,left:Math.max(0,limit-used),resetAt:Number(d.next_character_count_reset_unix)>0?Number(d.next_character_count_reset_unix)*1000:null,tier:String(d.tier||''),status:String(d.status||'')};
   }
   if(engine==='fish'){
+   if(P.fishOpenAI(c))throw Error('这个中转不提供余额查询，额度以中转网站上显示的为准');
    const response=await this.fetch(P.fishBase(c)+'/wallet/self/api-credit?check_free_credit=true',{headers});
    if(!response.ok)throw await httpError(engine,response,'余额读取失败',[key]);
    const d=await response.json(),credit=Number(d.credit);
@@ -186,9 +198,13 @@ export class Providers{
   */
  async probeFish(c){
   const base=P.fishBase(c),headers=this.headers('fish'),status=async(url,init)=>{try{const r=await this.fetch(url,init);return {status:r.status,ok:r.ok};}catch{return {status:0,ok:false};}};
-  const speech=await status(base+'/compat/v1/audio/speech',{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:'{}'});
-  const voices=await status(base+'/model?page_size=1',{headers});
-  return {relay:base!==P.fishBase({}),base,speech,voices};
+  const post=path=>status(base+path,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:'{}'}),there=r=>r.status!==0&&r.status!==404;
+  const compat=await post('/compat/v1/audio/speech'),relay=base!==P.fishBase({});
+  // A relay without Fish's path may speak OpenAI's: /v1/audio/speech.
+  const openai=relay&&!there(compat)?await post('/v1/audio/speech'):{status:0,ok:false};
+  const detected=there(compat)?'fish':there(openai)?'openai':'';
+  const voices=detected==='openai'?{status:0,ok:false}:await status(base+'/model?page_size=1',{headers});
+  return {relay,base,api:P.fishOpenAI(c)?'openai':'fish',detected,speech:detected==='openai'?openai:compat,compat,openai,voices};
  }
  clear(){this.keys.clear();this.references.clear();this.refused.clear();this.pools.clear();}
 }
