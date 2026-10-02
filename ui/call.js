@@ -3,6 +3,11 @@
 // made with WebAudio (no sound files) and the phone vibrates where the browser allows it.
 import {esc, avatar} from './common.js';
 import {icon} from './icons.js';
+import {motionLayer} from './wallpapers.js';
+
+// The moving background of the call screen: the phone skin's own wallpaper scene (day / night), laid out at random for
+// each call like the home screen's moving wallpaper, instead of a repeating pattern.
+const CALL_SCENES = {sky: ['clouds', 'stars'], aero: ['bubbles', 'aurora'], fresh: ['petals', 'fireflies']};
 
 const clock = seconds => { const s = Math.max(0, Math.floor(seconds)), pad = n => String(n).padStart(2, '0'); return s >= 3600 ? `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}` : `${pad(Math.floor(s / 60))}:${pad(s % 60)}`; };
 const ENDED = {answered: '通话结束', missed: '未接听', declined: '已拒绝', cancelled: '已取消'};
@@ -77,6 +82,13 @@ export function callScreen(ctx, host) {
       ? `<p class="cl me">${esc(l.text)}</p>`
       : `<p class="cl"><span>${esc(l.translation || l.text)}</span>${l.text && l.translation && l.text !== l.translation ? `<small>${esc(l.text)}</small>` : ''}</p>`).join('');
   }
+  // One layout per call (and per look), so answering does not reshuffle it.
+  let backdrop = {key: '', html: ''};
+  function background(id) {
+    const rootEl = ctx.doc.documentElement, [day, night] = CALL_SCENES[rootEl.dataset.skin] || CALL_SCENES.sky, scene = rootEl.dataset.theme === 'dark' ? night : day, key = id + '|' + scene;
+    if (backdrop.key !== key) backdrop = {key, html: motionLayer(scene, {random: true, className: 'call-motion'})};
+    return backdrop.html;
+  }
   function draw() {
     const c = call;
     if (!c) return;
@@ -87,7 +99,7 @@ export function callScreen(ctx, host) {
       drawnKey = key;
       layer.dataset.state = c.state;
       layer.dataset.engine = engine(c.name);
-      layer.innerHTML = `<div class="call-bg" aria-hidden="true"></div>
+      layer.innerHTML = `<div class="call-bg" aria-hidden="true">${background(c.id)}</div>
         <div class="call-top"><div class="call-av${c.state === 'ringing' ? ' ringing' : ''}">${avatar(c.name, engine(c.name), talking ? 64 : 104)}</div><h2>${esc(c.name)}</h2><p class="call-status" data-call-status></p><p class="call-note" data-call-note></p></div>
         <div class="call-lines" data-call-lines aria-live="polite"></div>
         <div class="call-error" data-call-error hidden></div>

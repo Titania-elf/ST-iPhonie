@@ -2,7 +2,8 @@
 // (generateRaw): the prompt carries the chat preset, each contact's persona or character card, the user's persona,
 // recent story messages and the chat history. Nothing is written into the story unless the user brings a chat
 // into it; that text is injected once, into the next story reply.
-import {buildChatRequest, parseChatReply, bringText, plainStory, activeChatPreset, chatContacts} from './core/chat.js';
+import {buildChatRequest, parseChatReply, bringText, plainStory, activeChatPreset, chatContacts, messageLine} from './core/chat.js';
+import {worldInfoFor} from './host-lore.js';
 
 export function createChatHost({context, settings, backend, notice, onCall = () => {}}) {
   const busy = new Map();
@@ -47,7 +48,11 @@ export function createChatHost({context, settings, backend, notice, onCall = () 
       // Voice switched off: nobody sends voice messages.
       if (s.general.voiceEnabled === false) for (const p of people) p.voice = false;
       backend.emit('chat', {threadId, typing: true});
-      const prompt = buildChatRequest({preset, thread, members: people, story: story(preset.context), user, userPersona: userPersona(), voiceFormat});
+      const recent = story(preset.context);
+      // 世界书: scanned over who is in the chat, the recent story and the chat itself, as the story's own request would be.
+      const lore = preset.lore === false ? '' : await worldInfoFor(context, {persona: userPersona(), characters: people.map(p => p.persona || p.card).join('\n'),
+        texts: [people.map(p => p.name).join('、'), ...recent.map(r => `${r.name}: ${r.text}`), ...thread.messages.slice(-preset.history).map(m => messageLine(m, user))]});
+      const prompt = buildChatRequest({preset, thread, members: people, story: recent, user, userPersona: userPersona(), voiceFormat, lore});
       const text = await backend.generateText(ctx, {prompt, trimNames: false});
       const items = parseChatReply(text, {members: people, user, voiceFormat, voiceNames: people.filter(p => p.voice).map(p => p.name)});
       if (!items.length) throw Error('这次没有收到消息，可以再试一次');

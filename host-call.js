@@ -3,7 +3,8 @@
 // own voice through the normal player. A missed call gets a short voice message. When the call ends it is kept in
 // the private chat with that contact. Nothing is written into the story.
 import {buildCallRequest, parseCallReply, CALL_LIMITS} from './core/call.js';
-import {chatContacts, activeChatPreset} from './core/chat.js';
+import {chatContacts, activeChatPreset, messageLine} from './core/chat.js';
+import {worldInfoFor} from './host-lore.js';
 import {storyLines} from './core/moments.js';
 import {modelRules} from './core/state.js';
 
@@ -120,9 +121,11 @@ export function createCallHost({context, settings, backend, notice, ringing = ()
     const ctx = context();
     const s = settings(), preset = activeChatPreset(s.chat), user = userName(), thread = (await backend.chats.list()).find(t => t.type === 'dm' && t.members[0] === c.name);
     const history = thread ? (await backend.chats.get(thread.id)).messages.filter(m => m.kind !== 'system' && m.kind !== 'call').slice(-CALL_LIMITS.history) : [];
-    const voiceFormat = backend.voiceFormat();
-    const prompt = buildCallRequest({preset, mode, contact: c.contact, lines: c.lines, history, story: storyLines(ctx.chat || [], preset.context, user), user, userPersona: userPersona(),
-      voiceFormat, voiceRules: c.voiced ? modelRules(s, [c.name]) : '', reason: c.reason});
+    const voiceFormat = backend.voiceFormat(), story = storyLines(ctx.chat || [], preset.context, user);
+    const lore = preset.lore === false ? '' : await worldInfoFor(context, {persona: userPersona(), characters: c.contact.persona || c.contact.card || '',
+      texts: [c.name, c.reason, ...story.map(r => `${r.name}: ${r.text}`), ...history.map(m => messageLine(m, user)), ...c.lines.map(l => `${l.from === 'me' ? user : c.name}: ${l.translation || l.text}`)]});
+    const prompt = buildCallRequest({preset, mode, contact: c.contact, lines: c.lines, history, story, user, userPersona: userPersona(),
+      voiceFormat, voiceRules: c.voiced ? modelRules(s, [c.name]) : '', reason: c.reason, lore});
     const text = await backend.generateText(ctx, {prompt, trimNames: false});
     return parseCallReply(text, {name: c.name, user, voiceFormat, voiced: c.voiced});
   }

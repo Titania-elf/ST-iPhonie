@@ -3,6 +3,7 @@
 // queue and only when they are free (NovelAI's free tier); others wait for the user to ask.
 import {buildMomentsRequest, parseMoments, storyLines, MOMENTS_LIMITS} from './core/moments.js';
 import {chatContacts, activeChatPreset} from './core/chat.js';
+import {worldInfoFor} from './host-lore.js';
 import {pictureInputs} from './core/draw.js';
 
 export function createMomentsHost({context, settings, backend, notice}) {
@@ -19,6 +20,9 @@ export function createMomentsHost({context, settings, backend, notice}) {
   /** Everyone who can post: story roles first, then manual contacts, at most MOMENTS_LIMITS.people. */
   const people = () => chatContacts(settings()).slice(0, MOMENTS_LIMITS.people).map(c => ({name: c.name, persona: c.persona, card: c.persona ? '' : card(c.name)}));
   const emit = extra => backend.emit('moments', {busy: !!busy, ...extra});
+  /** 世界书 for these people: scanned over their names, the recent story and the posts in question. */
+  const lore = (preset, crowd, story, texts) => preset.lore === false ? Promise.resolve('') : worldInfoFor(context, {persona: userPersona(), characters: crowd.map(p => p.persona || p.card).join('\n'),
+    texts: [crowd.map(p => p.name).join('、'), ...story.map(r => `${r.name}: ${r.text}`), ...texts]});
 
   /** One model request at a time; the phone shows it as busy. */
   function run(kind, task) {
@@ -45,7 +49,8 @@ export function createMomentsHost({context, settings, backend, notice}) {
     return run('refresh', async ctx => {
       const {s, preset, crowd, user, names} = base();
       const recent = (await backend.moments.list()).slice(0, 6);
-      const request = buildMomentsRequest({preset, mode: 'posts', people: crowd, story: storyLines(ctx.chat, preset.context, user), user, userPersona: userPersona(), recent, images: s.moments.images});
+      const story = storyLines(ctx.chat, preset.context, user);
+      const request = buildMomentsRequest({preset, mode: 'posts', people: crowd, story, user, userPersona: userPersona(), recent, images: s.moments.images, lore: await lore(preset, crowd, story, recent.map(p => `${p.author}: ${p.text}`))});
       const found = parseMoments(await ask(ctx, request), {names, user, mode: 'posts'});
       if (!found.posts.length) throw Error('这次没有收到新动态，可以再刷新一次');
       const posts = await backend.momentsMutate(() => backend.moments.add(found.posts.map(p => ({...p, source: auto ? 'auto' : 'manual', imageState: p.imageTags && s.moments.images ? 'waiting' : undefined}))));
@@ -59,7 +64,8 @@ export function createMomentsHost({context, settings, backend, notice}) {
       const {preset, crowd, user, names} = base();
       const post = await backend.moments.get(postId);
       if (!post) throw Error('这条动态已经不在了');
-      const request = buildMomentsRequest({preset, mode: 'react', people: crowd, story: storyLines(ctx.chat, preset.context, user), user, userPersona: userPersona(), post});
+      const story = storyLines(ctx.chat, preset.context, user);
+      const request = buildMomentsRequest({preset, mode: 'react', people: crowd, story, user, userPersona: userPersona(), post, lore: await lore(preset, crowd, story, [post.text])});
       const found = parseMoments(await ask(ctx, request), {names, user, mode: 'react'});
       return backend.momentsMutate(() => backend.moments.react(postId, found));
     });
@@ -70,7 +76,8 @@ export function createMomentsHost({context, settings, backend, notice}) {
       const {preset, crowd, user, names} = base();
       const post = await backend.moments.get(postId), comment = post?.comments.find(c => c.id === commentId);
       if (!post || !comment) throw Error('这条评论已经不在了');
-      const request = buildMomentsRequest({preset, mode: 'reply', people: crowd, story: storyLines(ctx.chat, preset.context, user), user, userPersona: userPersona(), post, comment});
+      const story = storyLines(ctx.chat, preset.context, user);
+      const request = buildMomentsRequest({preset, mode: 'reply', people: crowd, story, user, userPersona: userPersona(), post, comment, lore: await lore(preset, crowd, story, [post.text, comment.text])});
       const found = parseMoments(await ask(ctx, request), {names, user, mode: 'reply'});
       return backend.momentsMutate(() => backend.moments.react(postId, {comments: found.comments}));
     });

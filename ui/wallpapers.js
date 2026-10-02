@@ -76,11 +76,12 @@ function seeded(text) {
   let h = [...text].reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 2166136261);
   return () => ((h = (h * 1664525 + 1013904223) >>> 0) / 4294967296);
 }
-/** The moving layer for a scene ('' when the look has none). */
-export function motionLayer(scene) {
+/** The moving layer for a scene ('' when the look has none). random: a new layout every time (the call screen), not the
+ * scene's fixed one; className: the wrapper's class. */
+export function motionLayer(scene, {random = false, className = 'wall-motion'} = {}) {
   const s = SCENES[scene];
   if (!s) return '';
-  const rand = seeded(scene), pct = (a, b) => (a + rand() * (b - a)).toFixed(1) + '%', sec = (a, b) => (a + rand() * (b - a)).toFixed(1) + 's';
+  const rand = random ? Math.random : seeded(scene), pct = (a, b) => (a + rand() * (b - a)).toFixed(1) + '%', sec = (a, b) => (a + rand() * (b - a)).toFixed(1) + 's';
   const items = Array.from({length: s.count}, (_, i) => {
     // x, y: where it starts; s: size factor; d: one cycle; w: a second, slower rhythm (sway, blink); delay: negative,
     // so every element is already midway when the wallpaper appears instead of all starting together.
@@ -89,7 +90,7 @@ export function motionLayer(scene) {
     const style = `--x:${pct(2, 94)};--y:${y};--s:${(0.6 + rand() * 0.8).toFixed(2)};--d:${d};--w:${sec(3, 7)};--delay:-${(rand() * 30).toFixed(1)}s`;
     return `<i class="wm-${s.kind}" style="${style}"></i>`;
   }).join('');
-  return `<div class="wall-motion" data-scene="${scene}" aria-hidden="true">${s.extra || ''}${items}</div>`;
+  return `<div class="${className}" data-scene="${scene}" aria-hidden="true">${s.extra || ''}${items}</div>`;
 }
 
 // Phone skins (see skins.css). preview: [page, card, accent, second colour] for the picker in Settings.

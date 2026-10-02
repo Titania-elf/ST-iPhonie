@@ -7,7 +7,8 @@ import {parseDialogue} from './protocol.js';
 import {messageLine} from './chat.js';
 import {languageName} from './languages.js';
 
-export const CALL_LIMITS = Object.freeze({lines: 80, perTurn: 4, ring: [15, 60], history: 12});
+// perTurn: lines kept from one answer (each is read aloud one after another); a talkative contact may say a lot.
+export const CALL_LIMITS = Object.freeze({lines: 80, perTurn: 10, ring: [15, 60], history: 12});
 
 /** auto: characters call on their own every `every` story replies, at most `dailyMax` a day; ring: seconds before a missed call. */
 export function defaultCalls() {
@@ -39,7 +40,7 @@ export function callClock(seconds) {
  * picked up), 'reply' (the user said something), 'voicemail' (the user did not answer; the contact leaves a message).
  * contact: {name, persona, card, voice, language}; voiceRules: how this contact's lines are read (engine tags).
  */
-export function buildCallRequest({preset, mode, contact, lines = [], history = [], story = [], user = '我', userPersona = '', voiceFormat, voiceRules = '', reason = ''}) {
+export function buildCallRequest({preset, mode, contact, lines = [], history = [], story = [], user = '我', userPersona = '', voiceFormat, voiceRules = '', reason = '', lore = ''}) {
   const name = contact.name, voiced = !!contact.voice && !!voiceFormat;
   const spoken = languageName(contact.language || 'zh');
   const values = {'用户': user, '对象': name, '语音格式': voiceFormat || '', '可发语音': voiced ? `${name}（${spoken}）` : '（只说中文）'};
@@ -54,17 +55,18 @@ export function buildCallRequest({preset, mode, contact, lines = [], history = [
     incoming: `（电话接通了。${name}先开口，说明为什么打来。）`,
     outgoing: `（电话接通了。${name}先开口，像平时接${user}的电话那样。）`,
     reply: lines.at(-1)?.from === 'me' ? `（轮到${name}说话，接着${user}刚才的话往下说。）` : `（${user}没有接话，${name}接着往下说。）`,
-    voicemail: `（${name}对着语音信箱留言，一到三句。）`
+    voicemail: `（${name}对着语音信箱留言，长短按人设和打来的原因，一般不超过五六句。）`
   }[mode];
   const system = [
     rules.join('\n\n'),
     `【通话对象】\n- ${name}：${(contact.persona || contact.card || '').trim() || '（没有资料，按剧情里的表现来）'}`,
+    lore.trim() ? `【世界书】（这些人物和这个世界的设定：人设、口音、方言、说话方式都按这里来）\n${lore.trim()}` : '',
     userPersona.trim() ? `【${user}】\n${userPersona.trim()}` : '',
     story.length ? `【最近的剧情】（只作背景参考）\n${story.map(s => `${s.name}：${s.text}`).join('\n')}` : '',
     history.length ? `【${name}和${user}最近的手机聊天】\n${history.map(m => messageLine(m, user)).filter(Boolean).join('\n')}` : '',
     `【现在】\n${situation}`,
     ['【输出格式】',
-      `只写${name}接下来说的话，一到${CALL_LIMITS.perTurn - 1}句，每句单独一行${voiced ? `，整行写成：${voiceFormat}（标签里的角色写「${name}」）` : '，直接写说的话，不加名字和引号'}。`,
+      `只写${name}接下来说的话，每句单独一行；说多少按人设和情境，最多 ${CALL_LIMITS.perTurn - 1} 句${voiced ? `，整行写成：${voiceFormat}（标签里的角色写「${name}」）` : '，直接写说的话，不加名字和引号'}。`,
       voiced ? `${name}在电话里说${spoken}：标签里的原文（{文本}）是${name}真正说出口、会被念出来的话，必须用${spoken}写${spoken === '中文' ? '' : '，不要写成中文'}；引号里的{译文}是给${user}看的中文翻译。` : '',
       `不要写${user}的话，不要写动作、旁白、表情符号、时间或任何解释。`,
       mode === 'voicemail' ? '' : `${name}想挂电话时（话说完了、被叫走了、生气了），最后单独一行写「[挂断]」。通话不要太短也不要没完没了，自然就好。`,
