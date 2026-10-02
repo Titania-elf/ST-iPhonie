@@ -119,7 +119,9 @@ export class TTSBackend {
         // Keys only with a password: sealed here, never written as they are.
         let keys = null;
         if (want.includes('keys')) { const all = Object.fromEntries(this.keyStore.load()); if (!Object.keys(all).length) throw Error('这台浏览器里还没有保存密钥，备份里不用带'); keys = await sealKeys(all, password); }
-        const blob = await writeBackup({ version, settings, library, chats, moments, keys });
+        // Vibe groups live in the settings; they travel with the vibes too, so a backup of only the vibes keeps them.
+        const vibeGroups = want.includes('vibes') ? clone(this.settings.draw.vibe.groups) : null;
+        const blob = await writeBackup({ version, settings, library, chats, moments, keys, vibeGroups });
         const day = new Date(), pad = n => String(n).padStart(2, '0');
         return { blob, name: `ST-iPhonie 备份 ${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}` };
     }
@@ -152,6 +154,17 @@ export class TTSBackend {
         // settings that point at them.
         if (Object.keys(rows).length) Object.assign(done, await this.library.importRows(rows, { replace }));
         if (settings) { this.save(settings); done.settings = true; await this.loadReferences(); }
+        if (want.has('vibes') && backup.library.vibes) {
+            // The groups: replace takes the backup's; merge keeps the current ones and adds or overwrites by id.
+            const now = this.settings.draw.vibe, incoming = backup.vibeGroups || [];
+            const groups = replace ? incoming : [...now.groups.filter(g => !incoming.some(x => x?.id === g.id)), ...incoming];
+            this.saveDraw({ vibe: { groups } });
+            await this.loadVibes();
+            const use = this.settings.draw.vibe.use;
+            if (use.kind === 'vibe' && !this.vibes.has(use.id)) this.saveDraw({ vibe: { use: { kind: '', id: '' } } });
+            this.emit('draw', { vibes: true });
+            done.vibeGroups = this.settings.draw.vibe.groups.length;
+        }
         if (want.has('chats') && backup.chats) { done.chats = await this.chats.importThreads(backup.chats, { replace }); this.emit('chat', { threadId: '' }); }
         if (want.has('moments') && backup.moments) { done.moments = await this.moments.importPosts(backup.moments, { replace }); this.emit('moments', {}); }
         if (keys) { let count = 0; for (const [engine, key] of Object.entries(keys)) { try { this.setKey(engine, key); count++; } catch { /* an engine this version does not know */ } } done.keys = count; }

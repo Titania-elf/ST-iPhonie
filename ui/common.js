@@ -47,12 +47,15 @@ export function createView(ctx, name) {
     refresh() {},
     dispose() { disposed = true; controller.abort(); },
     get disposed() { return disposed; },
-    // Replaces the view content while keeping scroll position and open <details> groups.
+    // Replaces the view content while keeping scroll position, open <details> groups and the scroll of inner lists
+    // marked data-keep-scroll.
     draw(html) {
       const y = root.scrollTop;
       const opened = [...root.querySelectorAll('details[open]')].map(el => el.dataset.group);
+      const inner = new Map([...root.querySelectorAll('[data-keep-scroll]')].map(el => [el.dataset.keepScroll, el.scrollTop]));
       root.innerHTML = html;
       for (const el of root.querySelectorAll('details')) if (opened.includes(el.dataset.group)) el.open = true;
+      for (const el of root.querySelectorAll('[data-keep-scroll]')) if (inner.has(el.dataset.keepScroll)) el.scrollTop = inner.get(el.dataset.keepScroll);
       root.scrollTop = y;
     },
     on(type, selector, fn) {

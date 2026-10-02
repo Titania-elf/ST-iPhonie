@@ -5,12 +5,14 @@ import {downloadAction} from '../download.js';
 import {vibePanel} from './vibes.js';
 
 const SIZES = [['portrait', '竖图', 832, 1216], ['landscape', '横图', 1216, 832], ['square', '方图', 1024, 1024], ['tall', '大竖图', 1024, 1536]];
+/** Pictures kept in the column beside the canvas (this visit of the app; all of them are also in the album). */
+const MAX_RESULTS = 30;
 const TIERS = {0: '未订阅', 1: 'Tablet', 2: 'Scroll', 3: 'Opus'};
 const POSITION = i => i < 0 ? '自动' : 'ABCDE'[i % 5] + (Math.floor(i / 5) + 1);
 
 export function drawApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'draw'), urls = new Map();
-  let tab = 'prompt', prompt = '', negative = '', characters = [], seed = -1, results = [], current = -1, busy = false, subscription = null, styleDraft = null, epoch = 0;
+  let tab = 'prompt', prompt = '', negative = '', characters = [], seed = -1, results = [], current = -1, newest = false, busy = false, subscription = null, styleDraft = null, epoch = 0;
   const vibes = vibePanel({ctx, api, root: () => v.root, rerender: () => render()});
   let queue = api.drawQueue?.() || [], cloudError = api.cloudQueueError?.() || '', cloudNote = null;
   const jobState = j => j.state === 'running' ? '正在画' : j.state === 'busy' ? `账号正忙，稍后重试（第 ${j.attempt} 次）` : j.state === 'spacing' ? '马上开始'
@@ -104,7 +106,7 @@ export function drawApp(ctx) {
       + queueCard()
       + `<div class="draw-meta">${btn('pick-style', icon('layers') + esc(style().name) + icon('down'), 'chip-button')}${costChip(q)}</div>
         <div class="canvas-card"><div class="canvas-main${main ? '' : ' empty'}" style="aspect-ratio:${p.width}/${p.height}">${main ? `<button type="button" class="canvas-zoom" data-action="zoom" aria-label="放大查看"><img src="${esc(main)}" alt="生成的图片"></button>` : `<span>${p.width} × ${p.height}<br>还没有图</span>`}${busy ? '<span class="canvas-busy">NovelAI 正在画……</span>' : ''}</div>
-          ${results.length ? `<div class="canvas-side">${thumbs.map((url, i) => `<button class="thumb" data-action="thumb" data-index="${i}" aria-pressed="${i === current}" aria-label="第 ${i + 1} 张">${url ? `<img src="${esc(url)}" alt="">` : ''}</button>`).join('')}</div>` : ''}</div>
+          ${results.length ? `<div class="canvas-side" data-keep-scroll="results">${thumbs.map((url, i) => `<button class="thumb" data-action="thumb" data-index="${i}" aria-pressed="${i === current}" aria-label="第 ${i + 1} 张">${url ? `<img src="${esc(url)}" alt="">` : ''}</button>`).join('')}</div>` : ''}</div>
         ${shown ? `<p class="hint canvas-meta">${esc(shown.params.model)} · ${shown.params.width}×${shown.params.height} · ${shown.params.steps} 步 · 种子 ${shown.seed}</p>` : ''}
         <details data-group="style" class="style-card"><summary>${icon('paint')}画风 · ${esc(s.name)}<span class="save-state" data-style-state>${styleDraft ? '未保存' : ''}</span></summary><div>
           ${field('名字', input('name', s.name, 'text', 'data-style-field maxlength="40"'))}
@@ -116,6 +118,8 @@ export function drawApp(ctx) {
         <div class="segmented draw-tabs">${tabs.map(([k, l]) => `<button data-action="tab" data-tab="${k}" aria-pressed="${k === tab}">${l}</button>`).join('')}</div>
         ${body}
         <div class="savebar">${btn('generate', busy ? '正在画……' : q.free === false ? icon('alert') + '生成（会扣 Anlas）' : icon('paint') + '生成', 'primary', busy || !keyed ? 'disabled' : '')}</div>`);
+    // A new picture goes on top of the column: show it.
+    if (newest) { newest = false; const side = v.root.querySelector('.canvas-side'); if (side) side.scrollTop = 0; }
   }
 
   async function refreshSubscription(force = false) {
@@ -170,6 +174,7 @@ export function drawApp(ctx) {
     else api.saveDraw({[key]: el.checked});
     render();
   });
+  v.on('input', '[data-vibe-search]', el => vibes.search(el.value));
   v.on('change', '[data-vibe-file]', async el => { const files = [...el.files]; el.value = ''; await vibes.importFiles(files); });
   v.on('click', '[data-action]', async el => {
     if (el.dataset.action?.startsWith('vibe-') && await vibes.click(el)) return;
@@ -241,8 +246,9 @@ export function drawApp(ctx) {
         params: {...state().params, seed}, allowPaid, name: 'NovelAI', label: '绘图 App · ' + (prompt.trim().slice(0, 24) || s.name)
       });
       results.unshift(result);
-      results = results.slice(0, 6);
+      results = results.slice(0, MAX_RESULTS);
       current = 0;
+      newest = true;
       if (allowPaid) refreshSubscription(true);
     } catch (error) { if (!error.cancelled) ctx.notify(error.message); }
     busy = false;

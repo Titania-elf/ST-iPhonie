@@ -11,10 +11,11 @@ export const BACKUP_PARTS = Object.freeze({
   notes: '备忘录',
   photos: '相册',
   favorites: '收藏的语音',
+  vibes: 'Vibe 和 Vibe 组',
   keys: '密钥（用密码加密）'
 });
 /** Which library stores each part covers. */
-export const PART_STORES = Object.freeze({settings: ['references', 'phone'], notes: ['notes'], photos: ['photos'], favorites: ['favorites'], chats: [], moments: [], keys: []});
+export const PART_STORES = Object.freeze({settings: ['references', 'phone'], notes: ['notes'], photos: ['photos'], favorites: ['favorites'], vibes: ['vibes'], chats: [], moments: [], keys: []});
 /** Parts chosen by default: keys only when the user turns them on. */
 export const DEFAULT_BACKUP_PARTS = Object.freeze(Object.keys(BACKUP_PARTS).filter(part => part !== 'keys'));
 export const KEY_PASSWORD_MIN = 6;
@@ -70,15 +71,16 @@ async function rowJSON(row) {
 
 /**
  * Builds the backup file.
- * data: {version, settings?: object, library?: {store: rows[]}, chats?: threads[], moments?: posts[]}
+ * data: {version, settings?: object, library?: {store: rows[]}, chats?: threads[], moments?: posts[], vibeGroups?: groups[]}
  */
-export async function writeBackup({version = '', settings = null, library = {}, chats = null, moments = null, keys = null}) {
+export async function writeBackup({version = '', settings = null, library = {}, chats = null, moments = null, keys = null, vibeGroups = null}) {
   const pieces = [JSON.stringify({app: 'ST-iPhonie', kind: 'backup', format: BACKUP_FORMAT, version, createdAt: Date.now()}).slice(0, -1), ',"data":{'];
   const fields = [];
   if (settings) fields.push(['settings', JSON.stringify(settings)]);
   if (chats) fields.push(['chats', JSON.stringify(chats)]);
   if (moments) fields.push(['moments', JSON.stringify(moments)]);
   if (keys) fields.push(['keys', JSON.stringify(keys)]);
+  if (vibeGroups) fields.push(['vibeGroups', JSON.stringify(vibeGroups)]);
   for (const [store, rows] of Object.entries(library)) {
     const parts = ['['];
     for (let i = 0; i < rows.length; i++) parts.push(i ? ',' : '', await rowJSON(rows[i]));
@@ -99,7 +101,7 @@ export async function readBackup(file) {
   if (parsed?.app !== 'ST-iPhonie' || parsed.kind !== 'backup' || !parsed.data || typeof parsed.data !== 'object') throw fail('这不是 ST-iPhonie 的备份文件');
   if (parsed.format > BACKUP_FORMAT) throw fail('这个备份来自更新版本的插件，请先更新插件再恢复');
   const library = {};
-  for (const store of ['notes', 'photos', 'favorites', 'references', 'phone']) {
+  for (const store of ['notes', 'photos', 'favorites', 'vibes', 'references', 'phone']) {
     const rows = parsed.data[store];
     if (rows === undefined) continue;
     if (!Array.isArray(rows)) throw fail('备份内容损坏：' + store);
@@ -107,6 +109,7 @@ export async function readBackup(file) {
   }
   const settings = parsed.data.settings && typeof parsed.data.settings === 'object' ? parsed.data.settings : null;
   const chats = Array.isArray(parsed.data.chats) ? parsed.data.chats : null, moments = Array.isArray(parsed.data.moments) ? parsed.data.moments : null;
+  const vibeGroups = library.vibes && Array.isArray(parsed.data.vibeGroups) ? parsed.data.vibeGroups : null;
   const summary = {
     settings: settings ? {roles: settings.routes?.length || 0, presets: settings.presets?.length || 0} : null,
     chats: chats ? chats.length : null,
@@ -114,7 +117,8 @@ export async function readBackup(file) {
     notes: library.notes ? library.notes.length : null,
     photos: library.photos ? library.photos.length : null,
     favorites: library.favorites ? library.favorites.length : null,
+    vibes: library.vibes ? {vibes: library.vibes.length, groups: vibeGroups?.length || 0} : null,
     keys: parsed.data.keys?.data ? (Array.isArray(parsed.data.keys.engines) ? parsed.data.keys.engines.length : 0) : null
   };
-  return {version: String(parsed.version || ''), createdAt: Number(parsed.createdAt) || 0, settings, chats, moments, library, keys: parsed.data.keys?.data ? parsed.data.keys : null, summary};
+  return {version: String(parsed.version || ''), createdAt: Number(parsed.createdAt) || 0, settings, chats, moments, library, vibeGroups, keys: parsed.data.keys?.data ? parsed.data.keys : null, summary};
 }

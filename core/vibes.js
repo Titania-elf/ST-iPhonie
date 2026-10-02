@@ -84,12 +84,14 @@ export async function readVibeFile(name, text) {
     for (const [key, raw] of Object.entries(data.vibeData)) {
       try { const doc = await normalizeVibe(raw, uuidish(key) ? 'Vibe' : key); ids.set(key, doc.id); docs.set(doc.id, docs.has(doc.id) ? mergeVibe(docs.get(doc.id), doc) : doc); } catch { /* one bad entry does not stop the rest */ }
     }
-    // A single saved vibe in 智绘姬 is a preset: its name and strength go onto the vibe.
+    // A single saved vibe in 智绘姬 is a preset: its name (the one the user knows it by, over the file's own) and
+    // strength go onto the vibe. Two presets of one vibe: the first names it.
+    const named = new Set();
     for (const [key, preset] of Object.entries(data.vibePresets && typeof data.vibePresets === 'object' ? data.vibePresets : {})) {
       const doc = docs.get(ids.get(preset?.vibeDataId));
       if (!doc) continue;
       const presetName = String(preset.name || (uuidish(key) ? '' : key)).trim();
-      if (presetName && (doc.name === 'Vibe' || uuidish(doc.name))) doc.name = presetName.slice(0, 80);
+      if (presetName && !named.has(doc.id)) { doc.name = presetName.slice(0, 80); named.add(doc.id); }
       if (preset.strength !== undefined) doc.importInfo.strength = strength(preset.strength, doc.importInfo.strength);
     }
     const groups = Object.entries(data.groups && typeof data.groups === 'object' ? data.groups : {}).map(([groupName, group]) => ({

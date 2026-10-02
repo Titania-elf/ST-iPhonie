@@ -30,8 +30,8 @@ export function settingsApp(ctx) {
     const [library, threads, moments] = await Promise.all([api.libraryStats().catch(() => null), api.listThreads().catch(() => null), api.listMoments().catch(() => null)]);
     if (v.disposed || ticket !== epoch) return;
     const s = api.getState(), n = (value, unit) => value === null || value === undefined ? '读不到' : `${value} ${unit}`;
-    const counts = {settings: `${s.routes.length} 个角色 · ${s.presets.length} 个配音预设`, chats: n(threads?.length, '段'), moments: n(moments?.length, '条'), notes: n(library?.notes, '条'), photos: n(library?.photos, '张'), favorites: n(library?.favorites, '段'), keys: savedKeys() ? `这台浏览器里的 ${savedKeys()} 个密钥` : '这台浏览器里还没有密钥'};
-    v.draw(heading('备份', help('备份是一个 .json 文件，可以存在电脑、手机或网盘里。\n密钥默认不放进去；打开「密钥」后会用你设的密码加密，恢复时输入同一个密码才能取出来，没有密码的人拿到文件也看不到密钥。\n语音缓存不备份，需要时会重新生成。相册和收藏多的话，文件会比较大。'), 'Backup')
+    const counts = {settings: `${s.routes.length} 个角色 · ${s.presets.length} 个配音预设`, chats: n(threads?.length, '段'), moments: n(moments?.length, '条'), notes: n(library?.notes, '条'), photos: n(library?.photos, '张'), favorites: n(library?.favorites, '段'), vibes: library ? `${library.vibes} 个 · ${s.draw.vibe.groups.length} 组` : '读不到', keys: savedKeys() ? `这台浏览器里的 ${savedKeys()} 个密钥` : '这台浏览器里还没有密钥'};
+    v.draw(heading('备份', help('备份是一个 .json 文件，可以存在电脑、手机或网盘里。\n密钥默认不放进去；打开「密钥」后会用你设的密码加密，恢复时输入同一个密码才能取出来，没有密码的人拿到文件也看不到密钥。\n语音缓存不备份，需要时会重新生成。相册、收藏和 Vibe 多的话，文件会比较大。'), 'Backup')
       + `<div class="group">${Object.entries(api.backupParts()).map(([key, label]) => key === 'keys' && !savedKeys() ? `<div class="setting-row"><span class="row-text"><strong>${esc(label)}</strong><small>这台浏览器里还没有密钥</small></span></div>` : partRow(key, label, counts[key], backup.parts.has(key))).join('')}</div>`
       + (backup.parts.has('keys') ? keyPasswordFields() : '')
       + `<div class="actions">${btn('make-backup', icon('download') + '生成备份文件', 'primary', canBackup() ? '' : 'disabled')}</div>`);
@@ -47,7 +47,7 @@ export function settingsApp(ctx) {
   // Restore: what the chosen file holds, which parts to take, and whether to merge or replace.
   function renderRestore() {
     const {info, parts, replace} = restore, sum = info.summary, labels = api.backupParts();
-    const counts = {settings: sum.settings && `${sum.settings.roles} 个角色 · ${sum.settings.presets} 个配音预设`, chats: sum.chats !== null && `${sum.chats} 段`, moments: sum.moments != null && `${sum.moments} 条`, notes: sum.notes !== null && `${sum.notes} 条`, photos: sum.photos !== null && `${sum.photos} 张`, favorites: sum.favorites !== null && `${sum.favorites} 段`, keys: sum.keys != null && `${sum.keys} 个密钥（要输入备份时的密码）`};
+    const counts = {settings: sum.settings && `${sum.settings.roles} 个角色 · ${sum.settings.presets} 个配音预设`, chats: sum.chats !== null && `${sum.chats} 段`, moments: sum.moments != null && `${sum.moments} 条`, notes: sum.notes !== null && `${sum.notes} 条`, photos: sum.photos !== null && `${sum.photos} 张`, favorites: sum.favorites !== null && `${sum.favorites} 段`, vibes: sum.vibes != null && `${sum.vibes.vibes} 个 · ${sum.vibes.groups} 组`, keys: sum.keys != null && `${sum.keys} 个密钥（要输入备份时的密码）`};
     const when = info.createdAt ? new Date(info.createdAt).toLocaleString('zh-CN', {hour12: false}) : '未知';
     v.draw(heading('恢复', '', 'Restore')
       + `<div class="group pad"><p class="help-copy">备份时间：${esc(when)}${info.version ? ` · 插件 ${esc(info.version)}` : ''}</p></div>`
@@ -60,7 +60,7 @@ export function settingsApp(ctx) {
       + `<div class="actions">${btn('do-restore', icon('refresh') + '开始恢复', 'primary', parts.size ? '' : 'disabled')}</div>`);
   }
   const partRow = (key, label, detail, on) => `<div class="setting-row"><span class="row-text"><strong>${esc(label)}</strong><small>${esc(detail)}</small></span><input class="switch" type="checkbox" data-part="${key}" aria-label="${esc(label)}" ${on ? 'checked' : ''}></div>`;
-  const restored = done => [done.keys && `${done.keys} 个密钥`, done.settings && '设置和预设', done.chats && `${done.chats} 段聊天`, done.moments && `${done.moments} 条朋友圈`, done.notes && `${done.notes} 条备忘录`, done.photos && `${done.photos} 张照片`, done.favorites && `${done.favorites} 段收藏`].filter(Boolean).join('、');
+  const restored = done => [done.keys && `${done.keys} 个密钥`, done.settings && '设置和预设', done.chats && `${done.chats} 段聊天`, done.moments && `${done.moments} 条朋友圈`, done.notes && `${done.notes} 条备忘录`, done.photos && `${done.photos} 张照片`, done.favorites && `${done.favorites} 段收藏`, done.vibes && `${done.vibes} 个 Vibe`].filter(Boolean).join('、');
 
   /** 保存到酒馆: the switch, and when it is on, when it last synced and what the tavern holds. */
   function syncGroup() {
