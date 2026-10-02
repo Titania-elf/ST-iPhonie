@@ -9,15 +9,17 @@
  *         iconStyle:'color'|'glass'|'mono',skin:PHONE_SKINS[number],lockOnOpen:boolean,volume:number (0..1)}.
  * savePhone merges icon entries; null resets an individual icon. Theme stays in
  * the existing extension settings and is composed by the backend facade.
+ * Vibes: {id,name,size,createdAt,updatedAt,meta,blob}: the blob is the vibe in NovelAI's .naiv4vibe JSON (core/vibes.js),
+ *        meta its summary (name, thumbnail, strength, which models are encoded); listVibes omits blob.
  * getPhoto/getReference/getFavorite return null for missing IDs; deletes return
  * whether an owned row existed. Every write resolves only after transaction commit.
  */
-export const LIBRARY_LIMITS = Object.freeze({total:256*1024*1024,photo:12*1024*1024,reference:20*1024*1024});
+export const LIBRARY_LIMITS = Object.freeze({total:256*1024*1024,photo:12*1024*1024,reference:20*1024*1024,vibe:40*1024*1024});
 export const PHONE_APPS = Object.freeze(['roles','engines','presets','library','gallery','notes','listen','settings','draw','chat']);
 export const PHONE_WALLPAPERS = Object.freeze(['sky','silver','midnight','rose','sand','aero','fresh']);
 export const PHONE_SKINS = Object.freeze(['sky','aero','fresh']);
 export const PHONE_GLYPHS = Object.freeze(['default',...PHONE_APPS,'wave','book','music','camera','sliders','note','person','microphone','star','headphones']);
-const STORES = ['notes','photos','favorites','phone','references'];
+const STORES = ['notes','photos','favorites','phone','references','vibes'];
 const IMAGE_TYPES = new Set(['image/jpeg','image/png','image/webp','image/avif','image/gif']);
 const encoder = new TextEncoder();
 const defaults = () => ({wallpaper:{kind:'builtin',key:'sky'},icons:{},iconStyle:'color',skin:'sky',lockOnOpen:false,volume:1});
@@ -74,10 +76,11 @@ export class LocalLibrary {
   if(!this.#opening)this.#opening=new Promise((resolve,reject)=>{
    let req,settled=false;
    const rejectOnce=e=>{if(!settled){settled=true;reject(friendly(e));}};
-   try{req=this.#factory.open('st-tts-library-v1',1);}catch(e){rejectOnce(e);return;}
+   // Version 2 added the vibes store: an upgrade only creates the stores that are missing, the others keep their rows.
+   try{req=this.#factory.open('st-tts-library-v1',2);}catch(e){rejectOnce(e);return;}
    req.onupgradeneeded=()=>{
     const db=req.result;
-    for(const name of STORES){const store=db.createObjectStore(name,{keyPath:['scope','id']});store.createIndex('scope','scope');}
+    for(const name of STORES){if(db.objectStoreNames.contains(name))continue;const store=db.createObjectStore(name,{keyPath:['scope','id']});store.createIndex('scope','scope');}
    };
    req.onerror=()=>rejectOnce(req.error);
    req.onblocked=()=>rejectOnce(fail('另一个页面占用了本地资料，请关闭旧页面后重试','STORAGE_BLOCKED'));
@@ -192,6 +195,16 @@ export class LocalLibrary {
   return this.#saveMedia('references',{id,name,blob});
  }
  async deleteReference(id){return this.#remove('references',id);}
+ async listVibes(){return this.#list('vibes',true);}
+ async getVibe(id){return publicRow(await this.#read('vibes',identifier(id)));}
+ /** Saves a vibe (new or replacing the one with the same id): {id, name, meta, blob}. */
+ async saveVibe(input){
+  const v=fields(input,['id','name','meta','blob']),id=identifier(v.id),name=string(v.name,'Vibe 名字',80,true);
+  if(!v.meta||typeof v.meta!=='object')throw fail('Vibe 信息无效');
+  const blob=blobValue(v.blob,LIBRARY_LIMITS.vibe,'Vibe 文件','data'),time=this.#time();
+  return publicRow(await this.#mutate(({rows,put})=>{const old=rows.vibes.get(id);const row={id,name,meta:structuredClone(v.meta),size:blob.size,createdAt:old?.createdAt??time,updatedAt:time,blob};put('vibes',row);return row;}),true);
+ }
+ async deleteVibe(id){return this.#remove('vibes',id);}
  /** Every row of the given stores with its blob, for a backup. */
  async exportRows(names=STORES){const out={};for(const name of names){if(!STORES.includes(name))throw fail('未知的资料类型：'+name);out[name]=(await this.#read(name)).map(row=>publicRow(row));}return out;}
  /** Puts backup rows back with their ids and dates, checked like new ones, in one transaction (all or nothing).
@@ -219,7 +232,7 @@ export class LocalLibrary {
  }
  async stats(){
   const db=await this.#open();return new Promise((resolve,reject)=>{
-   let tx;const result={bytes:0,limit:LIBRARY_LIMITS.total,notes:0,photos:0,favorites:0,references:0};
+   let tx;const result={bytes:0,limit:LIBRARY_LIMITS.total,notes:0,photos:0,favorites:0,references:0,vibes:0};
    try{tx=db.transaction(STORES,'readonly');for(const name of STORES){const req=tx.objectStore(name).index('scope').getAll(this.#scope);req.onsuccess=()=>{if(name!=='phone')result[name]=req.result.length;result.bytes+=req.result.reduce((n,row)=>n+bytes(row),0);};}}
    catch(e){reject(friendly(e));return;}
    tx.oncomplete=()=>resolve(structuredClone(result));tx.onabort=()=>reject(friendly(tx.error));tx.onerror=()=>{};

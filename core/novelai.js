@@ -1,6 +1,8 @@
 // NovelAI image client used directly from the browser (image.novelai.net allows cross-origin requests).
 // The key stays in this browser; nothing here goes through the tavern server.
 
+import {vibeKey, vibeParameters} from './vibes.js';
+
 export const NAI_HOST = 'https://image.novelai.net';
 /**
  * A relay the user runs in front of NovelAI: the same paths (/ai/generate-image, /user/subscription) and whatever key it
@@ -83,7 +85,8 @@ export const gridCenter = index => ({x: +(.1 + (index % 5) * .2).toFixed(1), y: 
  * Builds the generate-image request body.
  * prompt/negative are final strings; characters: [{prompt, negative, position}] where position is a grid index or -1 (let the model place it).
  */
-export function buildImageRequest({prompt, negative = '', characters = [], params}) {
+/** vibes: [{encoding, strength}] already encoded for this model; ignored by models without vibes (V5, V3). */
+export function buildImageRequest({prompt, negative = '', characters = [], params, vibes = []}) {
   const p = normalizeDrawParams(params);
   const seed = p.seed >= 0 ? p.seed : Math.floor(Math.random() * 4294967295);
   const parameters = {
@@ -109,6 +112,7 @@ export function buildImageRequest({prompt, negative = '', characters = [], param
     prompt = [prompt, extra].filter(Boolean).join(', ');
     Object.assign(parameters, {sm: false, sm_dyn: false});
   }
+  if (vibes.length && vibeKey(p.model)) Object.assign(parameters, vibeParameters(vibes));
   return {body: {input: prompt, model: p.model, action: 'generate', parameters}, seed, params: p};
 }
 
@@ -191,6 +195,15 @@ export class NovelAIClient {
     catch (error) { if (error?.name === 'AbortError') throw error; return {ok: false, status: 0}; }
     await response.body?.cancel?.().catch(() => {});
     return {ok: [400, 422, 429].includes(response.status) || response.ok, status: response.status};
+  }
+  /** Encodes a picture (base64) into a vibe for a model: 2 Anlas. Returns the encoding as base64. */
+  async encodeVibe(image, model, informationExtracted, signal) {
+    const response = await this.call('/ai/encode-vibe', {method: 'POST', headers: this.headers(), body: JSON.stringify({image, information_extracted: informationExtracted, model}), signal});
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length < 100) throw Error('Vibe 编码结果不对（只有 ' + bytes.length + ' 字节），可能是' + (this.relay ? '中转' : 'NovelAI') + '返回了错误');
+    let text = '';
+    for (let i = 0; i < bytes.length; i += 8192) text += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    return btoa(text);
   }
   async subscription(signal) {
     const response = await this.call('/user/subscription', {headers: this.headers(), signal});

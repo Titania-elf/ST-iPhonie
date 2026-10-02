@@ -13,6 +13,7 @@
 // Two ways to get blocks (draw.mode): 'separate' asks the model in its own request after the reply is written and
 // inserts the blocks; 'inline' injects the rules into the story request so the reply carries the blocks itself.
 import {defaultDrawParams, normalizeDrawParams, guardParams, relayUrl} from './novelai.js';
+import {strength as vibeStrength} from './vibes.js';
 import {escapeHTML, isPlaceholderRole} from './protocol.js';
 
 const BLOCK = ['<img>', '画幅：竖 / 横 / 方', '场景：英文 tag', '角色：名字｜这一刻的 tag｜不要出现的 tag｜站位（画面里每个人一行）', '新外貌：名字｜固定外貌 tag（只在名单外的新角色第一次出现时写）', '</img>'];
@@ -179,9 +180,24 @@ const DEFAULT_STYLE = {id: 'default', name: '默认画风', artist: '', positive
 const PRESET_REV = 2;
 const DEFAULT_PRESET = {id: 'default', name: '默认出图规则', rev: PRESET_REV, count: 1, injection: {position: 'in_chat', depth: 1, role: 'system'}, entries: DEFAULT_DRAW_ENTRIES.map(e => ({...e, enabled: true}))};
 
+/**
+ * Vibe Transfer in the drawing app: on or off for every picture (whatever the 画风), what is in use (a group, or one
+ * vibe), and the groups: [{id, name, items: [{vibe, strength}]}]. The vibes themselves live in the local library.
+ */
+export const defaultVibe = () => ({enabled: false, use: {kind: '', id: ''}, groups: []});
+export function normalizeVibeSettings(value) {
+  const v = value && typeof value === 'object' ? value : {};
+  const groups = (Array.isArray(v.groups) ? v.groups : []).slice(0, 200).map(g => ({
+    id: /^[\w-]{1,64}$/.test(String(g?.id || '')) ? String(g.id) : crypto.randomUUID(), name: text(g?.name, 40).trim() || 'Vibe 组',
+    items: (Array.isArray(g?.items) ? g.items : []).filter(i => /^[0-9a-f]{64}$/.test(String(i?.vibe || ''))).filter((i, n, all) => all.findIndex(x => x.vibe === i.vibe) === n).slice(0, 50).map(i => ({vibe: i.vibe, strength: vibeStrength(i.strength)}))
+  }));
+  const kind = ['group', 'vibe'].includes(v.use?.kind) ? v.use.kind : '', id = typeof v.use?.id === 'string' ? v.use.id : '';
+  const use = kind === 'group' && groups.some(g => g.id === id) || kind === 'vibe' && /^[0-9a-f]{64}$/.test(id) ? {kind, id} : {kind: '', id: ''};
+  return {enabled: !!v.enabled, use, groups};
+}
 export function defaultDraw() {
   return {enabled: false, auto: true, guard: true, fold: false, mode: 'separate', strip: true,
-    queue: {gap: 3, retries: 4, cloud: {enabled: false, kind: 'room', url: '', room: ''}}, relay: {url: '', assumeOpus: false}, params: defaultDrawParams(),
+    queue: {gap: 3, retries: 4, cloud: {enabled: false, kind: 'room', url: '', room: ''}}, relay: {url: '', assumeOpus: false}, vibe: defaultVibe(), params: defaultDrawParams(),
     styles: [structuredClone(DEFAULT_STYLE)], activeStyle: 'default', presets: [structuredClone(DEFAULT_PRESET)], activePreset: 'default'};
 }
 
@@ -202,6 +218,7 @@ export function normalizeDraw(value) {
     cloud: {enabled: !!cloud.enabled, kind: cloud.kind === 'keyhash' ? 'keyhash' : 'room', url: text(cloud.url, 300).trim().replace(/\/+$/, ''), room: text(cloud.room, 80).trim()}};
   const relay = d.relay && typeof d.relay === 'object' ? d.relay : {};
   d.relay = {url: (() => { try { return relayUrl(relay.url, ''); } catch { return ''; } })(), assumeOpus: !!relay.assumeOpus};
+  d.vibe = normalizeVibeSettings(d.vibe);
   d.params = normalizeDrawParams(d.params);
   d.styles = (Array.isArray(d.styles) && d.styles.length ? d.styles : base.styles).map(s => ({id: String(s.id || crypto.randomUUID()), name: text(s.name, 60) || '画风', artist: text(s.artist, 4000), positive: text(s.positive, 4000), negative: text(s.negative, 4000)}));
   d.activeStyle = d.styles.some(s => s.id === d.activeStyle) ? d.activeStyle : d.styles[0].id;

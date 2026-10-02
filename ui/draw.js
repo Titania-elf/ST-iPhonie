@@ -2,6 +2,7 @@ import {createView, esc, btn, field, input, select, textArea, toggle, heading, h
 import {icon} from './icons.js';
 import {openImageViewer} from '../image-viewer.js';
 import {downloadAction} from '../download.js';
+import {vibePanel} from './vibes.js';
 
 const SIZES = [['portrait', '竖图', 832, 1216], ['landscape', '横图', 1216, 832], ['square', '方图', 1024, 1024], ['tall', '大竖图', 1024, 1536]];
 const TIERS = {0: '未订阅', 1: 'Tablet', 2: 'Scroll', 3: 'Opus'};
@@ -10,6 +11,7 @@ const POSITION = i => i < 0 ? '自动' : 'ABCDE'[i % 5] + (Math.floor(i / 5) + 1
 export function drawApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'draw'), urls = new Map();
   let tab = 'prompt', prompt = '', negative = '', characters = [], seed = -1, results = [], current = -1, busy = false, subscription = null, styleDraft = null, epoch = 0;
+  const vibes = vibePanel({ctx, api, root: () => v.root, rerender: () => render()});
   let queue = api.drawQueue?.() || [], cloudError = api.cloudQueueError?.() || '', cloudNote = null;
   const jobState = j => j.state === 'running' ? '正在画' : j.state === 'busy' ? `账号正忙，稍后重试（第 ${j.attempt} 次）` : j.state === 'spacing' ? '马上开始'
     : j.state === 'remote' ? (j.cloud?.position > 0 ? `云端排队，前面 ${j.cloud.position} 位` : j.cloud?.cooldown > 5000 ? `大家一起等 ${Math.ceil(j.cloud.cooldown / 1000)} 秒` : '云端马上轮到') : `第 ${j.position + 1} 位`;
@@ -50,7 +52,7 @@ export function drawApp(ctx) {
     const thumbs = await Promise.all(results.map(r => urlFor(r.photoId)));
     if (v.disposed || ticket !== epoch) return;
     const size = SIZES.find(([, , w, h]) => w === d.params.width && h === d.params.height)?.[0] || 'custom';
-    const tabs = [['prompt', '提示词'], ['chars', '角色'], ['params', '参数'], ['chat', '正文出图']];
+    const tabs = [['prompt', '提示词'], ['chars', '角色'], ['params', '参数'], ['vibe', 'Vibe'], ['chat', '正文出图']];
     let body = '';
     if (tab === 'prompt') body = `
       <div class="group pad">${field('这张图的提示词', textArea('prompt', prompt, 'rows="4" placeholder="英文 tag，逗号分隔，例如 2girls, rainy day, cafe window, sharing an umbrella"'), '实际发送：画师串 + 固定正面 + 这里的提示词。')}
@@ -88,6 +90,7 @@ export function drawApp(ctx) {
         <div class="actions" style="margin-top:0">${btn('test-cloud', icon('refresh') + '测试连接', 'secondary')}</div>
         ${cloudNote ? `<p class="hint${cloudNote.ok ? '' : ' error-copy'}" style="padding:0">${esc(cloudNote.text)}</p>` : ''}
       </div>`;
+    if (tab === 'vibe') body = vibes.html();
     if (tab === 'chat') body = `
       ${d.enabled ? '' : `<div class="banner">${icon('image')}<span>正文出图没有开启，在「设置 · 绘图」里打开。</span>${btn('go-settings', '去打开', 'chip-button')}</div>`}<div class="group">${toggle('auto', '新回复自动出图', d.auto, '只在免费档内自动画；超出免费档或读不到订阅时，正文里会显示“点击生成”。')}${toggle('fold', '正文图片默认收起', d.fold, '收起后正文里只留一个小缩略图，点开再看，手机上不占地方。每张图也可以单独收起或展开。')}</div>
       <div class="field"><span>配图方式${help('单独配图：正文模型只管写故事；回复写完后，插件用同一个模型再单独请求一次，读这条回复、挑画面、写出图块，再把图插到对应的段落后面。出图规则不会挤占正文，张数和格式更稳，每条回复多一次请求。\n\n正文里顺手写：把出图规则加进正文请求，模型写故事时顺手写出图块。只要一次请求，但规则较长，偶尔会影响正文或漏写。')}</span><div class="segmented" style="margin:0">${[['separate', '回复后单独配图'], ['inline', '正文里顺手写']].map(([k, l]) => `<button data-action="mode" data-mode="${k}" aria-pressed="${d.mode === k}">${l}</button>`).join('')}</div></div>
@@ -136,7 +139,7 @@ export function drawApp(ctx) {
   v.onDraw = event => {
     if (event.subscription) subscription = event.subscription;
     if (event.queue) { queue = event.queue; cloudError = event.cloud || ''; }
-    if (event.subscription || event.queue) render();
+    if (event.subscription || event.queue || event.vibes && tab === 'vibe') render();
   };
   const dispose = v.dispose;
   v.dispose = () => { epoch++; for (const url of urls.values()) ctx.win.URL.revokeObjectURL(url); urls.clear(); dispose(); };
@@ -162,11 +165,14 @@ export function drawApp(ctx) {
   v.on('change', 'input.switch[data-field]', el => {
     const key = el.dataset.field;
     if (key === 'variety') api.saveDraw({params: {variety: el.checked}});
+    else if (key === 'vibeEnabled') api.saveDraw({vibe: {enabled: el.checked}});
     else if (key === 'cloud') api.saveDraw({queue: {cloud: {...cloudFields(), enabled: el.checked}}});
     else api.saveDraw({[key]: el.checked});
     render();
   });
+  v.on('change', '[data-vibe-file]', async el => { const files = [...el.files]; el.value = ''; await vibes.importFiles(files); });
   v.on('click', '[data-action]', async el => {
+    if (el.dataset.action?.startsWith('vibe-') && await vibes.click(el)) return;
     const index = Number(el.dataset.index);
     switch (el.dataset.action) {
       case 'tab': tab = el.dataset.tab; render(); break;
@@ -221,7 +227,8 @@ export function drawApp(ctx) {
     const s = styleDraft || style(), q = quote();
     let allowPaid = false;
     if (q.free === false) {
-      if (!await ctx.confirm('这张图会扣 Anlas', `按当前参数和订阅，这次生成要消耗 Anlas${subscription ? `（现有 ${subscription.anlas}）` : ''}。实际扣多少以 NovelAI 结算为准。`)) return;
+      const vibeNote = q.vibeAnlas ? `其中 Vibe 约 ${q.vibeAnlas} Anlas（${[q.vibes.encode && `${q.vibes.encode} 个第一次用要编码`, q.vibes.extra && `超过 4 个多了 ${q.vibes.extra} 个`].filter(Boolean).join('，')}）。` : '';
+      if (!await ctx.confirm('这张图会扣 Anlas', `按当前参数和订阅，这次生成要消耗 Anlas${subscription ? `（现有 ${subscription.anlas}）` : ''}。${vibeNote}实际扣多少以 NovelAI 结算为准。`)) return;
       allowPaid = true;
     }
     busy = true;

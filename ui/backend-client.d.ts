@@ -106,8 +106,18 @@ export interface DrawSettings {
     params: DrawParams;
     styles: DrawStyle[]; activeStyle: string;
     presets: DrawPreset[]; activePreset: string;
+    /** A NovelAI relay ('' = NovelAI itself); assumeOpus counts small pictures as free when the relay gives no subscription. */
+    relay: { url: string; assumeOpus: boolean };
+    /** Vibe Transfer for every picture (V4/V4.5): what is in use and the groups; the vibes are in the local library. */
+    vibe: VibeSettings;
 }
-export interface DrawSettingsPatch { enabled?: boolean; auto?: boolean; guard?: boolean; fold?: boolean; queue?: Partial<DrawQueueSettings>; params?: Partial<DrawParams>; activeStyle?: string; activePreset?: string; }
+export interface VibeGroup { id: string; name: string; items: Array<{ vibe: string; strength: number }>; }
+export interface VibeSettings { enabled: boolean; use: { kind: '' | 'group' | 'vibe'; id: string }; groups: VibeGroup[]; }
+/** One saved vibe as the phone sees it: never the image or the encodings. keys: models it is encoded for (v4-5full …). */
+export interface VibeSummary { id: string; name: string; thumb: string; strength: number; ie: number; image: boolean; keys: string[]; }
+/** The vibes a picture would use: encode = how many need encoding first (2 Anlas each), over = left out by the free-tier guard. */
+export interface VibePlan { on: boolean; model: boolean; used: Array<{ id: string; name: string; strength: number; encode: boolean }>; skipped: Array<{ name: string; why: 'missing' | 'model' | 'no-encoding' }>; over: number; encode: number; extra: number; }
+export interface DrawSettingsPatch { enabled?: boolean; auto?: boolean; guard?: boolean; fold?: boolean; queue?: Partial<DrawQueueSettings>; params?: Partial<DrawParams>; activeStyle?: string; activePreset?: string; relay?: Partial<{ url: string; assumeOpus: boolean }>; vibe?: Partial<VibeSettings>; }
 /** gap: seconds between two NovelAI requests (0-60). retries: how often an "account busy" (429) is retried (0-10). */
 export interface DrawQueueSettings { gap: number; retries: number; cloud: CloudQueueSettings; }
 /** Shared queue service (cloud-queue/worker.js) that everyone using one NovelAI account joins with the same room code. */
@@ -120,7 +130,9 @@ export interface DrawJob { key: string; label: string; state: 'waiting' | 'spaci
     cloud: { position: number; holder: string; cooldown: number } | null; }
 /** unlimited: an active Opus subscription (free small images). usage: the V5 allowance, when NovelAI reports it. */
 export interface NovelAISubscription { tier: number; active: boolean; unlimited: boolean; usage: { percent: number; negative: boolean } | null; anlas: number; checkedAt: number; }
-export interface DrawQuote { params: DrawParams; clamped: boolean; /** null when the subscription is unknown. */ free: boolean | null; guard: boolean; v5: boolean; usage: NovelAISubscription['usage']; }
+export interface DrawQuote { params: DrawParams; clamped: boolean; /** null when the subscription is unknown. */ free: boolean | null; guard: boolean; v5: boolean; usage: NovelAISubscription['usage'];
+    /** The vibes this picture would use; vibeAnlas: what encoding them and vibes past four add (2 each). */
+    vibes: VibePlan; vibeAnlas: number; }
 export interface DrawCharacter { prompt: string; negative?: string; /** 0-24 on a 5x5 grid, -1 lets the model decide. */ position: number; }
 export interface DrawInput { prompt: string; negative?: string; characters?: DrawCharacter[]; params?: Partial<DrawParams>; allowPaid?: boolean; name?: string; /** Queue key; the same key joins the waiting job. */ key?: string; label?: string; }
 export interface DrawResult { photoId: string; seed: number; params: DrawParams; prompt: string; }
@@ -415,6 +427,16 @@ export interface BackendFacade {
     testCloudQueue(value?: Partial<CloudQueueSettings>): Promise<{ ok: true; length: number; holder: string; cooldown: number } | { ok: false; message: string }>;
     newRoomCode(): string;
     drawQuote(params?: Partial<DrawParams>): DrawQuote;
+    /** Saved vibes (summaries, newest first). */
+    listVibes(): VibeSummary[];
+    /** Imports .naiv4vibe, .naiv4vibebundle, 智绘姬 exports and pictures; groups in the files become groups. */
+    importVibes(files: ArrayLike<File>): Promise<{ added: number; updated: number; groups: number; errors: Array<{ name: string; message: string }> }>;
+    updateVibe(id: string, patch: { name?: string; strength?: number }): Promise<VibeSummary>;
+    /** Deletes a vibe and takes it out of every group. */
+    deleteVibe(id: string): Promise<void>;
+    /** {vibe} → .naiv4vibe, {group} → .naiv4vibebundle, {all} → everything in the 智绘姬 form. */
+    exportVibes(target: { vibe?: string; group?: string; all?: boolean }): Promise<{ name: string; blob: Blob }>;
+    vibePlan(model?: string): VibePlan;
     /** Generates one image and saves it to the album. Rejects paid requests unless allowPaid. */
     generateImage(input: DrawInput): Promise<DrawResult>;
     reference(file: Blob & { readonly name?: string }): Promise<string>;
@@ -591,6 +613,10 @@ export interface BackendAPI extends BackendFacade {
     callRetry(): Promise<void>;
     /** The tavern's own avatar pictures: the current persona's, and each character card's by name (URLs). */
     tavernAvatars(): { me: string; characters: Record<string, string> };
+    /** How many single vibes and groups 智绘姬 (st-chatu8) has in this tavern; 0 when it is not installed. */
+    chatu8Vibes(): number;
+    /** Imports every vibe and group 智绘姬 keeps (read only: nothing of 智绘姬's changes). */
+    importChatu8(): Promise<{ added: number; updated: number; groups: number; errors: Array<{ name: string; message: string }> }>;
     /** On a computer the phone is a floating window beside the story (false when it is full screen). */
     panelFloating(): boolean;
     /** Moves the floating phone by its top bar, in screen coordinates; 'reset' puts it back at the right edge. */
