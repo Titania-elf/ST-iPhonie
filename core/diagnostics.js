@@ -36,6 +36,8 @@ export function buildReport(f) {
     b.audio === false ? item('error', '不支持网页音频', '请换用或更新浏览器。') : item('ok', '可以播放音频'),
     b.indexedDB === false ? item('error', '本地存储不可用', '可能开了无痕模式或禁用了网站数据，收藏、相册和缓存都存不下来。') : item('ok', '本地存储可用'),
     ...(storage === null ? [] : [item(storage > 0.9 ? 'warn' : 'info', '本地存储用量', `${mb(b.storage.usage)} / ${mb(b.storage.quota)}${storage > 0.9 ? '，快满了，可以清理语音缓存' : ''}`)]),
+    ...(b.localStorage ? [item(b.localStorage.bytes > 4.5 * 1024 ** 2 ? 'warn' : 'info', 'localStorage 用量', `${Math.round(b.localStorage.bytes / 1024)} KB / 约 5 MB（酒馆和所有插件共用这一份）${b.localStorage.bytes > 4.5 * 1024 ** 2 ? '，快满了：别的插件或酒馆存了很多东西，满了以后它们可能存不了设置' : ''}`)] : []),
+    ...(b.keys === 'localStorage' ? [item('warn', '密钥存在 localStorage', '这个浏览器打不开数据库，密钥退回存在 localStorage；它满了的话密钥会存不上。')] : b.keys ? [item('ok', '密钥存在浏览器数据库', '不占 localStorage，别的插件把它占满也不影响')] : []),
     ...(b.agent ? [item('info', '浏览器', b.agent)] : [])
   ]);
 

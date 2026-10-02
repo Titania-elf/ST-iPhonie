@@ -9,7 +9,7 @@ import { normalizeSettings, validateSettings, modelRules, freshState } from './s
 import { normalizeRoute, switchRouteEngine, removeRoute } from './routes.js';
 import { DEFAULT_PROMPT, DEFAULT_FORMAT, promptPlan, validatePreset, parseDialogue, isPlaceholderRole, knownFormats } from './protocol.js';
 import { TTSParameters } from './parameters.js';
-import { LocalKeyStore, keyTail, validateKey, parseTextKeys, joinTextKeys } from './keys.js';
+import { KeyStore, keyTail, validateKey, parseTextKeys, joinTextKeys } from './keys.js';
 import { Providers, buildRequest } from './providers.js';
 import { AudioCache } from './cache.js';
 import { DialoguePlayer } from './player.js';
@@ -61,7 +61,7 @@ export class TTSBackend {
         providers.onSpend = engine => { const b = this.balances.get(engine); if (b) b.checkedAt = 0; this.emit('balance', { engine, stale: true }); };
         this.cache = cache || new AudioCache(this.settings.scope, notify, indexedDB);
         this.library = library || new LocalLibrary(this.settings.scope, { indexedDB });
-        this.keyStore = keyStore || new LocalKeyStore(this.settings.scope);
+        this.keyStore = keyStore || new KeyStore(this.settings.scope, { indexedDB, onError: message => this.notify(message) });
         this.novelai = novelai || new NovelAIClient();
         this.textKeys = new Map();
         // Saved vibes by id: their summaries (core/vibes.js vibeSummary); the files themselves stay in the library.
@@ -89,7 +89,7 @@ export class TTSBackend {
     }
     async initialize() {
         this.assertOpen();
-        try { for (const [engine, key] of this.keyStore.load()) { if (engine === 'nai') this.novelai.setKey(key); else if (engine === 'llm') this.textKeys = parseTextKeys(key); else this.providers.setKey(engine, key); } }
+        try { await this.keyStore.open?.(); for (const [engine, key] of this.keyStore.load()) { if (engine === 'nai') this.novelai.setKey(key); else if (engine === 'llm') this.textKeys = parseTextKeys(key); else this.providers.setKey(engine, key); } }
         catch (error) { this.notify(error.message); }
         try {
             const phone = await this.library.getPhone();
@@ -1032,7 +1032,7 @@ export class TTSBackend {
         clearTimeout(this.syncTimer);
         this.moments.close();
         this.drawQueue.cancelAll();
-        this.closing = Promise.all([this.player.close(), this.cache.close(), this.library.close()]);
+        this.closing = Promise.all([this.player.close(), this.cache.close(), this.library.close(), Promise.resolve(this.keyStore.flush?.()).then(() => this.keyStore.close?.())]);
         await this.closing;
     }
 }
