@@ -494,6 +494,20 @@ export class TTSBackend {
         this.emit('draw', { subscription: this.subscription });
         return clone(this.subscription);
     }
+    /**
+     * The relay (or NovelAI itself) checked from the phone: the drawing route by an empty request that draws nothing,
+     * and the subscription. {relay, draw: {ok, status}, subscription: {ok, tier} | {ok: false, status, message}}.
+     */
+    async naiProbe() {
+        this.assertOpen();
+        if (!this.novelai.configured) throw Error('还没有填写 NovelAI 密钥');
+        this.novelai.relay = this.settings.draw.relay.url;
+        const draw = await this.novelai.probe();
+        let subscription;
+        try { const s = await this.naiSubscription(true); subscription = { ok: true, tier: s.tier }; }
+        catch (error) { subscription = { ok: false, status: error.status || 0, message: error.message }; }
+        return { relay: !!this.settings.draw.relay.url, draw, subscription };
+    }
     /** Whether params cost Anlas. free: true (covered), false (costs Anlas), null (subscription unknown). */
     drawQuote(params) {
         const requested = normalizeDrawParams(params || this.settings.draw.params);
@@ -778,7 +792,7 @@ export class TTSBackend {
             voiceBalance: (engine, refresh) => this.voiceBalance(engine, refresh), keyStatus: engine => this.keyStatus(engine), keyHint: engine => this.keyHint(engine), keyPool: engine => this.keyPool(engine), keyList: engine => this.keyList(engine), addKeys: (engine, value) => this.addKeys(engine, value), removeKey: (engine, index) => this.removeKey(engine, index), setKey: (engine, key) => this.setKey(engine, key), clearKey: engine => this.clearKey(engine),
             saveDraw: patch => this.saveDraw(patch), saveStyle: style => this.saveStyle(style), deleteStyle: id => this.deleteStyle(id),
             saveDrawPreset: preset => this.saveDrawPreset(preset), deleteDrawPreset: id => this.deleteDrawPreset(id), previewDrawPrompt: preset => this.previewDrawPrompt(preset),
-            naiSubscription: refresh => this.naiSubscription(refresh), drawQuote: params => this.drawQuote(params),
+            naiSubscription: refresh => this.naiSubscription(refresh), naiProbe: () => this.naiProbe(), drawQuote: params => this.drawQuote(params),
             generateImage: input => this.generateImage(input).then(({ blob, ...result }) => result),
             drawQueue: () => this.drawQueue.list(), cancelDraw: key => this.drawQueue.cancel(key), cancelAllDraws: () => this.drawQueue.cancelAll(),
             cloudQueueError: () => this.drawQueue.remoteError, testCloudQueue: value => this.testCloudQueue(value), newRoomCode: () => newRoomCode(),

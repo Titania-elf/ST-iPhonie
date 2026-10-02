@@ -489,6 +489,8 @@ export interface BackendFacade {
     syncNow(): Promise<SyncStatus>;
     /** Model ids the custom text API lists (a free connection check); `draft` are options not saved yet. */
     textModels(draft?: TextPatch): Promise<string[]>;
+    /** Checks NovelAI or the relay: the drawing route (an empty request, nothing drawn, no Anlas) and the subscription. */
+    naiProbe(): Promise<{ relay: boolean; draw: { ok: boolean; status: number }; subscription: { ok: true; tier: number } | { ok: false; status: number; message: string } }>;
     saveMoments(patch: Partial<Pick<MomentsSettings, 'auto' | 'every' | 'dailyMax' | 'images' | 'replyToMe'>>): MomentsSettings;
     /** Newest first. */
     listMoments(): Promise<MomentPost[]>;

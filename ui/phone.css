@@ -375,6 +375,8 @@ details>div{padding-bottom:10px}
 .key-row.current{box-shadow:inset 0 0 0 1.5px var(--e,var(--accent))}
 .key-row small{font-size:12px;white-space:nowrap}
 .text-presets{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.probe-line{margin:0;padding:8px 0;font-size:14px;line-height:1.55}
+.probe-line+.probe-line{border-top:1px solid var(--line)}
 .key-state:before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
 .key-state.ok{color:var(--e-ink)}.key-state.no{color:var(--danger)}
 .key-actions{display:flex;gap:8px;flex-wrap:wrap}

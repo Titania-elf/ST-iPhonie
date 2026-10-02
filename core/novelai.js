@@ -12,7 +12,8 @@ export function relayUrl(value, pageProtocol = globalThis.location?.protocol) {
   let url; try { url = new URL(raw); } catch { throw Error('中转地址格式不对，要以 https:// 开头'); }
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw Error('中转地址格式不对：以 https:// 开头，不带 ? 和 #');
   if (url.protocol === 'http:' && pageProtocol === 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) throw Error('酒馆是用 HTTPS 打开的，浏览器不允许连 http:// 的中转，请给中转配上 HTTPS');
-  return (url.origin + url.pathname).replace(/\/+$/, '');
+  // A pasted full address (…/ai/generate-image, …/user/subscription) keeps only the part before the path the plugin adds.
+  return (url.origin + url.pathname).replace(/\/+$/, '').replace(/\/(ai\/generate-image(-stream)?|user\/subscription)$/i, '');
 }
 export const NAI_MODELS = ['nai-diffusion-5-full', 'nai-diffusion-5-curated', 'nai-diffusion-4-5-full', 'nai-diffusion-4-5-curated', 'nai-diffusion-4-full', 'nai-diffusion-4-curated-preview', 'nai-diffusion-3'];
 export const NAI_MODEL_NAMES = {
@@ -179,6 +180,17 @@ export class NovelAIClient {
     catch (error) { if (error?.name === 'AbortError') throw error; throw Error(relay ? '连不上中转：请确认地址正确、中转允许跨域（CORS）；酒馆用 HTTPS 打开时，中转也要用 HTTPS' : '连不上 NovelAI，请检查网络'); }
     if (!response.ok) throw failure(response.status, await response.text().catch(() => ''), !!relay);
     return response;
+  }
+  /**
+   * Checks the drawing route without drawing: an empty request that reaches NovelAI is refused as invalid (400/422),
+   * which costs nothing. {ok, status}: status 0 when the address cannot be reached at all.
+   */
+  async probe(signal) {
+    let response;
+    try { response = await this.fetch((this.relay || NAI_HOST) + '/ai/generate-image', {method: 'POST', headers: this.headers(), body: '{}', signal}); }
+    catch (error) { if (error?.name === 'AbortError') throw error; return {ok: false, status: 0}; }
+    await response.body?.cancel?.().catch(() => {});
+    return {ok: [400, 422, 429].includes(response.status) || response.ok, status: response.status};
   }
   async subscription(signal) {
     const response = await this.call('/user/subscription', {headers: this.headers(), signal});

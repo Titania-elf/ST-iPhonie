@@ -5,7 +5,7 @@ import {icon, spark} from './icons.js';
 
 export function enginesApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'engines'), drafts = new Map();
-  let engine = null, dirty = false, subscription = null, subscriptionError = '', textDraft = null, models = [];
+  let engine = null, dirty = false, subscription = null, subscriptionError = '', subscriptionStatus = 0, textDraft = null, models = [];
   // The wallet is a stack: the last card is the one in front. A tap on another card draws it to the front; a tap on
   // the front card opens it.
   let order = ['llm', ...Object.keys(engines), 'nai'];
@@ -64,10 +64,24 @@ export function enginesApp(ctx) {
       <span class="card-bottom">${fields.map(([k, value]) => `<span><span class="k">${k}</span><span class="v">${esc(value)}</span></span>`).join('')}<span class="card-brand">ST-iPhonie</span></span></${tag}>`;
   }
 
+  const relayNoSubscription = () => !subscription && subscriptionStatus === 404 && !!api.getState().draw.relay.url;
+  /** What the relay check found, one line each for drawing and the subscription. */
+  function probeReport(r) {
+    const d = r.draw, s = r.subscription, where = r.relay ? '中转' : 'NovelAI';
+    const draw = d.ok ? `✓ 出图接口通了${d.status === 429 ? '，不过账号现在正忙（429）' : ''}（只发了一个空请求试探，没有出图，不扣 Anlas）`
+      : d.status === 0 ? `✗ 连不上${where}：地址不对，或${r.relay ? '中转没有允许跨域（CORS）；酒馆用 HTTPS 打开时中转也要用 HTTPS' : '网络不通'}`
+      : [401, 403].includes(d.status) ? `✗ ${where}拒绝了密钥（${d.status}）：请填写${r.relay ? '中转要求的' : '正确的'}密钥`
+      : d.status === 404 ? `✗ 出图接口 404：插件请求的是「${esc(api.getState().draw.relay.url || 'https://image.novelai.net')}/ai/generate-image」，${where}不认这个路径。中转地址只填到这个路径前面为止。`
+      : `? 出图接口返回 ${d.status}，说不准能不能出图，可以直接试着画一张`;
+    const sub = s.ok ? `✓ 读到订阅：${TIERS[s.tier] || '未知档位'}`
+      : r.relay && s.status === 404 ? `— 这个中转不转发查订阅，不影响出图。${api.getState().draw.relay.assumeOpus ? '已经按 Opus 算。' : '想自动出图，打开「读不到订阅时按 Opus 算」。'}`
+      : `✗ 查订阅失败：${esc(s.message)}`;
+    return `<div class="group pad"><p class="probe-line">${draw}</p><p class="probe-line">${sub}</p></div>`;
+  }
   async function loadSubscription(refresh) {
-    subscriptionError = '';
+    subscriptionError = ''; subscriptionStatus = 0;
     try { subscription = await api.naiSubscription(refresh); }
-    catch (error) { subscription = null; subscriptionError = error.message; }
+    catch (error) { subscription = null; subscriptionError = error.message; subscriptionStatus = error.status || 0; }
     if (!v.disposed) render();
   }
 
@@ -90,11 +104,11 @@ export function enginesApp(ctx) {
         </div>`
       + groupTitle('订阅', btn('refresh-subscription', icon('refresh') + '刷新', 'chip-button', saved ? '' : 'disabled'))
       + `<div class="group">
-          <div class="setting-row"><span>档位</span><small>${subscription ? TIERS[subscription.tier] || '未知' : saved ? (subscriptionError ? '读取失败' : '读取中') : '—'}</small></div>
+          <div class="setting-row"><span>档位</span><small>${subscription ? TIERS[subscription.tier] || '未知' : saved ? (relayNoSubscription() ? '中转不提供' : subscriptionError ? '读取失败' : '读取中') : '—'}</small></div>
           <div class="setting-row"><span>Anlas 余额</span><strong>${subscription ? subscription.anlas : '—'}</strong></div>
           <div class="setting-row"><span>免费小图</span><small>${subscription ? (subscription.unlimited ? 'V4.5 及更早：无限（28 步、1024×1024 以内）' : subscription.active ? '仅 Opus 可用：每张图都会扣 Anlas' : '订阅未生效：每张图都会扣 Anlas') : '—'}</small></div>
           ${subscription?.unlimited ? `<div class="setting-row"><span>V5 免费额度</span><small>${subscription.usage ? (subscription.usage.negative || subscription.usage.percent < 2 ? `${subscription.usage.percent}% · 已用完，会扣 Anlas` : `还剩 ${subscription.usage.percent}%，会慢慢恢复`) : '未读到'}</small></div>` : ''}
-        </div>${subscriptionError ? `<p class="error-copy hint">${esc(subscriptionError)}</p>` : ''}`
+        </div>${relayNoSubscription() ? `<p class="hint">这个中转不转发查订阅（插件请求的是「中转地址/user/subscription」），出图不受影响。${d.relay.assumeOpus ? '已经按 Opus 算，小图会自动出。' : '想让新回复自动出图，打开上面的「读不到订阅时按 Opus 算」。'}点「测试连接」可以单独检查出图接口。</p>` : subscriptionError ? `<p class="error-copy hint">${esc(subscriptionError)}</p>` : ''}`
       + `<div class="group">${toggle('guard', '免费档守卫', d.guard, '开启时绘图参数不会超出免费档，不会发出扣 Anlas 的请求。')}</div>
         <div class="actions">${btn('open-draw', icon('paint') + '打开绘图', 'primary')}</div>`);
   }
@@ -329,7 +343,11 @@ export function enginesApp(ctx) {
         if (api.keyStatus('nai')) loadSubscription(true);
         break;
       }
-      case 'test-relay': await v.busy(el, async () => { await loadSubscription(true); ctx.notify(subscription ? '中转连通，读到订阅：' + (TIERS[subscription.tier] || '未知档位') : subscriptionError || '没有读到订阅'); }); break;
+      case 'test-relay': await v.busy(el, async () => {
+        const result = await api.naiProbe();
+        await loadSubscription(false);
+        ctx.dialog('测试连接', probeReport(result));
+      }); break;
       case 'refresh-balance': await v.busy(el, () => loadBalance(engine, true)); break;
       case 'open-draw': ctx.open('draw'); break;
       case 'add-key': {
