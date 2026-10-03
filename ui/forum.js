@@ -1,0 +1,128 @@
+// 论坛: a public board next to 朋友圈. The feed (热搜 on top, then posts), a post with its replies as floors, and the
+// user's own posts and replies. New posts, replies and the 热搜 are generated in the tavern page (host-apps.js).
+import {createView, esc, btn, field, input, textArea, heading, avatar, empty} from './common.js';
+import {icon} from './icons.js';
+
+function ago(at) {
+  const s = (Date.now() - at) / 1000;
+  if (s < 60) return '刚刚';
+  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`;
+  if (s < 86400) return `${Math.floor(s / 3600)} 小时前`;
+  const d = new Date(at);
+  return `${d.getMonth() + 1}月${d.getDate()}日`;
+}
+const count = n => n >= 10000 ? (n / 10000).toFixed(1).replace(/\.0$/, '') + '万' : String(n);
+
+export function forumApp(ctx) {
+  const {api} = ctx, v = createView(ctx, 'forum');
+  let open = '', epoch = 0, posts = [];
+  const myName = () => api.getState().chat.profile?.name || api.userName?.() || '我';
+  const nameOf = who => who === 'me' ? myName() : who;
+  const characters = () => new Set((api.chatContacts?.() || []).map(c => c.name));
+  const face = (who, size) => who === 'me' ? avatar(myName(), 'none', size, 'me') : avatar(who, ctx.engineOf(who), size);
+  const badge = (who, roles) => who === 'me' ? '<span class="forum-tag me">我</span>' : roles.has(who) ? '<span class="forum-tag">角色</span>' : '';
+  const busy = () => api.forumBusy?.();
+
+  function card(p, roles) {
+    return `<button type="button" class="forum-card" data-action="open-post" data-id="${esc(p.id)}">
+      <span class="forum-author">${face(p.author, 28)}<b>${esc(nameOf(p.author))}</b>${badge(p.author, roles)}<time>${ago(p.at)}</time></span>
+      ${p.title ? `<strong class="forum-title">${esc(p.title)}</strong>` : ''}<span class="forum-excerpt">${esc(p.text)}</span>
+      <span class="forum-meta"><span>${icon('eye')}${count(p.heat)}</span><span>${icon('bubble')}${p.replies.length}</span><span${p.liked ? ' class="on"' : ''}>${icon('heart', p.liked)}${count(p.likes)}</span></span></button>`;
+  }
+  async function renderList(ticket) {
+    const [all, hot] = await Promise.all([api.listForum(), api.forumHot()]);
+    if (v.disposed || ticket !== epoch) return;
+    posts = all;
+    const roles = characters();
+    const tools = btn('forum-refresh', icon('refresh'), 'round-button', `aria-label="刷新：看看论坛上的新帖子" ${busy() ? 'disabled' : ''}`) + btn('forum-new', icon('add'), 'round-button', 'aria-label="发帖"') + btn('forum-options', icon('more'), 'round-button', 'aria-label="论坛设置"');
+    v.draw(heading('论坛', tools, `Forum · ${posts.length}`)
+      + (hot.length ? `<div class="forum-hot"><strong>${icon('star')}热搜</strong><ol>${hot.map((t, i) => `<li><span class="rank${i < 3 ? ' top' : ''}">${i + 1}</span>${esc(t)}</li>`).join('')}</ol></div>` : '')
+      + (busy() ? '<p class="moments-busy" role="status">论坛正在刷新……</p>' : '')
+      + (posts.length ? `<div class="forum-feed">${posts.map(p => card(p, roles)).join('')}</div>`
+        : empty('论坛还没有帖子', '点右上角的刷新，角色和路人网友就会发帖、上热搜；也可以自己先发一个。每次刷新会调用一次模型。', 'bubble')));
+  }
+  async function renderPost(ticket) {
+    const p = await api.getForumPost(open);
+    if (v.disposed || ticket !== epoch) return;
+    if (!p) { open = ''; return renderList(ticket); }
+    const roles = characters();
+    v.draw(heading('帖子', '', 'Forum')
+      + `<article class="forum-post"><div class="forum-author">${face(p.author, 36)}<b>${esc(nameOf(p.author))}</b>${badge(p.author, roles)}<time>${ago(p.at)}</time></div>
+        ${p.title ? `<h3 class="forum-title">${esc(p.title)}</h3>` : ''}<p class="forum-text">${esc(p.text)}</p>
+        <div class="forum-meta"><span>${icon('eye')}${count(p.heat)} 热度</span>${btn('forum-like', icon('heart', p.liked) + count(p.likes), 'text-button' + (p.liked ? ' on' : ''), `aria-pressed="${p.liked}" aria-label="${p.liked ? '取消点赞' : '点赞'}"`)}${btn('forum-reply', icon('bubble') + '回复', 'text-button', `data-to=""`)}${btn('forum-delete', icon('trash'), 'text-button', 'aria-label="删除帖子"')}</div></article>`
+      + (busy() ? '<p class="moments-busy" role="status">大家正在回复……</p>' : '')
+      + `<div class="forum-floors">${p.replies.map((r, i) => `<button type="button" class="forum-floor" data-action="${r.from === 'me' ? 'forum-my-reply' : 'forum-reply'}" data-to="${esc(r.from)}" data-reply="${esc(r.id)}">
+          ${face(r.from, 30)}<span class="floor-body"><span class="floor-head"><b>${esc(nameOf(r.from))}</b>${badge(r.from, roles)}${r.from === p.author ? '<span class="forum-tag op">楼主</span>' : ''}<span class="floor-no">${i + 1}楼</span></span>
+          <span class="floor-text">${r.to ? `回复 <b>${esc(nameOf(r.to))}</b>：` : ''}${esc(r.text)}</span></span></button>`).join('') || '<p class="hint">还没有回复。</p>'}</div>`);
+  }
+  async function render() {
+    const ticket = ++epoch;
+    return open ? renderPost(ticket) : renderList(ticket);
+  }
+
+  /** Runs a model request in the background; the app shows it as busy and redraws when it ends. */
+  function background(job, done) {
+    render();
+    job.then(result => { if (done) ctx.notify(done(result)); }).catch(error => ctx.notify(error.message, {error: true})).finally(() => render());
+  }
+  function sheet(title, html, action, run) {
+    const d = ctx.dialog(title, html);
+    d.body.addEventListener('click', e => {
+      if (!e.target.closest(`[data-action="${action}"]`)) return;
+      e.preventDefault();
+      Promise.resolve().then(() => run(d)).catch(error => ctx.notify(error.message, {error: true}));
+    });
+    d.body.querySelector('input,textarea')?.focus();
+    return d;
+  }
+  function newPost() {
+    sheet('发帖', `${field('标题', input('title', '', 'text', 'maxlength="60" placeholder="一句话说清楚想聊什么"'))}${field('正文', textArea('text', '', 'rows="5" maxlength="2000" placeholder="写点什么…"'))}
+      <div class="actions">${btn('send-post', icon('send') + '发布', 'primary')}</div>`, 'send-post', async d => {
+      const title = d.body.querySelector('[data-field=title]').value.trim(), text = d.body.querySelector('[data-field=text]').value.trim();
+      if (!text) throw Error('正文写点什么再发');
+      const post = await api.postForum({title, text});
+      d.close(); open = post.id;
+      if (api.forumReact) background(api.forumReact(post.id), () => '有人回复了你的帖子'); else render();
+    });
+  }
+  function replyTo(to = '') {
+    const named = to && to !== 'me';
+    sheet(named ? `回复 ${to}` : '回复', `${field('回复', textArea('text', '', `rows="3" maxlength="500" placeholder="${named ? '回复 ' + esc(to) : '说点什么…'}"`))}<div class="actions">${btn('send-reply', icon('send') + '发送', 'primary')}</div>`, 'send-reply', async d => {
+      const text = d.body.querySelector('[data-field=text]').value.trim();
+      if (!text) throw Error('写点什么再发送');
+      const {reply} = await api.replyForum(open, {text, ...(named ? {to} : {})});
+      d.close();
+      if (api.forumReply) background(api.forumReply(open, reply.id)); else render();
+    });
+  }
+  function options() {
+    const d = ctx.dialog('论坛设置', `<p class="help-copy">帖子和热搜怎么写，在预设 App 的聊天预设里：勾了「论坛」的规则就用在这里（默认是「论坛口吻」）。</p>
+      <div class="actions">${btn('edit-prompt', icon('edit') + '编辑聊天预设', 'secondary')}</div><div class="actions">${btn('clear-forum', icon('trash') + '清空论坛', 'danger')}</div>`);
+    d.body.addEventListener('click', async e => {
+      const b = e.target.closest('[data-action]');
+      if (b?.dataset.action === 'edit-prompt') { d.close(); ctx.open('presets'); ctx.showPresetKind?.('chat'); }
+      if (b?.dataset.action === 'clear-forum') {
+        if (!await ctx.confirm('清空论坛？', '所有帖子、回复和热搜都会删除。')) return;
+        d.close(); await api.clearForum(); open = ''; await render(); ctx.notify('论坛已清空');
+      }
+    });
+  }
+
+  v.back = () => { if (!open) return false; open = ''; render(); return true; };
+  v.refresh = () => render();
+  v.on('click', '[data-action]', async el => {
+    const post = posts.find(p => p.id === open);
+    switch (el.dataset.action) {
+      case 'forum-refresh': background(api.forumRefresh(), made => `刷出了 ${made.length} 个新帖子`); break;
+      case 'forum-new': newPost(); break;
+      case 'forum-options': options(); break;
+      case 'open-post': open = el.dataset.id; await render(); v.root.scrollTop = 0; break;
+      case 'forum-like': { const p = post || await api.getForumPost(open); if (p) { await api.likeForum(open, !p.liked); await render(); } break; }
+      case 'forum-reply': replyTo(el.dataset.to || ''); break;
+      case 'forum-my-reply': if (await ctx.confirm('删除这条回复？')) { await api.deleteForumReply(open, el.dataset.reply); await render(); } break;
+      case 'forum-delete': if (await ctx.confirm('删除这个帖子？', '帖子和下面的回复会一起删除。')) { await api.deleteForum(open); open = ''; await render(); } break;
+    }
+  });
+  render().catch(error => ctx.notify(error.message));
+  return v;
+}

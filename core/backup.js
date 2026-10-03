@@ -39,7 +39,9 @@ const isBlob = value => value && typeof value.arrayBuffer === 'function' && type
 const KDF_ROUNDS = 310000;
 const b64 = bytes => { let text = ''; for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(text); };
 const unb64 = text => Uint8Array.from(atob(String(text)), c => c.charCodeAt(0));
+const NEEDS_SECURE = '带密钥的加密备份要用 localhost 或 HTTPS 地址打开酒馆（局域网 http 地址下浏览器不提供加密功能）；备份里的其他内容不受影响';
 async function passwordKey(password, salt, rounds) {
+  if (!globalThis.crypto?.subtle) throw fail(NEEDS_SECURE);
   const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(password)), 'PBKDF2', false, ['deriveKey']);
   return crypto.subtle.deriveKey({name: 'PBKDF2', hash: 'SHA-256', salt, iterations: rounds}, base, {name: 'AES-GCM', length: 256}, false, ['encrypt', 'decrypt']);
 }
@@ -60,7 +62,7 @@ export async function openKeys(sealed, password) {
     const plain = await crypto.subtle.decrypt({name: 'AES-GCM', iv: unb64(sealed.iv)}, key, unb64(sealed.data));
     const keys = JSON.parse(new TextDecoder().decode(plain));
     return keys && typeof keys === 'object' ? keys : {};
-  } catch { throw fail('密码不对，密钥没有恢复（其他内容不受影响）'); }
+  } catch { if (!globalThis.crypto?.subtle) throw fail(NEEDS_SECURE); throw fail('密码不对，密钥没有恢复（其他内容不受影响）'); }
 }
 
 /** A row as JSON text, its blob (if any) written as {"$blob":{type,data}}. */

@@ -32,7 +32,7 @@ export function buildReport(f) {
   const b = f.browser || {};
   const storage = b.storage?.quota ? b.storage.usage / b.storage.quota : null;
   add('浏览器', [
-    b.secure === false ? item('error', '不是 localhost 或 HTTPS 地址', '语音缓存、设置和密钥都用不了，请用 localhost 或 HTTPS 打开酒馆。') : item('ok', '安全地址'),
+    b.secure === false ? item('info', '用局域网 / http 地址打开', '大部分功能照常；只有「备份带上密钥」（要加密）用不了，复制按钮在个别浏览器里可能不灵。想全都能用，用 localhost 或 HTTPS 打开酒馆。') : item('ok', '安全地址'),
     b.audio === false ? item('error', '不支持网页音频', '请换用或更新浏览器。') : item('ok', '可以播放音频'),
     b.indexedDB === false ? item('error', '本地存储不可用', '可能开了无痕模式或禁用了网站数据，收藏、相册和缓存都存不下来。') : item('ok', '本地存储可用'),
     ...(storage === null ? [] : [item(storage > 0.9 ? 'warn' : 'info', '本地存储用量', `${mb(b.storage.usage)} / ${mb(b.storage.quota)}${storage > 0.9 ? '，快满了，可以清理语音缓存' : ''}`)]),

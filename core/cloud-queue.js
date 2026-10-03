@@ -2,6 +2,7 @@
 // Everyone who shares one NovelAI account uses the same service address and room code; before each NovelAI request
 // the plugin takes a turn in the room and gives it back afterwards. Only the room code, a random ticket and a short
 // label ("正文图片") are sent — never the NovelAI key, prompts or pictures.
+import {sha256Hex as hashHex} from './hash.js';
 
 const POLL_MS = 2000, RENEW_MS = 20000;
 const stop = () => Object.assign(Error('已取消'), {cancelled: true});
@@ -77,10 +78,7 @@ export class CloudQueue {
 // Such a service needs no room code: everyone whose key has the same SHA-256 lands in the same line.
 // Sent: that hash, a random id for this browser and a random id per picture. The key itself never leaves.
 
-export async function sha256Hex(text) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(text)));
-  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
-}
+export async function sha256Hex(text) { return hashHex(String(text)); }
 function browserId() {
   try {
     let id = globalThis.localStorage?.getItem('sttts.queue.uid');

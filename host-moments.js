@@ -2,7 +2,7 @@
 // model (generateRaw), like phone chat replies; nothing is written into the story. Pictures go through the drawing
 // queue and only when they are free (NovelAI's free tier); others wait for the user to ask.
 import {buildMomentsRequest, parseMoments, storyLines, MOMENTS_LIMITS} from './core/moments.js';
-import {chatContacts, activeChatPreset, cleanTagged} from './core/chat.js';
+import {inSpace, activeChatPreset, cleanTagged} from './core/chat.js';
 import {worldInfoFor, loreOptions} from './host-lore.js';
 import {pictureInputs} from './core/draw.js';
 
@@ -18,7 +18,7 @@ export function createMomentsHost({context, settings, backend, notice}) {
       .replaceAll('{{char}}', name).replaceAll('{{user}}', userName()).slice(0, 1500);
   }
   /** Everyone who can post: story roles first, then manual contacts, at most MOMENTS_LIMITS.people. */
-  const people = () => chatContacts(settings()).slice(0, MOMENTS_LIMITS.people).map(c => ({name: c.name, persona: c.persona, card: c.persona ? '' : card(c.name)}));
+  const people = () => backend.contacts().slice(0, MOMENTS_LIMITS.people).map(c => ({name: c.name, persona: c.persona, card: c.persona ? '' : card(c.name)}));
   const emit = extra => backend.emit('moments', {busy: !!busy, ...extra});
   /** 世界书 for these people: scanned over their names, the recent story and the posts in question. */
   const lore = (preset, crowd, story, texts) => preset.lore === false ? Promise.resolve('') : worldInfoFor(context, {...loreOptions(preset), persona: userPersona(), characters: crowd.map(p => p.persona || p.card).join('\n'),
@@ -48,12 +48,12 @@ export function createMomentsHost({context, settings, backend, notice}) {
   function refresh({auto = false} = {}) {
     return run('refresh', async ctx => {
       const {s, preset, crowd, user, names} = base();
-      const recent = (await backend.moments.list()).slice(0, 6);
+      const recent = (await backend.moments.list()).filter(p => inSpace(p, backend.here())).slice(0, 6);
       const story = storyLines(ctx.chat, preset.context, user);
       const request = buildMomentsRequest({preset, mode: 'posts', people: crowd, story, user, userPersona: userPersona(), recent, images: s.moments.images, lore: await lore(preset, crowd, story, recent.map(p => `${p.author}: ${p.text}`))});
       const found = parseMoments(await ask(ctx, request), {names, user, mode: 'posts'});
       if (!found.posts.length) throw Error('这次没有收到新动态，可以再刷新一次');
-      const posts = await backend.momentsMutate(() => backend.moments.add(found.posts.map(p => ({...p, source: auto ? 'auto' : 'manual', imageState: p.imageTags && s.moments.images ? 'waiting' : undefined}))));
+      const posts = await backend.momentsMutate(() => backend.moments.add(found.posts.map(p => ({...p, space: backend.spaceKey(), source: auto ? 'auto' : 'manual', imageState: p.imageTags && s.moments.images ? 'waiting' : undefined}))));
       for (const post of posts) if (post.imageTags && s.moments.images) drawImage(post.id).catch(() => {});
       return posts;
     });

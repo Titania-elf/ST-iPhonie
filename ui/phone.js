@@ -10,13 +10,15 @@ import {presetsApp} from './presets.js';
 import {libraryApp, galleryApp, notesApp, listenApp} from './media-apps.js';
 import {settingsApp} from './settings.js';
 import {drawApp} from './draw.js';
+import {forumApp} from './forum.js';
+import {peekApp} from './peek.js';
 import {chatApp} from './chat.js';
 import {momentsNew, momentsSeen} from './moments.js';
 import {callScreen} from './call.js';
 import {installMotion} from './motion.js';
 
 // App factories, keyed by the ids in apps.js.
-const FACTORIES = {roles: rolesApp, engines: enginesApp, presets: presetsApp, library: libraryApp, gallery: galleryApp, notes: notesApp, listen: listenApp, settings: settingsApp, draw: drawApp, chat: chatApp};
+const FACTORIES = {roles: rolesApp, engines: enginesApp, presets: presetsApp, library: libraryApp, gallery: galleryApp, notes: notesApp, listen: listenApp, settings: settingsApp, draw: drawApp, chat: chatApp, forum: forumApp, peek: peekApp};
 const ACTIVE_PHASES = ['playing', 'paused', 'generating', 'waiting'];
 
 // Network and battery in the status bar come from the user's own device (where the browser tells them).
@@ -286,11 +288,12 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     return `<button class="app-icon" data-app="${id}" aria-label="${esc(meta.name)}${count ? `，${count} 条未读` : dot ? '，有新动态' : ''}"><span class="icon-tile" style="--t1:${t1};--t2:${t2};--tac:${tac}">${art}</span>${badge}<span class="app-label">${esc(meta.name)}</span></button>`;
   }
   function renderHome() {
-    const pages = HOME.pages.map((ids, index) => `<div class="home-page">${index === 0
+    const shown = HOME.pages.map(ids => ids.filter(id => id !== SLOT)).filter((ids, index) => index === 0 || ids.length);
+    const pages = shown.map((ids, index) => `<div class="home-page">${index === 0
       ? `<div class="clock-block"><p class="home-date" data-clock="date"></p><p class="home-clock" data-clock="large"></p></div><div class="widgets"><button class="widget live-wave" data-system="island" data-widget="playing"></button><div class="widget" data-widget="cast"></div></div>`
-      : ''}<div class="apps-grid">${ids.map(appIcon).join('')}</div>${ids.every(id => id === SLOT) ? '<p class="slot-note">这一页留给以后的新 App</p>' : ''}</div>`).join('');
+      : ''}<div class="apps-grid">${ids.map(appIcon).join('')}</div></div>`).join('');
     $('.home-pages').innerHTML = pages;
-    $('.dots').innerHTML = HOME.pages.map((_, i) => `<i${i === 0 ? ' data-on' : ''}></i>`).join('');
+    $('.dots').innerHTML = shown.length > 1 ? shown.map((_, i) => `<i${i === 0 ? ' data-on' : ''}></i>`).join('') : '';
     $('.phone-dock').innerHTML = HOME.dock.map(appIcon).join('');
     clock();
     renderWidgets();
@@ -596,6 +599,31 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
       }
     });
   }, {signal});
+  // A mouse drags the home screen sideways to change page (fingers swipe it natively); a drag is not also a tap.
+  {
+    const pagesEl = $('.home-pages');
+    let drag = null, dragged = 0;
+    pagesEl.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse' && e.button === 0 && pagesEl.children.length > 1) drag = {id: e.pointerId, x: e.clientX, left: pagesEl.scrollLeft, moved: false}; }, {signal});
+    win.addEventListener('pointermove', e => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const dx = e.clientX - drag.x;
+      if (!drag.moved && Math.abs(dx) < 6) return;
+      if (!drag.moved) { drag.moved = true; pagesEl.style.scrollSnapType = 'none'; pagesEl.style.scrollBehavior = 'auto'; }
+      pagesEl.scrollLeft = drag.left - dx;
+    }, {signal});
+    win.addEventListener('pointerup', e => {
+      const d = drag; drag = null;
+      if (!d?.moved) return;
+      const w = pagesEl.clientWidth || 1, dx = e.clientX - d.x;
+      let page = Math.round(d.left / w);
+      if (Math.abs(dx) > w * 0.15) page += dx < 0 ? 1 : -1;
+      page = Math.max(0, Math.min(pagesEl.children.length - 1, page));
+      pagesEl.style.scrollSnapType = ''; pagesEl.style.scrollBehavior = '';
+      pagesEl.scrollTo({left: page * w, behavior: 'smooth'});
+      dragged = Date.now();
+    }, {signal});
+    pagesEl.addEventListener('click', e => { if (Date.now() - dragged < 350) { e.stopPropagation(); e.preventDefault(); } }, {signal, capture: true});
+  }
   $('.home-pages').addEventListener('scroll', e => {
     const i = Math.round(e.target.scrollLeft / (e.target.clientWidth || 1));
     mount.querySelectorAll('.dots i').forEach((dot, k) => dot.toggleAttribute('data-on', k === i));
@@ -646,6 +674,9 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
     if (event.type === 'chat') { run(() => views.get('chat')?.onChat?.(event)); countUnread(); }
     if (event.type === 'moments') { views.get('chat')?.onMoments?.(event); countMoments(); }
     if (event.type === 'call') calls.update(event.call);
+    if (event.type === 'forum' || event.type === 'peek') { const app = event.type; if (active === app) run(() => views.get(app)?.refresh()); }
+    // 分区: another card was opened in the tavern; the open app and the badges follow it.
+    if (event.type === 'space') { if (active && views.get(active)?.refresh) run(() => views.get(active).refresh()); countUnread(); countMoments(); }
     if (event.type === 'sync') {
       views.get('settings')?.onSync?.();
       // Content from another device: say so once, when that sync is over.

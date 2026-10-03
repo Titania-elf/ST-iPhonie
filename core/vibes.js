@@ -4,6 +4,7 @@
 // once per model; an encoding already in the file is reused for free. V5 and V3 do not take these vibes.
 // Files read: .naiv4vibe, .naiv4vibebundle, 智绘姬 (st-chatu8) group exports {groups, vibeData, vibePresets}, images.
 // Files written: .naiv4vibe (one), .naiv4vibebundle (a group), and the 智绘姬 form (everything, with the groups).
+import {sha256Hex} from './hash.js';
 
 /** The key a model's encodings sit under in a .naiv4vibe; '' for models without vibes (V5, V3). */
 export const VIBE_KEYS = Object.freeze({'nai-diffusion-4-5-full': 'v4-5full', 'nai-diffusion-4-5-curated': 'v4-5curated', 'nai-diffusion-4-full': 'v4full', 'nai-diffusion-4-curated-preview': 'v4curated'});
@@ -17,10 +18,7 @@ const fail = message => Object.assign(Error(message), {code: 'VIBE'});
 export const strength = (value, fallback = 0.6) => { const n = Number(value); return Number.isFinite(n) ? Math.round(Math.min(1, Math.max(0, n)) * 1000) / 1000 : fallback; };
 /** 提取信息量: (0, 1], 1 when unknown. */
 export const extracted = value => { const n = Number(value); return Number.isFinite(n) && n > 0 ? Math.round(Math.min(1, n) * 100) / 100 : 1; };
-export async function sha256(text) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
-}
+export const sha256 = text => sha256Hex(text);
 /** NovelAI names an encoding variant by the hash of its parameters: sha256('information_extracted:1') for 1. */
 export const variantKey = ie => sha256('information_extracted:' + String(extracted(ie)));
 const firstEncoding = doc => Object.values(doc.encodings || {}).flatMap(v => Object.values(v)).find(v => v?.encoding)?.encoding || '';

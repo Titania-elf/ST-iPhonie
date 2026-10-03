@@ -1,4 +1,7 @@
 import { MomentStore } from './moments-store.js';
+import { AppStore } from './app-store.js';
+import { FORUM_LIMITS, buildForumRequest, cleanPost as cleanForumPost, cleanReply as cleanForumReply, startingHeat } from './forum.js';
+import { buildPeekRequest, cleanPeek, peekId } from './peek.js';
 import { languageCode } from './languages.js';
 import { normalizeMoments, buildMomentsRequest } from './moments.js';
 import { normalizeCalls, buildCallRequest } from './call.js';
@@ -16,7 +19,7 @@ import { DialoguePlayer } from './player.js';
 import { LocalLibrary, PHONE_APPS, PHONE_WALLPAPERS, PHONE_GLYPHS, PHONE_SKINS } from './library.js';
 import { NovelAIClient, relayUrl, FISH_PATHS, NAI_MODELS, NAI_MODEL_NAMES, NAI_SAMPLERS, NAI_SCHEDULES, buildImageRequest, guardParams, isFree, isV5, normalizeDrawParams } from './novelai.js';
 import { PIC_TAG_FORMAT, DEFAULT_DRAW_RULE, DRAW_COUNT_MAX, drawPromptPlan, planRequest, validateDrawPreset, normalizeDraw, defaultDraw, normalizeVibeSettings } from './draw.js';
-import { defaultChat, normalizeChatPreset, normalizeContact, validateChatPreset, validateContact, chatContacts, buildChatRequest, activeChatPreset, normalizeVoiceText, normalizeProfile , normalizeAvatars } from './chat.js';
+import { defaultChat, normalizeChatPreset, normalizeContact, validateChatPreset, validateContact, chatContacts, inSpace, activeSpace, buildChatRequest, activeChatPreset, normalizeVoiceText, normalizeProfile , normalizeAvatars } from './chat.js';
 import { ChatStore } from './chats.js';
 import { DrawQueue } from './draw-queue.js';
 import { CloudQueue, KeyHashQueue, newRoomCode, validRoom, sha256Hex } from './cloud-queue.js';
@@ -68,6 +71,10 @@ export class TTSBackend {
         this.vibes = new Map();
         this.chats = chats || new ChatStore(this.settings.scope, { indexedDB });
         this.moments = new MomentStore(this.settings.scope, { indexedDB });
+        // 论坛 and 查手机 (core/forum.js, core/peek.js).
+        this.apps = new AppStore(this.settings.scope, { indexedDB });
+        // 分区: the tavern's open character card (or group), told by the tavern page (index.js).
+        this.space = { key: '', name: '', members: [] };
         this.subscription = null;
         // 保存到酒馆: the tavern's file access (set by the tavern side), what this device last saw there, and the state shown in the phone.
         this.syncFiles = null;
@@ -784,6 +791,8 @@ export class TTSBackend {
         const next = this.getState(), contact = validateContact(normalizeContact(clone(value || {})), next.routes);
         if (next.chat.contacts.some(c => c.name === contact.name && c.id !== contact.id)) throw Error('已经有同名的联系人');
         const index = next.chat.contacts.findIndex(c => c.id === contact.id);
+        if (index < 0 && this.spaceKey()) contact.space = this.spaceKey();
+        if (index >= 0 && next.chat.contacts[index].space) contact.space = next.chat.contacts[index].space;
         if (index < 0) next.chat.contacts.push(contact); else next.chat.contacts[index] = contact;
         this.save(next);
         return clone(contact);
@@ -794,6 +803,7 @@ export class TTSBackend {
         if (patch?.voiceText) next.chat.voiceText = normalizeVoiceText({ ...next.chat.voiceText, ...patch.voiceText });
         if (patch?.profile) next.chat.profile = normalizeProfile({ ...next.chat.profile, ...patch.profile });
         if (Array.isArray(patch?.starred)) next.chat.starred = patch.starred;
+        if (patch?.partition !== undefined) { if (!['none', 'card'].includes(patch.partition)) throw Error('分区方式无效'); next.chat.partition = patch.partition; }
         // avatars: {name: choice | null}; null goes back to the tavern's avatar (or the first letter).
         if (patch?.avatars && typeof patch.avatars === 'object') { const merged = { ...next.chat.avatars }; for (const [name, a] of Object.entries(patch.avatars)) { if (a) merged[name] = a; else delete merged[name]; } next.chat.avatars = normalizeAvatars(merged); }
         return this.save(next).chat;
@@ -814,7 +824,9 @@ export class TTSBackend {
         return ['━━ 私聊 ━━', text(buildChatRequest({ preset: p, thread, members: [member], story, user: '{{user}}', voiceFormat: this.voiceFormat(), lore })),
             '━━ 群聊 ━━', text(buildChatRequest({ preset: p, thread: group, members: [member, other], story, user: '{{user}}', voiceFormat: this.voiceFormat(), lore })),
             '━━ 朋友圈（刷新时） ━━', text(buildMomentsRequest({ preset: p, people: [member, other], story, user: '{{user}}', images: this.settings.moments.images, lore })),
-            '━━ 电话（接通后第一句） ━━', text(buildCallRequest({ preset: p, mode: 'incoming', contact: { ...member, voice: true }, history: thread.messages, story, user: '{{user}}', voiceFormat: this.voiceFormat(), voiceRules: '（这里是这个角色的语音引擎朗读规则）', lore }))].join('\n\n');
+            '━━ 电话（接通后第一句） ━━', text(buildCallRequest({ preset: p, mode: 'incoming', contact: { ...member, voice: true }, history: thread.messages, story, user: '{{user}}', voiceFormat: this.voiceFormat(), voiceRules: '（这里是这个角色的语音引擎朗读规则）', lore })),
+            '━━ 论坛（刷新时） ━━', text(buildForumRequest({ preset: p, people: [member, other], story, user: '{{user}}', lore })),
+            '━━ 查手机 ━━', text(buildPeekRequest({ preset: p, person: member, story, user: '{{user}}', history: thread.messages, lore }))].join('\n\n');
     }
     /** 来电 options: {auto, every, dailyMax, ring}. */
     saveCalls(patch) {
@@ -829,6 +841,83 @@ export class TTSBackend {
         next.moments = normalizeMoments({ ...next.moments, ...Object.fromEntries(Object.entries(patch || {}).filter(([key]) => allowed.includes(key))) });
         return this.save(next).moments;
     }
+    // ---------- 分区 ----------
+    /** The card open in the tavern now: {key, name, members}. With 分区 on, the phone shows that card's own things. */
+    setSpace(space) {
+        const next = { key: String(space?.key || '').slice(0, 300), name: String(space?.name || '').slice(0, 80), members: (Array.isArray(space?.members) ? space.members : []).map(String).filter(Boolean).slice(0, 30) };
+        if (next.key === this.space.key && next.name === this.space.name && next.members.join('\n') === this.space.members.join('\n')) return;
+        this.space = next;
+        this.emit('space', { space: clone(next) });
+        if (!this.here()) return;
+        this.emit('chat', { threadId: '' }); this.emit('moments', {}); this.emit('forum', {}); this.emit('peek', {});
+    }
+    /** The space lists are filtered by, or null when 分区 is off (or no card is open). */
+    here() { return activeSpace(this.settings, this.space); }
+    /** The key new items are made under ('' = shared). */
+    spaceKey() { return this.here()?.key || ''; }
+    /** The roles that speak in a card's story belong to that card's contacts. Saved only when something changed. */
+    tagRoles(names, key = this.space.key) {
+        if (!key || !names?.length) return false;
+        const want = new Set(names.map(String)), next = this.getState();
+        let changed = false;
+        for (const route of next.routes) {
+            if (!want.has(route.name)) continue;
+            const cards = Array.isArray(route.cards) ? route.cards : [];
+            if (!cards.includes(key)) { route.cards = [...cards, key].slice(-100); changed = true; }
+        }
+        if (changed) this.save(next);
+        return changed;
+    }
+    /** Contacts of the card open now (all of them when 分区 is off). */
+    contacts() { return chatContacts(this.settings, this.here()); }
+    /** Phone chats of the card open now. */
+    async threads() { const here = this.here(); return (await this.chats.list()).filter(t => inSpace(t, here)); }
+    /** Removes what was made under the open card (or everything, with 分区 off). */
+    async clearHere(list, remove, clearAll) {
+        const here = this.here();
+        if (!here) return clearAll();
+        const mine = (await list()).filter(x => x.space === here.key);
+        for (const x of mine) await remove(x.id);
+        return mine.length;
+    }
+    hotId() { const key = this.spaceKey(); return key ? 'forum-hot:' + key : 'forum-hot'; }
+
+    // ---------- 论坛 ----------
+    /** Runs a change to an app's documents and tells the phone ('forum' or 'peek'). */
+    async appsMutate(type, task) {
+        this.assertOpen();
+        const result = await task();
+        this.emit(type, {});
+        return result;
+    }
+    /** New posts from the board (characters and strangers), with made-up likes and 热度; the oldest go past the limit. */
+    async addForumPosts(posts, { source = 'auto' } = {}) {
+        // The first post the model wrote is shown on top (newest first).
+        const now = Date.now(), id = () => crypto.randomUUID();
+        const docs = posts.map((p, i) => cleanForumPost({ ...p, source, space: this.spaceKey(), ...(source === 'me' ? { likes: 0, heat: 1 } : startingHeat(p)) }, id(), now - i * 10, id));
+        return this.appsMutate('forum', () => this.apps.put(docs, { keep: FORUM_LIMITS.posts }));
+    }
+    async setForumHot(topics) {
+        const list = [...new Set((topics || []).map(t => String(t).trim().slice(0, 40)).filter(Boolean))].slice(0, FORUM_LIMITS.hot);
+        if (!list.length) return [];
+        await this.appsMutate('forum', () => this.apps.put([{ id: this.hotId(), kind: 'forum-hot', at: Date.now(), topics: list }]));
+        return list;
+    }
+    /** Replies added under a post; each one makes it a little hotter. */
+    async addForumReplies(postId, replies) {
+        const now = Date.now();
+        return this.appsMutate('forum', () => this.apps.change(postId, post => {
+            if (post.kind !== 'forum') throw Error('这个帖子已经不在了');
+            replies.forEach((r, i) => post.replies.push(cleanForumReply(r, crypto.randomUUID(), now + i)));
+            post.replies = post.replies.slice(-FORUM_LIMITS.replies);
+            post.heat += replies.length * (20 + Math.round(Math.random() * 80));
+            post.likes += replies.filter(r => r.from !== 'me').length ? Math.round(Math.random() * 6) : 0;
+        }));
+    }
+    // ---------- 查手机 ----------
+    /** A character's phone as the model made it up; replaces the earlier one of the same person. */
+    async savePeek(snapshot) { const doc = cleanPeek({ ...snapshot, space: this.spaceKey() }, Date.now()); return (await this.appsMutate('peek', () => this.apps.put([doc])))[0]; }
+
     /** Runs a change to the moments and tells the phone. */
     async momentsMutate(task) {
         this.assertOpen();
@@ -1038,17 +1127,31 @@ export class TTSBackend {
             saveMoments: patch => this.saveMoments(clone(patch)), saveCalls: patch => this.saveCalls(clone(patch)),
             saveText: patch => this.saveText(clone(patch)), setTextKey: (id, key) => this.setTextKey(id, key), clearTextKey: id => this.clearTextKey(id), textKeyHint: id => this.textKeyHint(id), textModels: draft => this.textModels(clone(draft || {})),
             syncStatus: () => this.syncStatus(), saveSync: patch => this.saveSync(clone(patch)), syncNow: () => this.syncNow().then(() => this.syncStatus()),
-            listMoments: () => this.moments.list(), getMoment: id => this.moments.get(id),
-            postMoment: ({ text, photoId } = {}) => this.momentsMutate(async () => (await this.moments.add([{ author: 'me', source: 'me', text, photoId }]))[0]),
+            listMoments: async () => { const here = this.here(); return (await this.moments.list()).filter(p => inSpace(p, here)); }, getMoment: id => this.moments.get(id),
+            postMoment: ({ text, photoId } = {}) => this.momentsMutate(async () => (await this.moments.add([{ author: 'me', source: 'me', text, photoId, space: this.spaceKey() }]))[0]),
             likeMoment: (id, on = true) => this.momentsMutate(() => this.moments.like(id, 'me', on)),
             commentMoment: (id, { text, to } = {}) => this.momentsMutate(() => this.moments.comment(id, { from: 'me', text, to })),
             deleteMoment: id => this.momentsMutate(() => this.moments.remove(id)), deleteMomentComment: (id, commentId) => this.momentsMutate(() => this.moments.removeComment(id, commentId)),
-            clearMoments: () => this.momentsMutate(() => this.moments.clear()),
+            clearMoments: () => this.momentsMutate(() => this.clearHere(() => this.moments.list(), id => this.moments.remove(id), () => this.moments.clear())),
+            listForum: async () => { const here = this.here(); return (await this.apps.list('forum')).filter(p => inSpace(p, here)); }, getForumPost: id => this.apps.get(id),
+            forumHot: async () => (await this.apps.get(this.hotId()))?.topics || [],
+            postForum: async ({ title = '', text = '' } = {}) => (await this.addForumPosts([{ author: 'me', title, text }], { source: 'me' }))[0],
+            replyForum: async (id, { text, to } = {}) => { const post = await this.addForumReplies(id, [{ from: 'me', text, to }]); return { post, reply: post.replies.at(-1) }; },
+            likeForum: (id, on = true) => this.appsMutate('forum', () => this.apps.change(id, post => { if (post.liked === !!on) return; post.liked = !!on; post.likes = Math.max(0, post.likes + (on ? 1 : -1)); })),
+            deleteForumReply: (id, replyId) => this.appsMutate('forum', () => this.apps.change(id, post => { post.replies = post.replies.filter(r => r.id !== replyId); })),
+            deleteForum: id => this.appsMutate('forum', () => this.apps.remove(id)),
+            clearForum: () => this.appsMutate('forum', async () => { const n = await this.clearHere(() => this.apps.list('forum'), id => this.apps.remove(id), () => this.apps.clear('forum')); await this.apps.remove(this.hotId()); return n; }),
+            // 查手机: the open card's snapshot of a person, else the shared one from before 分区.
+            listPeeks: async () => { const here = this.here(); return (await this.apps.list('peek')).filter(p => inSpace(p, here)); },
+            getPeek: async name => (await this.apps.get(peekId(name, this.spaceKey()))) || (this.spaceKey() ? this.apps.get(peekId(name)) : null),
+            deletePeek: name => this.appsMutate('peek', async () => { await this.apps.remove(peekId(name, this.spaceKey())); if (this.spaceKey()) await this.apps.remove(peekId(name)); return true; }),
+            /** 分区: the card open now ({key, name}) and whether 分区 is on. */
+            phoneSpace: () => ({ ...clone(this.space), on: !!this.here() }),
             saveChatPreset: preset => this.saveChatPreset(preset), deleteChatPreset: id => this.deleteChatPreset(id), selectChatPreset: id => this.selectChatPreset(id),
             previewChatPrompt: preset => this.previewChatPrompt(preset), validateChatPreset: preset => { try { validateChatPreset(normalizeChatPreset(clone(preset))); return ''; } catch (error) { return message(error); } },
-            saveChatOptions: patch => this.saveChatOptions(clone(patch)), saveContact: contact => this.saveContact(contact), deleteContact: id => this.deleteContact(id), chatContacts: () => clone(chatContacts(this.settings)),
-            listThreads: () => this.chats.list(), getThread: id => this.chats.get(id), chatUnread: () => this.chats.unread(),
-            createThread: value => this.chatMutate(null, () => this.chats.create(clone(value))),
+            saveChatOptions: patch => this.saveChatOptions(clone(patch)), saveContact: contact => this.saveContact(contact), deleteContact: id => this.deleteContact(id), chatContacts: () => clone(this.contacts()),
+            listThreads: () => this.threads(), getThread: id => this.chats.get(id), chatUnread: async () => (await this.threads()).reduce((n, t) => n + (t.muted ? 0 : t.unread), 0),
+            createThread: value => this.chatMutate(null, () => this.chats.create({ ...clone(value), space: this.spaceKey() })),
             updateThread: (id, patch) => this.chatMutate(id, () => this.chats.update(id, clone(patch))),
             deleteThread: id => this.chatMutate(id, () => this.chats.remove(id)),
             appendChat: (id, messages, options) => this.chatMutate(id, () => this.chats.append(id, clone(messages), clone(options || {}))),
@@ -1072,6 +1175,7 @@ export class TTSBackend {
         this.chats.close();
         clearTimeout(this.syncTimer);
         this.moments.close();
+        this.apps.close();
         this.drawQueue.cancelAll();
         this.closing = Promise.all([this.player.close(), this.cache.close(), this.library.close(), Promise.resolve(this.keyStore.flush?.()).then(() => this.keyStore.close?.())]);
         await this.closing;

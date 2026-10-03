@@ -1,4 +1,4 @@
-import {createView, esc, btn, field, input, textArea, heading, groupTitle, avatar, avatarPicture, empty, help} from './common.js';
+import {createView, esc, btn, field, input, textArea, heading, groupTitle, avatar, avatarPicture, empty, help, copyText} from './common.js';
 import {icon} from './icons.js';
 import {openImageViewer} from '../image-viewer.js';
 import {saveFile, downloadAction} from '../download.js';
@@ -521,7 +521,7 @@ export function chatApp(ctx) {
       },
       download: async () => { d.close(); const {blob, name} = await api.audioFile({line: lineOf(m)}); ctx.notify('已下载 ' + await saveFile(ctx.doc, blob, name)); },
       quote: () => { d.close(); quote = {from: m.from, text: quoteText(m).slice(0, 200)}; panel = null; render(); },
-      copy: async () => { d.close(); await ctx.win.navigator.clipboard?.writeText(m.kind === 'voice' ? m.text : quoteText(m)); ctx.notify('已复制'); },
+      copy: async () => { d.close(); ctx.notify(await copyText(ctx.win, m.kind === 'voice' ? m.text : quoteText(m)) ? '已复制' : '这个浏览器不让复制，可以长按文字手动复制'); },
       recall: async () => {
         d.close();
         if (m.kind === 'text') recalled.set(m.id, m.text);

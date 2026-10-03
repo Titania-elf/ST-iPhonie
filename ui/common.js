@@ -21,6 +21,17 @@ export const empty = (title, detail = '', art = 'music') => `<div class="empty">
 
 // Page title: small English eyebrow, a big title with a marker underline, and optional actions.
 export const heading = (title, actions = '', eyebrow = '') => `<header class="page-heading"><div>${eyebrow ? `<span class="eyebrow">${esc(eyebrow)}</span>` : ''}<h1><span>${esc(title)}</span>${spark()}</h1></div>${actions ? `<div class="heading-actions">${actions}</div>` : ''}</header>`;
+/** Copies text: the clipboard API where the page may use it, else the old selection copy (LAN http addresses). */
+export async function copyText(win, text) {
+  try { if (win.navigator.clipboard?.writeText) { await win.navigator.clipboard.writeText(text); return true; } } catch { /* tried the old way below */ }
+  const doc = win.document, box = doc.createElement('textarea');
+  box.value = text; box.setAttribute('readonly', ''); box.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+  doc.body.append(box); box.select();
+  let done = false;
+  try { done = doc.execCommand('copy'); } catch { done = false; }
+  box.remove();
+  return done;
+}
 export const groupTitle = (title, extra = '') => `<div class="group-title"><span>${esc(title)}</span>${extra}</div>`;
 
 // A skewed name plate; engine colour comes from the nearest data-engine ancestor.

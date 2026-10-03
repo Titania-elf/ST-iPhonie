@@ -176,6 +176,11 @@ export interface CallsSettings { auto: boolean; every: number; dailyMax: number;
 export interface MomentsSettings { auto: boolean; every: number; dailyMax: number; images: boolean; replyToMe: boolean; }
 /** The user in the chat app. name '' shows the tavern's persona name. */
 export interface ChatProfile { name: string; status: 'online' | 'qme' | 'busy' | 'away' | 'hidden'; statusText: string; signature: string; bubble: 'default' | 'candy' | 'mint' | 'night' | 'ink'; frame: 'none' | 'star' | 'cat' | 'flower' | 'halo'; background: 'none' | 'clouds' | 'stars' | 'grid' | 'sakura'; backgroundPhoto: string; }
+/** 论坛: a post by a character, a stranger (any screen name) or the user ('me'); heat is how many have looked. */
+export interface ForumReply { id: string; from: string; to?: string; text: string; at: number; }
+export interface ForumPost { id: string; kind: 'forum'; author: string; title: string; text: string; at: number; source: 'auto' | 'me'; likes: number; liked: boolean; heat: number; replies: ForumReply[]; }
+/** 查手机: a character's phone as the model made it up. */
+export interface PeekSnapshot { id: string; kind: 'peek'; name: string; at: number; chats: Array<{ with: string; lines: Array<{ from: string; text: string }> }>; searches: string[]; notes: Array<{ title: string; text: string }>; photos: Array<{ text: string; tags: string; photoId?: string; state?: 'waiting' | 'done' | 'failed'; note?: string }>; }
 export interface MomentComment { id: string; from: string; to?: string; text: string; at: number; }
 /** author and comment names are 'me' for the user. */
 export interface MomentPost { id: string; author: string; text: string; at: number; source: 'manual' | 'auto' | 'me'; photoId?: string; imageTags?: string; imageState?: 'waiting' | 'done' | 'failed'; imageNote?: string; likes: string[]; comments: MomentComment[]; }
@@ -534,6 +539,23 @@ export interface BackendFacade {
     deleteMoment(id: string): Promise<boolean>;
     deleteMomentComment(id: string, commentId: string): Promise<MomentPost>;
     clearMoments(): Promise<number>;
+    /** 论坛, newest first. */
+    listForum(): Promise<ForumPost[]>;
+    getForumPost(id: string): Promise<ForumPost | null>;
+    /** The latest 热搜 topics. */
+    forumHot(): Promise<string[]>;
+    postForum(post: { title?: string; text: string }): Promise<ForumPost>;
+    replyForum(id: string, reply: { text: string; to?: string }): Promise<{ post: ForumPost; reply: ForumReply }>;
+    likeForum(id: string, on?: boolean): Promise<ForumPost>;
+    deleteForumReply(id: string, replyId: string): Promise<ForumPost>;
+    deleteForum(id: string): Promise<boolean>;
+    clearForum(): Promise<number>;
+    /** 分区: the character card open in the tavern ({key, name, members}) and whether 分区 is on. */
+    phoneSpace(): { key: string; name: string; members: string[]; on: boolean };
+    /** 查手机 snapshots, newest first; one per character. */
+    listPeeks(): Promise<PeekSnapshot[]>;
+    getPeek(name: string): Promise<PeekSnapshot | null>;
+    deletePeek(name: string): Promise<boolean>;
     deleteChatPreset(id: string): ChatSettings;
     selectChatPreset(id: string): ChatSettings;
     /** Reply prompt with sample chat content, for the preset editor. */
@@ -624,6 +646,16 @@ export interface BackendAPI extends BackendFacade {
     /** The tavern's own avatar pictures: the current persona's, and each character card's by name (URLs). */
     tavernAvatars(): { me: string; characters: Record<string, string> };
     /** How many single vibes and groups 智绘姬 (st-chatu8) has in this tavern; 0 when it is not installed. */
+    /** 论坛: new posts and the 热搜; replies to the user's post; answers to the user's reply. */
+    forumRefresh(): Promise<ForumPost[]>;
+    forumReact(id: string): Promise<ForumPost>;
+    forumReply(id: string, replyId: string): Promise<ForumPost>;
+    forumBusy(): boolean;
+    /** 查手机: looks into a character's phone (a new snapshot). */
+    peekLook(name: string): Promise<PeekSnapshot>;
+    peekBusy(): boolean;
+    /** Draws one album photo of a character's phone with NovelAI; allowPaid when it would cost Anlas. */
+    peekDraw(name: string, index: number, allowPaid?: boolean): Promise<string>;
     chatu8Vibes(): number;
     /** The World Info books turned on now (global, character, chat, persona) with their entries that are on, for picking
      *  what the phone leaves out. Entry ids are "book#uid". */

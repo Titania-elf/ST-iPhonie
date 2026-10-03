@@ -11,7 +11,7 @@ import {languageName} from './languages.js';
 export const CHAT_LIMITS = Object.freeze({contacts: 200, persona: 4000, story: 40, history: 200});
 
 // Where a rule is used: private chats, group chats, 朋友圈 (posts, likes and comments), 电话 (voice calls).
-export const RULE_USES = Object.freeze(['dm', 'group', 'moments', 'call']);
+export const RULE_USES = Object.freeze(['dm', 'group', 'moments', 'call', 'forum', 'peek']);
 export const DEFAULT_CHAT_ENTRIES = Object.freeze([
   {id: 'style', title: '短信口吻', text: '你在一个手机聊天软件里，以联系人本人的身份回复{{用户}}。像真的在发手机消息：口语，可以用语气词和颜文字，不写动作、旁白和心理描写，不加引号。发几条、每条多长，按这个人的性格、说话习惯和当下的心情来：话少的人可能只回一个字、一个表情；话多的人会连着发好几条；习惯打长段的人一条就是一大段；激动、委屈、兴奋或者有很多话想说的时候，可以一口气发很多条。不要每次都发差不多的条数和长度。', use: ['dm', 'group']},
   {id: 'persona', title: '守住人设', text: '严格按每个联系人的人设、和{{用户}}的关系、说话习惯来回复。最近的剧情只作背景：可以提到发生过的事，但不要复述剧情，也不要替{{用户}}说话。', use: ['dm', 'group']},
@@ -24,6 +24,8 @@ export const DEFAULT_CHAT_ENTRIES = Object.freeze([
   {id: 'm-interact', title: '点赞和评论', use: ['moments'], text: '别人发动态时，关系好的联系人会点赞或评论；评论简短口语，可以互相接话、吐槽、开玩笑。{{用户}}评论时，被评论的人一定会回复，别的人看到了也可以接话。'},
   {id: 'm-picture', title: '朋友圈配图', use: ['moments'], text: '有画面感的动态可以配一张图，大约三成的动态配图就好：自拍、吃的、风景、宠物、正在看的东西。配图写成英文 danbooru tag，描述画面本身。'},
   {id: 'c-dial', title: '打电话', use: ['dm'], text: '想马上听到{{用户}}的声音、有急事、吵完架想和好、半夜睡不着想念的时候，很偶尔可以直接打电话过去。大多数时候发消息就好，只有真的有理由时才打。'},
+  {id: 'f-style', title: '论坛口吻', use: ['forum'], text: '论坛是公开的，谁都能看：发帖和回帖的有角色，也有不认识的网友（路人）。路人有自己的网名和说话习惯，吃瓜、八卦、玩梗、抬杠、安利、求助都可以，口吻像真的网友，别都是好话。角色在论坛上用自己的名字，发言符合人设；公开场合说话一般比私聊更注意分寸，除非人设就是这样。话题可以来自最近的剧情、这个世界的设定、日常生活和身边的事；路人不知道只有当事人才知道的秘密。'},
+  {id: 'p-style', title: 'TA 的手机', use: ['peek'], text: '{{用户}}正在偷看{{对象}}的手机。手机里的东西都要像真的：{{对象}}和朋友、家人、同事或别的角色的聊天，搜索记录，备忘录，相册。内容要符合{{对象}}的人设、生活和最近发生的事，聊天对象各有各的说话方式；可以藏着{{对象}}没对{{用户}}说出口的心思、小秘密或者反差，但不要编出和剧情矛盾的大事件。'},
   {id: 'c-style', title: '通话口吻', use: ['call'], text: '你在和{{用户}}打语音电话，说的每一句都会被念出来。像真人打电话一样说话：口语，会接话、会反问，会有停顿和语气词。说多少按人设和情境来：话少的人三言两语，健谈的人、激动的时候、正在讲一件事的时候可以一口气说一大段；不要每次都说差不多长。身边发生的小事用说的话带出来（比如「等一下，我这边有点吵」），不写动作、旁白、心理描写和表情符号。守住人设和你们的关系，最近的剧情和聊天可以自然提起。'}
 ]);
 export const DEFAULT_BRING = '以下是{{用户}}刚才在手机上和{{对象}}的聊天记录。接下来的正文可以自然地承接、提到或回应这段聊天，不要原样复述：\n{{聊天记录}}';
@@ -34,7 +36,8 @@ const DEFAULT_INJECTION = {position: 'in_chat', depth: 1, role: 'system'};
 // rev 4 (0.6.20): 来电; presets made earlier get 打电话 and 通话口吻 once.
 // rev 5 (0.6.42): how much a contact says follows the person, not a fixed 一到三条 / 一到三句; rules still holding the old
 // default words get the new ones, rules the user changed stay as they are.
-const PRESET_REV = 5;
+// rev 6 (0.6.45): 论坛 and 查手机; presets made earlier get 论坛口吻 and TA 的手机 once.
+const PRESET_REV = 6;
 const OLD_RULES = Object.freeze({style: '你在一个手机聊天软件里，以联系人本人的身份回复{{用户}}。像真的在发手机消息：口语、简短，一次发一到三条，每条一两句话。可以用语气词和颜文字，不写动作、旁白和心理描写，不加引号。', group: '群聊里每次由一到三位成员接话，谁接话看话题和各自性格，成员之间也可以互相回应、吐槽。', 'c-style': '你在和{{用户}}打语音电话，说的每一句都会被念出来。像真人打电话一样说话：口语、句子短，一次说一到三句；会接话、会反问，会有停顿和语气词。身边发生的小事用说的话带出来（比如「等一下，我这边有点吵」），不写动作、旁白、心理描写和表情符号。守住人设和你们的关系，最近的剧情和聊天可以自然提起。'});
 const DEFAULT_PRESET = {id: 'default', name: '日常短信', rev: PRESET_REV, context: 6, history: 30, posts: 2, lore: true, loreSkipBooks: [], loreSkipEntries: [], cleanTags: [], bring: DEFAULT_BRING, injection: DEFAULT_INJECTION, entries: DEFAULT_CHAT_ENTRIES.map(e => ({...e, enabled: true}))};
 
@@ -47,7 +50,7 @@ export function normalizeVoiceText(v = {}) {
 }
 
 export function defaultChat() {
-  return {presets: [structuredClone(DEFAULT_PRESET)], activePreset: 'default', contacts: [], voiceText: {...DEFAULT_VOICE_TEXT}, profile: normalizeProfile(), starred: [], avatars: {}};
+  return {presets: [structuredClone(DEFAULT_PRESET)], activePreset: 'default', contacts: [], voiceText: {...DEFAULT_VOICE_TEXT}, profile: normalizeProfile(), starred: [], avatars: {}, partition: 'none'};
 }
 
 const text = (value, max) => String(value ?? '').slice(0, max);
@@ -81,6 +84,10 @@ export function normalizeChatPreset(p = {}) {
   }
   if (!(Number(p.rev) >= 4) && entries.length) {
     const missing = DEFAULT_CHAT_ENTRIES.filter(e => ['c-dial', 'c-style'].includes(e.id) && !entries.some(x => x.id === e.id));
+    entries = [...entries, ...missing.map(e => ({...e, enabled: true}))];
+  }
+  if (!(Number(p.rev) >= 6) && entries.length) {
+    const missing = DEFAULT_CHAT_ENTRIES.filter(e => ['f-style', 'p-style'].includes(e.id) && !entries.some(x => x.id === e.id));
     entries = [...entries, ...missing.map(e => ({...e, enabled: true}))];
   }
   if (!(Number(p.rev) >= 5) && entries.length) {
@@ -137,7 +144,7 @@ export function normalizeAvatars(value) {
 }
 
 export function normalizeContact(c = {}) {
-  return {id: String(c.id || crypto.randomUUID()), name: text(c.name, 40).trim(), persona: text(c.persona, CHAT_LIMITS.persona)};
+  return {id: String(c.id || crypto.randomUUID()), name: text(c.name, 40).trim(), persona: text(c.persona, CHAT_LIMITS.persona), ...(c.space ? {space: text(c.space, 300)} : {})};
 }
 
 export function normalizeChat(value) {
@@ -146,7 +153,7 @@ export function normalizeChat(value) {
   const presets = (Array.isArray(value.presets) && value.presets.length ? value.presets : base.presets).map(normalizeChatPreset);
   const contacts = (Array.isArray(value.contacts) ? value.contacts : []).slice(0, CHAT_LIMITS.contacts).map(normalizeContact).filter(c => c.name);
   const starred = [...new Set((Array.isArray(value.starred) ? value.starred : []).map(n => text(n, 40).trim()).filter(Boolean))].slice(0, CHAT_LIMITS.contacts);
-  return {presets, activePreset: presets.some(p => p.id === value.activePreset) ? value.activePreset : presets[0].id, contacts, voiceText: normalizeVoiceText(value.voiceText), profile: normalizeProfile(value.profile), starred, avatars: normalizeAvatars(value.avatars)};
+  return {presets, activePreset: presets.some(p => p.id === value.activePreset) ? value.activePreset : presets[0].id, contacts, voiceText: normalizeVoiceText(value.voiceText), profile: normalizeProfile(value.profile), starred, avatars: normalizeAvatars(value.avatars), partition: value.partition === 'card' ? 'card' : 'none'};
 }
 
 export function validateChatPreset(p) {
@@ -167,9 +174,19 @@ export function validateContact(c, routes = []) {
 export const activeChatPreset = chat => chat.presets.find(p => p.id === chat.activePreset) || chat.presets[0];
 
 /** Everyone the user can message: story roles (角色 App) first, then manual contacts. */
-export function chatContacts(settings) {
-  const roles = settings.routes.filter(r => !isPlaceholderRole(r.name)).map(r => ({name: r.name, source: 'role', voice: !!r.voice, engine: r.voice ? r.engine : 'none', language: r.language || settings.general.defaultLanguage, persona: ''}));
-  const manual = settings.chat.contacts.filter(c => !roles.some(r => r.name === c.name)).map(c => ({name: c.name, source: 'manual', id: c.id, voice: false, engine: 'none', language: '', persona: c.persona}));
+/**
+ * 分区: with partition 'card' the phone keeps one set of chats, 朋友圈, 论坛 and 查手机 per tavern character card (or
+ * group). space: {key, name, members} of the card open now. Items carry the key they were made under; items from before
+ * (no key) are shared by every card.
+ */
+export const inSpace = (item, space) => !space?.key || !item?.space || item.space === space.key;
+/** The space to filter by: the open card's, when partition is on and a card is open; else null (everything). */
+export const activeSpace = (settings, space) => settings.chat?.partition === 'card' && space?.key ? space : null;
+export function chatContacts(settings, space = null) {
+  // A card's contacts: its own character(s), the roles that have spoken in its story, and contacts added under it.
+  const here = r => !space?.key || (space.members || []).includes(r.name) || (Array.isArray(r.cards) && r.cards.includes(space.key));
+  const roles = settings.routes.filter(r => !isPlaceholderRole(r.name) && here(r)).map(r => ({name: r.name, source: 'role', voice: !!r.voice, engine: r.voice ? r.engine : 'none', language: r.language || settings.general.defaultLanguage, persona: ''}));
+  const manual = settings.chat.contacts.filter(c => !roles.some(r => r.name === c.name) && inSpace(c, space)).map(c => ({name: c.name, source: 'manual', id: c.id, voice: false, engine: 'none', language: '', persona: c.persona}));
   return [...roles, ...manual];
 }
 

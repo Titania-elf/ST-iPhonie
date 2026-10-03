@@ -35,8 +35,8 @@ export function createCallHost({context, settings, backend, notice, ringing = ()
   const live = id => call?.id === id && call.state !== 'ended';
 
   async function dmThread(name) {
-    const existing = (await backend.chats.list()).find(t => t.type === 'dm' && t.members[0] === name);
-    return existing || backend.chats.create({type: 'dm', members: [name]});
+    const existing = (await backend.threads()).find(t => t.type === 'dm' && t.members[0] === name);
+    return existing || backend.chats.create({type: 'dm', members: [name], space: backend.spaceKey()});
   }
   /** Keeps the finished call in the private chat. A missed incoming call counts as unread. */
   async function keep(c, voicemail = []) {
@@ -119,7 +119,7 @@ export function createCallHost({context, settings, backend, notice, ringing = ()
 
   async function ask(mode, c) {
     const ctx = context();
-    const s = settings(), preset = activeChatPreset(s.chat), user = userName(), thread = (await backend.chats.list()).find(t => t.type === 'dm' && t.members[0] === c.name);
+    const s = settings(), preset = activeChatPreset(s.chat), user = userName(), thread = (await backend.threads()).find(t => t.type === 'dm' && t.members[0] === c.name);
     const history = thread ? (await backend.chats.get(thread.id)).messages.filter(m => m.kind !== 'system' && m.kind !== 'call').slice(-CALL_LIMITS.history) : [];
     const voiceFormat = backend.voiceFormat(), story = storyLines(ctx.chat || [], preset.context, user);
     const lore = preset.lore === false ? '' : await worldInfoFor(context, {...loreOptions(preset), persona: userPersona(), characters: c.contact.persona || c.contact.card || '',
@@ -189,7 +189,7 @@ export function createCallHost({context, settings, backend, notice, ringing = ()
     let day = {day: today(), n: 0};
     try { const saved = JSON.parse(localStorage.getItem(DAY_KEY) || 'null'); if (saved?.day === day.day) day = saved; } catch { /* no storage: count this session only */ }
     if (day.n >= o.dailyMax) return;
-    const s = settings(), callers = chatContacts(s).filter(c => c.source === 'role' && c.voice), now = context()?.name2;
+    const callers = backend.contacts().filter(c => c.source === 'role' && c.voice), now = context()?.name2;
     const name = callers.find(c => c.name === now)?.name || callers[Math.floor(Math.random() * callers.length)]?.name;
     if (!name) return;
     try {

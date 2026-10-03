@@ -12,6 +12,7 @@
 // A sync reads the tavern's copy first. A part changed only there is taken as it is (so deletions carry over); a part
 // changed on both sides is merged item by item (the newer item wins, messages and comments are joined); then what
 // changed here is written back. Each device remembers the hashes of the last copy it saw.
+import {sha256Hex} from './hash.js';
 
 export const SYNC_FORMAT = 1;
 export const SYNC_PARTS = Object.freeze({chats: '聊天记录', moments: '朋友圈', notes: '备忘录', photos: '相册'});
@@ -29,10 +30,7 @@ export function canonical(part, items) {
   if (part === 'photos') return byId(items.map(({id, name, type, size, createdAt, updatedAt}) => ({id, name, type, size, createdAt, updatedAt})));
   return byId(items);
 }
-export async function hashText(text) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
-}
+export async function hashText(text) { return sha256Hex(text); }
 
 const newer = (a, b, time) => (time(b) || 0) > (time(a) || 0) ? b : a;
 const union = (a = [], b = [], key = x => x.id) => { const map = new Map(); for (const x of [...a, ...b]) map.set(key(x), x); return [...map.values()]; };

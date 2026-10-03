@@ -1,4 +1,4 @@
-import {createView, esc, btn, field, input, select, toggle, heading, size, languageField, typedLanguages, groupTitle, help} from './common.js';
+import {createView, esc, btn, field, input, select, toggle, heading, size, languageField, typedLanguages, groupTitle, help, copyText} from './common.js';
 import {buildReport} from '../core/diagnostics.js';
 import {saveFile} from '../download.js';
 import {icon, GLYPH_NAMES} from './icons.js';
@@ -129,6 +129,9 @@ export function settingsApp(ctx) {
         </div>`
       + groupTitle('绘图')
       + `<div class="group">${toggle('drawEnabled', '正文出图', s.draw.enabled, '开启后，绘图预设会加进聊天请求，让模型在正文里写出图标签。')}${toggle('drawAuto', '新回复自动出图', s.draw.auto, '只在免费档内自动画；超出免费档或读不到订阅时，正文里显示“点击生成”。')}${toggle('drawFold', '正文图片默认收起', s.draw.fold, '正文里只留一个小缩略图，点开再看。每张图也能单独收起或展开。')}${toggle('drawGuard', '免费档守卫', s.draw.guard, '步数不超过 28、尺寸不超过 1024×1024，不会发出扣 Anlas 的请求。')}</div>`
+      + groupTitle('分区')
+      + (() => { const space = api.phoneSpace?.() || {}; return `<div class="group">${toggle('partition', '按角色卡分开', s.chat.partition === 'card', '打开后，每张角色卡（群聊是每个群）一部手机：聊天记录、朋友圈、论坛、查手机各管各的，换卡就换手机；联系人只有这张卡的角色、在这张卡剧情里说过话的角色，和在这张卡里手动加的联系人。「我」跟着酒馆给这张卡锁定的人设走。\n\n打开之前就有的聊天和动态没有归属，每张卡都看得到；不想要的可以删掉。关掉分区后，所有东西又会一起显示。')}
+          <div class="setting-row"><span>现在是</span><small>${space.key ? esc(space.name || '这张角色卡') + (s.chat.partition === 'card' ? ' 的手机' : '') : '没有打开角色卡'}</small></div></div>`; })()
       + groupTitle('手机')
       + `<div class="group">${toggle('lockOnOpen', '打开时显示锁屏', phone.lockOnOpen, '锁屏可随时跳过，是插件内的外观，不是手机安全锁。')}<button class="list-row" data-action="lock"><span><strong>看一眼锁屏</strong></span>${icon('lock')}</button></div>`
       + groupTitle('存储')
@@ -164,6 +167,7 @@ export function settingsApp(ctx) {
     else if (key === 'defaultLanguage') api.updateGeneral({defaultLanguage: el.value});
     else if (key === 'volume') await api.setVolume(Number(el.value) / 100);
     else if (key === 'lockOnOpen') await api.savePhone({lockOnOpen: el.checked});
+    else if (key === 'partition') { api.saveChatOptions({partition: el.checked ? 'card' : 'none'}); ctx.notify(el.checked ? '已按角色卡分开' : '已关闭分区，所有内容一起显示'); }
   });
   v.on('input', '[data-field=backup-password],[data-field=backup-again],[data-field=restore-password]', el => {
     if (el.dataset.field === 'restore-password') { if (restore) restore.password = el.value; return; }
@@ -254,7 +258,7 @@ export function settingsApp(ctx) {
       }
       case 'copy-report': {
         const text = check?.report?.text || '';
-        try { await ctx.win.navigator.clipboard.writeText(text); ctx.notify('已复制报告'); }
+        try { if (!await copyText(ctx.win, text)) throw Error('copy'); ctx.notify('已复制报告'); }
         catch { const box = v.root.querySelector('.report-text'); if (box) { box.open = true; box.querySelector('textarea')?.select(); } ctx.notify('没能自动复制，请在下面的报告原文里手动复制'); }
         break;
       }
