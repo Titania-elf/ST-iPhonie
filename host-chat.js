@@ -76,13 +76,18 @@ export function createChatHost({context, settings, backend, notice, onCall = () 
       // 「[打电话] …」: the contact calls right after this reply (private chats only; one call).
       if (item.kind === 'call') { if (thread.type === 'dm' && !calling) calling = item; continue; }
       if (item.kind !== 'claim') { out.push(item); continue; }
-      const kinds = item.action === 'return' ? ['transfer'] : item.what ? [item.what] : ['redpacket', 'transfer'];
+      const kinds = item.what ? [item.what] : item.action === 'return' ? ['transfer'] : ['redpacket', 'transfer', 'gift'];
       const target = thread.messages.findLast(m => m.from === 'me' && kinds.includes(m.kind) && m.state === 'sent' && !taken.has(m.id));
       if (!target) continue;
       taken.add(target.id);
       const state = target.kind === 'redpacket' ? 'opened' : item.action === 'return' ? 'returned' : 'accepted';
+      if (target.kind === 'redpacket' && item.action === 'return') continue;
       latest = await backend.chats.updateMessage(threadId, target.id, {state, openedBy: item.from});
-      out.push({from: item.from, kind: 'notice', target: 'me', text: {opened: '领取了{对方}的红包', accepted: '收下了{对方}的转账', returned: '退还了{对方}的转账'}[state]});
+      // A transfer or a gift sent back: its money returns to the wallet.
+      const back = state === 'returned' ? (target.kind === 'gift' ? target.gift.price : Number(target.amount)) : 0;
+      if (back > 0) backend.walletMove(back, {kind: 'refund', note: target.kind === 'gift' ? target.gift.name : target.text, who: item.from});
+      const gift = target.kind === 'gift';
+      out.push({from: item.from, kind: 'notice', target: 'me', text: {opened: '领取了{对方}的红包', accepted: gift ? '收下了{对方}的礼物' : '收下了{对方}的转账', returned: gift ? '退还了{对方}的礼物' : '退还了{对方}的转账'}[state]});
     }
     if (posts.length) await backend.momentsMutate(() => backend.moments.add(posts)).catch(() => {});
     const saved = out.length ? await backend.chats.append(threadId, out) : latest;

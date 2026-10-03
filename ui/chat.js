@@ -1,4 +1,4 @@
-import {createView, esc, btn, field, input, textArea, heading, groupTitle, avatar, avatarPicture, empty, help, copyText} from './common.js';
+import {createView, esc, btn, field, input, textArea, toggle, heading, groupTitle, avatar, avatarPicture, empty, help, copyText} from './common.js';
 import {icon} from './icons.js';
 import {openImageViewer} from '../image-viewer.js';
 import {saveFile, downloadAction} from '../download.js';
@@ -6,6 +6,7 @@ import {momentsPanel, momentsNew, momentsSeen} from './moments.js';
 import {PROFILE_STATUS, BUBBLES, FRAMES, BACKGROUNDS} from '../core/chat.js';
 import {callSummary} from '../core/call.js';
 import {pendant} from './pendants.js';
+import {PREMIUM, yuan} from '../core/wallet.js';
 
 // Chat app, QQ style: 消息 (conversations, with search, 置顶 and 免打扰), 联系人 (特别关心, friends, groups, profile cards)
 // and 动态 (朋友圈, ui/moments.js). Tapping your own avatar opens 我: name, status, signature and 个性装扮 (chat bubble,
@@ -39,6 +40,7 @@ function preview(m) {
     case 'photo': return '[图片]';
     case 'redpacket': return '[红包] ' + (m.text || BLESSING);
     case 'transfer': return '[转账] ¥' + m.amount;
+    case 'gift': return '[礼物] ' + (m.gift?.name || '');
     case 'location': return '[位置] ' + m.text;
     case 'dice': return '[骰子]';
     case 'call': return `[${callSummary(m)}]`;
@@ -161,12 +163,16 @@ export function chatApp(ctx) {
   /** 我: name, status, signature, and 个性装扮. */
   function renderMe() {
     const p = profile();
-    const chips = (key, list, value) => `<div class="deco-row">${Object.entries(list).map(([k, l]) => `<button type="button" class="deco" data-action="me-set" data-key="${key}" data-value="${k}" data-${key}="${k}" aria-pressed="${value === k}"><span class="deco-sample" aria-hidden="true">${key === 'frame' ? `<span class="me-av" style="--s:36px"><span class="avatar none" style="--s:36px"></span>${pendant(k)}</span>` : ''}</span><span>${l}</span></button>`).join('')}</div>`;
+    // The free looks, then the shop's: a bought one is put on like a free one; one not bought yet shows its price.
+    const w = api.wallet();
+    const chips = (key, list, value) => `<div class="deco-row">${[...Object.entries(list).map(([k, l]) => [k, l, null]), ...Object.entries(PREMIUM[key] || {}).map(([k, [l, price]]) => [k, l, price])].map(([k, l, price]) => { const owned = price === null || w.owned.includes(key + ':' + k); return `<button type="button" class="deco${price === null ? '' : ' premium'}" data-action="${owned ? 'me-set' : 'me-buy'}" data-key="${key}" data-value="${k}" data-name="${esc(l)}" data-price="${price ?? 0}" data-${key}="${k}" aria-pressed="${value === k}"><span class="deco-sample" aria-hidden="true">${key === 'frame' ? `<span class="me-av" style="--s:36px"><span class="avatar none" style="--s:36px"></span>${pendant(k)}</span>` : ''}</span><span>${l}</span>${price === null ? '' : `<small class="deco-price">${owned ? '已拥有' : '¥' + price}</small>`}</button>`; }).join('')}</div>`;
     v.draw(heading('我', '', 'Me')
       + `<div class="qq-card me" data-bubble="${esc(p.bubble)}"><span class="qq-card-cover" aria-hidden="true"></span>${myAvatar(84)}<h2>${esc(myName())}</h2><p>${esc(p.signature || '还没有个性签名')}</p><div class="qq-card-tags"><span class="chip">${statusLine()}</span></div></div>`
       + `<div class="group pad"><div class="field"><span>头像</span><div class="actions" style="margin:0">${btn('avatar-pick', icon('image') + '换头像', 'secondary', 'data-key="me"')}</div><small class="hint">${esc(avatarState('me'))}</small></div>${field('名字', input('me-name', p.name, 'text', `maxlength="40" placeholder="${esc(api.userName?.() || '我')}（跟随酒馆里的用户名）"`))}${field('个性签名', input('me-signature', p.signature, 'text', 'maxlength="80" placeholder="写一句话"'))}
         <div class="field"><span>状态</span><div class="deco-row">${Object.entries(PROFILE_STATUS).map(([k, l]) => `<button type="button" class="status-chip" data-action="me-set" data-key="status" data-value="${k}" aria-pressed="${p.status === k}"><i class="qq-dot" data-status="${k}"></i>${l}</button>`).join('')}</div></div>
         ${field('自定义状态', input('me-statusText', p.statusText, 'text', 'maxlength="20" placeholder="例如：摸鱼中、在听歌"'))}</div>`
+      + groupTitle('钱包与商城')
+      + `<div class="group"><button class="list-row" data-action="me-wallet">${icon('wallet')}<span><strong>钱包</strong><small>零钱 ¥${esc(yuan(w.balance))} · 明细和收到的礼物</small></span>${icon('next')}</button><button class="list-row" data-action="me-shop">${icon('shop')}<span><strong>商城</strong><small>更好看的气泡、挂件、背景，送给角色的礼物</small></span>${icon('next')}</button></div>`
       + groupTitle('个性装扮')
       + `<div class="group pad"><div class="field"><span>聊天气泡</span>${chips('bubble', BUBBLES, p.bubble)}</div><div class="field"><span>头像挂件</span>${chips('frame', FRAMES, p.frame)}</div><div class="field"><span>聊天背景</span>${chips('background', BACKGROUNDS, p.background)}</div>
         <div class="actions" style="margin-top:0">${btn('me-bg-photo', icon('image') + (p.backgroundPhoto ? '换一张照片当背景' : '用相册里的照片当背景'), 'secondary')}${p.backgroundPhoto ? btn('me-bg-clear', '不用照片', 'text-button') : ''}</div></div>`
@@ -189,6 +195,11 @@ export function chatApp(ctx) {
       case 'transfer': {
         const state = {sent: m.from === 'me' ? '等对方收款' : '请收款', accepted: '已收款', returned: '已退还'}[m.state] || '';
         return `<button class="packet transfer${m.state !== 'sent' ? ' done' : ''}" data-action="transfer" ${mid}><span class="pk-main"><span class="pk-ico" aria-hidden="true">${icon(m.state === 'returned' ? 'undo' : m.state === 'accepted' ? 'check' : 'swap')}</span><span class="pk-text"><strong>¥${esc(m.amount)}</strong><small>${esc(m.text || state)}</small></span></span><span class="pk-foot">转账${m.text ? ' · ' + esc(state) : ''}</span></button>`;
+      }
+      case 'gift': {
+        const g = m.gift || {}, mine = m.from === 'me';
+        const state = m.state === 'accepted' ? (mine ? '对方已收下' : '你已收下') : m.state === 'returned' ? (mine ? '对方退还了' : '你退还了') : mine ? '等对方收下' : '点开收下';
+        return `<button class="gift-card${m.state !== 'sent' ? ' done' : ''}" data-action="gift" ${mid}><span class="gc-main"><span class="gc-emoji" aria-hidden="true">${esc(g.emoji || '🎁')}</span><span class="gc-text"><strong>${esc(g.name)}</strong><small>${esc(m.text || state)}</small></span></span><span class="gc-foot">礼物${m.text ? ' · ' + esc(state) : ''}</span></button>`;
       }
       case 'location': return `<button class="loc-card" data-action="message" ${mid}><span class="loc-text"><strong>${esc(m.text)}</strong>${m.detail ? `<small>${esc(m.detail)}</small>` : ''}</span><span class="loc-map" aria-hidden="true">${icon('pin')}</span></button>`;
       case 'dice': {
@@ -216,7 +227,7 @@ export function chatApp(ctx) {
   }
   function toolsHTML() {
     const group = thread.type === 'group';
-    const tools = [['photo', 'image', '照片'], ['emoji', 'smile', '表情'], ['redpacket', 'packet', '红包'], ...(group ? [] : [['transfer', 'swap', '转账']]),
+    const tools = [['photo', 'image', '照片'], ['emoji', 'smile', '表情'], ['redpacket', 'packet', '红包'], ...(group ? [] : [['transfer', 'swap', '转账'], ['gift', 'gift', '礼物']]),
       ['location', 'pin', '位置'], ['pat', 'hand', '拍一拍'], ['dice', 'dice', '骰子'], ['nudge', 'reply', group ? '让大家说' : '让TA说']];
     if (panel === 'emoji') return `<div class="chat-panel emoji-panel" role="group" aria-label="表情">
       <div class="emoji-grid">${EMOJI.map(e => `<button data-action="emoji-pick" data-emoji="${e}" aria-label="${e}">${e}</button>`).join('')}</div>
@@ -419,8 +430,10 @@ export function chatApp(ctx) {
       <div class="actions">${btn('packet-send', '塞钱进红包', 'primary packet-go')}</div>`, {
       'packet-send': async () => {
         const amount = amountOf(value(d, 'amount')), text = value(d, 'blessing') || BLESSING;
+        // Paid from the wallet; too little left says so and the sheet stays open.
+        await api.sendPaid(threadId, {kind: 'redpacket', amount, text});
         d.close();
-        await post([{from: 'me', kind: 'redpacket', amount, text, state: 'sent'}]);
+        stick = true;
       }
     });
   }
@@ -429,8 +442,9 @@ export function chatApp(ctx) {
       <div class="actions">${btn('transfer-send', '转账', 'primary')}</div>`, {
       'transfer-send': async () => {
         const amount = amountOf(value(d, 'amount')), text = value(d, 'note');
+        await api.sendPaid(threadId, {kind: 'transfer', amount, text});
         d.close();
-        await post([{from: 'me', kind: 'transfer', amount, text, state: 'sent'}]);
+        stick = true;
       }
     });
   }
@@ -480,24 +494,120 @@ export function chatApp(ctx) {
       ${opened || mine ? `<p class="po-amount">¥${esc(m.amount)}</p><p class="po-state">${status}</p>` : btn('packet-open', '開', 'packet-coin', 'aria-label="拆开红包"')}</div>`, {
       'packet-open': async () => {
         d.close();
-        await api.updateChatMessage(threadId, m.id, {state: 'opened', openedBy: 'me'});
-        await api.appendChat(threadId, [{from: 'me', kind: 'notice', target: m.from, text: '领取了{对方}的红包'}], {read: true});
-        ctx.notify(`领到 ¥${m.amount}`);
+        await api.takeSent(threadId, m.id, true);
+        ctx.notify(`领到 ¥${m.amount}，已存入零钱`);
       }
     });
   }
   function openTransfer(m) {
     const mine = m.from === 'me', waiting = m.state === 'sent';
     const state = {sent: mine ? '等对方收款' : '待你收款', accepted: mine ? '对方已收款' : '你已收款', returned: mine ? '对方已退还' : '你已退还'}[m.state];
-    const settle = (next, text) => async () => {
+    const settle = next => async () => {
       d.close();
-      await api.updateChatMessage(threadId, m.id, {state: next, openedBy: 'me'});
-      await api.appendChat(threadId, [{from: 'me', kind: 'notice', target: m.from, text}], {read: true});
+      await api.takeSent(threadId, m.id, next === 'accepted');
+      if (next === 'accepted') ctx.notify(`收下 ¥${m.amount}，已存入零钱`);
     };
     const d = sheet(mine ? '转账' : `${m.from}的转账`, `<div class="transfer-open"><span class="to-ico">${icon(waiting ? 'swap' : m.state === 'accepted' ? 'check' : 'undo')}</span><p class="po-state">${esc(state)}</p><p class="po-amount">¥${esc(m.amount)}</p>${m.text ? `<p class="po-wish">${esc(m.text)}</p>` : ''}</div>
       ${!mine && waiting ? `<div class="actions">${btn('transfer-accept', '收款', 'primary')}</div><div class="actions">${btn('transfer-return', '退还', 'text-button')}</div>` : ''}`, {
-      'transfer-accept': settle('accepted', '收下了{对方}的转账'),
-      'transfer-return': settle('returned', '退还了{对方}的转账')
+      'transfer-accept': settle('accepted'),
+      'transfer-return': settle('returned')
+    });
+  }
+
+  // ---------- 礼物 ----------
+  /** The user picks a gift from the shop, pays for it from the wallet and sends it; it can go into the story too. */
+  function sendGift() {
+    const w = api.wallet(), gifts = api.shopCatalog().gifts;
+    let picked = null;
+    const d = sheet(`送礼物给${thread.members[0]}`, `<p class="wallet-line">${icon('wallet')}零钱 ¥${esc(yuan(w.balance))}</p>
+      <div class="gift-grid">${gifts.map(g => `<button type="button" class="gift-item" data-action="gift-pick" data-id="${esc(g.id)}" aria-pressed="false"${g.price > w.balance ? ' data-short' : ''}><span class="gi-emoji" aria-hidden="true">${esc(g.emoji)}</span><strong>${esc(g.name)}</strong><small>¥${esc(yuan(g.price))}</small></button>`).join('')}</div>
+      ${field('附言', input('note', '', 'text', 'maxlength="60" placeholder="可以不写"'))}
+      ${toggle('bring', '带进剧情', false, '打开后，下一次正文回复会知道你送了这份礼物（和聊天里的「带进剧情」一样，用一次）。')}
+      <div class="actions">${btn('gift-send', icon('gift') + '买下并送出', 'primary')}</div>
+      <div class="actions">${btn('gift-shop', icon('shop') + '去商城加自己的礼物', 'text-button')}</div>`, {
+      'gift-pick': b => { picked = b.dataset.id; for (const x of d.body.querySelectorAll('.gift-item')) x.setAttribute('aria-pressed', String(x === b)); },
+      'gift-send': async () => {
+        if (!picked) throw Error('先选一件礼物');
+        const note = value(d, 'note'), bring = !!d.body.querySelector('[data-field=bring]')?.checked;
+        const saved = await api.sendPaid(threadId, {kind: 'gift', giftId: picked, text: note});
+        d.close();
+        stick = true;
+        const sent = saved?.messages?.findLast?.(m => m.from === 'me' && m.kind === 'gift');
+        if (bring && sent) await api.chatBring(threadId, [sent.id]);
+      },
+      'gift-shop': () => { d.close(); openShop('gifts'); }
+    });
+  }
+  function openGift(m) {
+    const mine = m.from === 'me', waiting = m.state === 'sent', g = m.gift || {};
+    const state = {sent: mine ? '等对方收下' : '要收下吗？', accepted: mine ? '对方收下了' : '你收下了', returned: mine ? '对方退还了，钱已退回零钱' : '你退还了'}[m.state] || '';
+    const d = sheet(mine ? '你送的礼物' : `${m.from}送的礼物`, `<div class="gift-open"><span class="go-emoji" aria-hidden="true">${esc(g.emoji || '🎁')}</span><p class="go-name">${esc(g.name)}</p>${mine && g.price ? `<p class="po-amount">¥${esc(yuan(g.price))}</p>` : ''}${m.text ? `<p class="po-wish">${esc(m.text)}</p>` : ''}<p class="po-state">${esc(state)}</p></div>
+      ${!mine && waiting ? `<div class="actions">${btn('gift-accept', '收下', 'primary')}</div><div class="actions">${btn('gift-return', '退还', 'text-button')}</div>` : ''}`, {
+      'gift-accept': async () => { d.close(); await api.takeSent(threadId, m.id, true); ctx.notify(`收下了「${g.name}」，在钱包的「收到的礼物」里`); },
+      'gift-return': async () => { d.close(); await api.takeSent(threadId, m.id, false); }
+    });
+  }
+
+  // ---------- 钱包 and 商城 ----------
+  const when = at => { if (!at) return ''; const t = new Date(at); return `${t.getMonth() + 1}月${t.getDate()}日 ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`; };
+  function openWallet() {
+    const w = api.wallet(), kinds = api.shopCatalog().ledgerKinds;
+    const d = sheet('钱包', `<div class="wallet-card"><small>零钱</small><strong>¥${esc(yuan(w.balance))}</strong><span>领到的红包、收下的转账存进来；发红包、转账、买装扮和礼物从这里出。</span></div>
+      <div class="actions">${btn('wallet-shop', icon('shop') + '去商城', 'secondary')}</div>
+      ${groupTitle('收到的礼物')}${w.received.length ? `<div class="gift-grid received">${w.received.map(r => `<div class="gift-item"><span class="gi-emoji" aria-hidden="true">${esc(r.emoji)}</span><strong>${esc(r.name)}</strong><small>${esc(r.from)} 送的</small></div>`).join('')}</div>` : '<p class="hint">还没有收到礼物。角色送的礼物，点开收下就会放在这里。</p>'}
+      ${groupTitle('明细')}<div class="group">${w.ledger.map(e => `<div class="setting-row ledger-row"><span><strong>${esc(kinds[e.kind] || e.kind)}${e.who ? ' · ' + esc(e.who) : ''}</strong><small>${esc([e.note, when(e.at)].filter(Boolean).join(' · '))}</small></span><b class="${e.amount > 0 ? 'in' : 'out'}">${e.amount > 0 ? '+' : '−'}¥${esc(yuan(Math.abs(e.amount)))}</b></div>`).join('')}</div>`, {
+      'wallet-shop': () => { d.close(); openShop(); }
+    });
+  }
+  /** A decoration as it looks: the same sample the 个性装扮 chips use. */
+  const decoSample = (kind, key) => `<span class="deco-sample" aria-hidden="true">${kind === 'frame' ? `<span class="me-av" style="--s:36px"><span class="avatar none" style="--s:36px"></span>${pendant(key)}</span>` : ''}</span>`;
+  function openShop(start = 'decor') {
+    let tab = start;
+    const d = sheet('商城', '', {
+      'shop-tab': b => { tab = b.dataset.tab; draw(); },
+      // Two taps to buy: the first one asks, the second one pays.
+      'shop-buy': async b => {
+        if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = '再点一下买下'; setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = b.dataset.label; } }, 3000); return; }
+        await api.buyDecoration(b.dataset.kind, b.dataset.key);
+        ctx.notify('买下了，在「我」的个性装扮里换上');
+        draw();
+      },
+      'shop-wear': async b => { api.saveChatOptions({profile: {[b.dataset.kind]: b.dataset.key}}); ctx.notify('换上了'); draw(); render(); },
+      'gift-new': () => { d.close(); editGift(null); },
+      'gift-edit': b => { d.close(); editGift(api.wallet().gifts.find(g => g.id === b.dataset.id)); },
+      'gift-delete': async b => {
+        if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = '再点删除'; setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = '删除'; } }, 3000); return; }
+        api.deleteGift(b.dataset.id); draw();
+      }
+    });
+    function draw() {
+      if (!d.live) return;
+      const w = api.wallet(), c = api.shopCatalog(), p = profile();
+      const decor = Object.entries(c.premium).map(([kind, items]) => groupTitle(c.kinds[kind]) + `<div class="shop-grid">${Object.entries(items).map(([key, [name, price]]) => {
+        const owned = w.owned.includes(kind + ':' + key), wearing = p[kind] === key, label = `¥${price} 买下`;
+        return `<div class="deco shop-deco premium" data-${kind}="${esc(key)}">${decoSample(kind, key)}<span>${esc(name)}</span>${owned ? (wearing ? '<small class="deco-price">使用中</small>' : btn('shop-wear', '换上', 'chip-button', `data-kind="${kind}" data-key="${esc(key)}"`)) : btn('shop-buy', label, 'chip-button', `data-kind="${kind}" data-key="${esc(key)}" data-label="${label}"${price > w.balance ? ' data-short' : ''}`)}</div>`;
+      }).join('')}</div>`).join('');
+      const gifts = `<div class="gift-grid">${c.gifts.map(g => `<div class="gift-item${g.own ? ' own' : ''}"><span class="gi-emoji" aria-hidden="true">${esc(g.emoji)}</span><strong>${esc(g.name)}</strong><small>¥${esc(yuan(g.price))}</small>${g.note ? `<small class="gi-note">${esc(g.note)}</small>` : ''}${g.own ? `<span class="gi-tools">${btn('gift-edit', '改', 'text-button', `data-id="${esc(g.id)}"`)}${btn('gift-delete', '删除', 'text-button', `data-id="${esc(g.id)}"`)}</span>` : ''}</div>`).join('')}</div>
+        <div class="actions">${btn('gift-new', icon('add') + '自定义礼物', 'secondary')}</div><p class="hint">送礼物：在私聊里点「+」→「礼物」。</p>`;
+      d.body.innerHTML = `<p class="wallet-line">${icon('wallet')}零钱 ¥${esc(yuan(w.balance))}</p><div class="segmented" style="margin:0 0 10px">${[['decor', '装扮'], ['gifts', '礼物']].map(([k, l]) => `<button data-action="shop-tab" data-tab="${k}" aria-pressed="${tab === k}">${l}</button>`).join('')}</div>${tab === 'gifts' ? gifts : decor}`;
+    }
+    draw();
+  }
+  /** A gift of the user's own: name, emoji, price and a line about it. */
+  function editGift(gift) {
+    const g = gift || {name: '', emoji: '🎁', price: 20, note: ''};
+    const d = sheet(gift ? '改礼物' : '自定义礼物', `${field('名字', input('gift-name', g.name, 'text', 'maxlength="20" placeholder="比如：手写贺卡、演唱会门票"'))}
+      ${field('图标', input('gift-emoji', g.emoji, 'text', 'maxlength="4" placeholder="一个表情，比如 🎫"'))}
+      ${field('价格（元）', input('gift-price', g.price, 'text', 'inputmode="decimal" maxlength="8"'))}
+      ${field('说明', input('gift-note', g.note, 'text', 'maxlength="60" placeholder="可以不写"'))}
+      <div class="actions">${btn('gift-save', '保存', 'primary')}</div>`, {
+      'gift-save': async () => {
+        const price = Number(value(d, 'gift-price').replace(/[¥￥,，\s元]/g, ''));
+        if (!Number.isFinite(price) || price < 0 || price > 99999) throw Error('价格填 0 到 99999');
+        api.saveGift({id: gift?.id, name: value(d, 'gift-name'), emoji: value(d, 'gift-emoji'), price, note: value(d, 'gift-note')});
+        d.close();
+        openShop('gifts');
+      }
     });
   }
 
@@ -505,8 +615,8 @@ export function chatApp(ctx) {
   function messageMenu(m) {
     const contact = m.from !== 'me', last = contact && thread.messages.at(-1)?.id === m.id;
     const copyable = ['text', 'voice', 'location', 'photo'].includes(m.kind) && quoteText(m);
-    const canRecall = !contact && !['redpacket', 'transfer'].includes(m.kind);
-    const shown = m.kind === 'voice' ? (m.translation || m.text) : m.kind === 'dice' ? `骰子 ${m.text} 点` : ['redpacket', 'transfer'].includes(m.kind) ? preview(m) : quoteText(m);
+    const canRecall = !contact && !['redpacket', 'transfer', 'gift'].includes(m.kind);
+    const shown = m.kind === 'voice' ? (m.translation || m.text) : m.kind === 'dice' ? `骰子 ${m.text} 点` : ['redpacket', 'transfer', 'gift'].includes(m.kind) ? preview(m) : quoteText(m);
     const voice = m.kind === 'voice', open = voice && (voiceText().auto || transcribed.has(m.id));
     const d = sheet('消息', `${voice ? '' : `<p class="help-copy">${esc(shown)}</p>`}
       ${voice ? `<div class="actions">${btn('transcribe', icon('book') + (open ? '收起文字' : '转文字'), 'primary')}${btn('download', icon('download') + '下载语音', 'secondary')}</div>` : ''}
@@ -774,7 +884,7 @@ export function chatApp(ctx) {
     if (action === 'open' && el.dataset.conv && Date.now() - convPressedAt < 700) return;
     // The click that ends a long-press only closes the press, it does not play or open anything.
     if (Date.now() - pressedAt < 700 && el.closest('.msg')) return;
-    if (selecting && ['message', 'voice', 'photo', 'packet', 'transfer'].includes(action)) return;
+    if (selecting && ['message', 'voice', 'photo', 'packet', 'transfer', 'gift'].includes(action)) return;
     const find = () => thread.messages.find(x => x.id === el.dataset.mid);
     switch (action) {
       case 'tab': {
@@ -786,6 +896,16 @@ export function chatApp(ctx) {
       case 'plus-menu': plusMenu(); break;
       case 'me': mode = 'me'; render(); break;
       case 'me-set': api.saveChatOptions({profile: {[el.dataset.key]: el.dataset.value}}); render(); break;
+      case 'me-buy': {
+        const left = api.wallet().balance, price = Number(el.dataset.price);
+        if (!await ctx.confirm(`买下「${el.dataset.name}」？`, `¥${price}，零钱还有 ¥${yuan(left)}。买下以后一直能用。`)) break;
+        api.buyDecoration(el.dataset.key, el.dataset.value);
+        api.saveChatOptions({profile: {[el.dataset.key]: el.dataset.value}});
+        render(); ctx.notify('买下并换上了');
+        break;
+      }
+      case 'me-wallet': openWallet(); break;
+      case 'me-shop': openShop(); break;
       case 'me-bg-photo': await pickBackground(); break;
       case 'me-bg-clear': api.saveChatOptions({profile: {backgroundPhoto: ''}}); render(); break;
       case 'me-voice': voiceTextSheet(); break;
@@ -815,6 +935,7 @@ export function chatApp(ctx) {
       case 'tool-photo': panel = null; syncPanel(); await sendPhoto(); break;
       case 'tool-redpacket': panel = null; syncPanel(); sendPacket(); break;
       case 'tool-transfer': panel = null; syncPanel(); sendTransfer(); break;
+      case 'tool-gift': panel = null; syncPanel(); sendGift(); break;
       case 'tool-location': panel = null; syncPanel(); sendLocation(); break;
       case 'tool-pat': panel = null; syncPanel(); await choosePat(); break;
       case 'tool-dice': panel = null; syncPanel(); await rollDice(); break;
@@ -836,6 +957,7 @@ export function chatApp(ctx) {
       }
       case 'packet': { const m = find(); if (m) openPacket(m); break; }
       case 'transfer': { const m = find(); if (m) openTransfer(m); break; }
+      case 'gift': { const m = find(); if (m) openGift(m); break; }
       case 'voice': {
         const m = find();
         if (!m) break;

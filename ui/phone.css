@@ -1216,3 +1216,96 @@ small.peek-draw{cursor:default;color:var(--ink2)}
 .file-pick input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
 .file-pick:focus-within{outline:2px solid var(--e,var(--accent));outline-offset:2px}
 .key-actions>.file-pick{justify-content:center}
+
+/* ---------- 商城的装扮 (core/wallet.js PREMIUM): richer than the free ones, some with slow motion ---------- */
+@keyframes aurora-flow{0%{background-position:0% 50%}100%{background-position:300% 50%}}
+@keyframes shine-sweep{0%,70%{transform:translateX(-120%) skewX(-20deg)}100%{transform:translateX(220%) skewX(-20deg)}}
+@keyframes twinkle{0%,100%{opacity:.25}50%{opacity:1}}
+@keyframes aurora-sky{0%,100%{transform:translateX(-6%) scaleY(1)}50%{transform:translateX(6%) scaleY(1.12)}}
+@keyframes wave-roll{0%{background-position-x:0}100%{background-position-x:240px}}
+@keyframes neon-spin{to{transform:rotate(360deg)}}
+@keyframes wing-flap{0%,100%{transform:rotate(0)}50%{transform:rotate(-7deg)}}
+@keyframes fly-flap{0%,100%{transform:scaleX(1)}50%{transform:scaleX(.35)}}
+@keyframes ear-sway{0%,100%{transform:rotate(0)}50%{transform:rotate(-5deg)}}
+
+/* Bubbles */
+.chat-thread[data-bubble=aurora] .msg.me .chat-bubble,.deco[data-bubble=aurora] .deco-sample{background:linear-gradient(115deg,#7afcff,#a98bff,#ff8bd8,#ffd68b,#7afcff);background-size:300% 100%;animation:aurora-flow 9s linear infinite;color:#1d1240;box-shadow:0 4px 14px -5px #a98bffcc,inset 0 1px 0 #ffffffaa}
+.chat-thread[data-bubble=sakura] .msg.me .chat-bubble,.deco[data-bubble=sakura] .deco-sample{background:radial-gradient(ellipse 5px 3px at 88% 22%,#ff9ec4 95%,transparent),radial-gradient(ellipse 4px 2.5px at 10% 82%,#ffb8d2 95%,transparent),radial-gradient(ellipse 3px 2px at 70% 85%,#ffd0e0 95%,transparent),linear-gradient(160deg,#fff7fa,#ffe0ec);color:#7a2c4d;border:1.5px dashed #ffa8c8;box-shadow:inset 0 0 0 2px #fff,0 3px 10px -4px #ff8fb5aa}
+.chat-thread[data-bubble=gold] .msg.me .chat-bubble,.deco[data-bubble=gold] .deco-sample{position:relative;overflow:hidden;background:linear-gradient(140deg,#2c2010,#4d3714 55%,#2c2010);color:#ffe7a8;border:1.5px solid #e9c46a;box-shadow:0 0 0 2px #2c2010,0 5px 14px -5px #e9c46acc;text-shadow:0 0 8px #ffd76a55}
+.chat-thread[data-bubble=gold] .msg.me .chat-bubble:after,.deco[data-bubble=gold] .deco-sample:after{content:"";position:absolute;inset:0;width:40%;background:linear-gradient(90deg,transparent,#fff3c455,transparent);animation:shine-sweep 5.5s ease-in-out infinite;pointer-events:none}
+.chat-thread[data-bubble=glass] .msg.me .chat-bubble,.deco[data-bubble=glass] .deco-sample{background:linear-gradient(135deg,#ffffffb8,#dff1ff80);-webkit-backdrop-filter:blur(10px) saturate(1.4);backdrop-filter:blur(10px) saturate(1.4);color:#1b3554;border:1px solid #ffffffd9;box-shadow:inset 0 1px 0 #fff,inset 0 -8px 16px -10px #8cc8ff,0 6px 16px -8px #4a7ab5aa}
+:root[data-theme=dark] .chat-thread[data-bubble=glass] .msg.me .chat-bubble,:root[data-theme=dark] .deco[data-bubble=glass] .deco-sample{background:linear-gradient(135deg,#123456d9,#1d4a7acc);color:#eef6ff;border-color:#9fd4ff66;box-shadow:inset 0 1px 0 #ffffff40,0 6px 16px -8px #000a}
+.chat-thread[data-bubble=galaxy] .msg.me .chat-bubble,.deco[data-bubble=galaxy] .deco-sample{background:radial-gradient(circle at 18% 30%,#fff 0 .9px,transparent 1.4px),radial-gradient(circle at 72% 64%,#fff 0 .8px,transparent 1.3px),radial-gradient(circle at 46% 82%,#ffe9a8 0 1px,transparent 1.5px),radial-gradient(circle at 86% 22%,#c9b8ff 0 1px,transparent 1.6px),radial-gradient(120% 90% at 80% 10%,#7a4bd8aa,transparent 60%),linear-gradient(135deg,#0f0c29,#302b63 55%,#24243e);color:#f2ecff;box-shadow:0 5px 16px -6px #6a4bd8cc,inset 0 0 0 1px #ffffff22}
+
+/* Backgrounds */
+.chat-thread[data-bg=aurora]{--aurora:radial-gradient(60% 40% at 30% 20%,#3cffb08a,transparent 70%),radial-gradient(50% 35% at 70% 28%,#8a6cff7a,transparent 70%)}
+.chat-thread[data-bg=aurora] .msgs{background:var(--aurora),radial-gradient(#ffffffaa .8px,transparent 1.2px) 0 0/34px 34px,linear-gradient(180deg,#071528,#0d2a3c 55%,#123a3a);background-size:200% 100%,200% 100%,34px 34px,100% 100%;animation:aurora-flow 40s linear infinite}
+.deco[data-background=aurora] .deco-sample{background:radial-gradient(60% 40% at 30% 30%,#3cffb0aa,transparent 70%),radial-gradient(50% 35% at 70% 40%,#8a6cffaa,transparent 70%),linear-gradient(180deg,#071528,#123a3a)}
+.chat-thread[data-bg=sunset] .msgs,.deco[data-background=sunset] .deco-sample{background:radial-gradient(18% 12% at 76% 70%,#fff3c8 0,#ffd27a 55%,transparent 60%),radial-gradient(60% 14% at 30% 30%,#ffffff70,transparent 70%),radial-gradient(50% 12% at 70% 44%,#ffd6e870,transparent 70%),linear-gradient(180deg,#5b4b9a,#c86fa0 42%,#ff9e7a 72%,#ffd08a)}
+.chat-thread[data-bg=ocean] .msgs{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='60' viewBox='0 0 240 60'%3E%3Cpath d='M0 30 Q30 10 60 30 T120 30 T180 30 T240 30 V60 H0Z' fill='%23ffffff' fill-opacity='.35'/%3E%3C/svg%3E") repeat-x 0 100%/240px 60px,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='50' viewBox='0 0 180 50'%3E%3Cpath d='M0 25 Q22 8 45 25 T90 25 T135 25 T180 25 V50 H0Z' fill='%23ffffff' fill-opacity='.25'/%3E%3C/svg%3E") repeat-x 0 calc(100% - 26px)/180px 50px,linear-gradient(180deg,#bfeaff,#7cc8f0 55%,#3f93d6);background-attachment:local,local,local;animation:wave-roll 14s linear infinite}
+.deco[data-background=ocean] .deco-sample{background:radial-gradient(120% 40% at 50% 100%,#ffffff80 30%,transparent 32%),radial-gradient(120% 40% at 20% 82%,#ffffff55 30%,transparent 32%),linear-gradient(180deg,#bfeaff,#3f93d6)}
+.chat-thread[data-bg=meteor] .msgs,.deco[data-background=meteor] .deco-sample{background:linear-gradient(-45deg,transparent 48.5%,#ffffffd0 49.6%,transparent 51%) no-repeat 82% 6%/110px 110px,linear-gradient(-45deg,transparent 48.5%,#ffe7a0b0 49.6%,transparent 51%) no-repeat 30% 30%/70px 70px,linear-gradient(-45deg,transparent 48.5%,#c9b8ffa0 49.6%,transparent 51%) no-repeat 60% 58%/90px 90px,radial-gradient(#fff 1px,transparent 1.5px) 0 0/29px 29px,radial-gradient(#ffe7a0 .8px,transparent 1.3px) 11px 17px/41px 41px,radial-gradient(70% 50% at 80% 0%,#5a3d9a88,transparent 70%),linear-gradient(180deg,#0b0e2a,#1d1747 60%,#2c1f55)}
+.chat-thread[data-bg=garden] .msgs,.deco[data-background=garden] .deco-sample{background:radial-gradient(circle 3px at 20% 30%,#ffd76a 95%,transparent),radial-gradient(circle 6px at 20% 30%,#ff9ec4 95%,transparent),radial-gradient(circle 3px at 70% 64%,#fff3b0 95%,transparent),radial-gradient(circle 6px at 70% 64%,#b8a4ff 95%,transparent),radial-gradient(ellipse 6px 3px at 45% 85%,#8fd69a 95%,transparent);background-size:90px 80px,90px 80px,110px 96px,110px 96px,70px 60px;background-color:#f1fbe9}
+.deco[data-background=garden] .deco-sample{background-size:30px 28px,30px 28px,36px 32px,36px 32px,24px 20px}
+.chat-thread[data-bg=aurora] .day,.chat-thread[data-bg=aurora] .note-line,.chat-thread[data-bg=meteor] .day,.chat-thread[data-bg=meteor] .note-line,.chat-thread[data-bg=sunset] .day,.chat-thread[data-bg=sunset] .note-line{color:#f3efff}
+
+/* Pendants' motion */
+.me-av[data-frame=crown] .pendant .twinkle,.me-av[data-frame=wings] .pendant .twinkle,.me-av[data-frame=butterfly] .pendant .twinkle{animation:twinkle 2.4s ease-in-out infinite}
+.me-av .pendant .twinkle.late{animation-delay:1.2s}
+.me-av[data-frame=neon] .pendant .neon-spin{transform-box:view-box;transform-origin:50% 50%;animation:neon-spin 7s linear infinite}
+.me-av[data-frame=neon] .pendant{filter:drop-shadow(0 0 3px #b46bff)}
+.me-av[data-frame=wings] .pendant .wing{transform-box:view-box;animation:wing-flap 3s ease-in-out infinite}
+.me-av[data-frame=wings] .pendant .wing.left{transform-origin:17% 55%}
+.me-av[data-frame=wings] .pendant .wing.right{transform-origin:83% 55%;animation-name:wing-flap-r}
+@keyframes wing-flap-r{0%,100%{transform:rotate(0)}50%{transform:rotate(7deg)}}
+.me-av[data-frame=butterfly] .pendant .fly .wing-l,.me-av[data-frame=butterfly] .pendant .fly .wing-r{transform-box:fill-box;animation:fly-flap .5s ease-in-out infinite}
+.me-av[data-frame=butterfly] .pendant .fly .wing-l{transform-origin:100% 50%}
+.me-av[data-frame=butterfly] .pendant .fly .wing-r{transform-origin:0% 50%}
+.me-av[data-frame=butterfly] .pendant .fly.b .wing-l,.me-av[data-frame=butterfly] .pendant .fly.b .wing-r{animation-duration:.62s}
+.me-av[data-frame=bunny] .pendant .ear{transform-box:fill-box;transform-origin:50% 100%;animation:ear-sway 4.5s ease-in-out infinite}
+.me-av[data-frame=bunny] .pendant .ear.right{animation-delay:.4s}
+
+/* 个性装扮 chips and the shop */
+.deco.premium{position:relative}
+.deco-price{font-size:10.5px;font-weight:800;color:#c27b00;background:#fff3d1;border-radius:999px;padding:1px 7px}
+:root[data-theme=dark] .deco-price{color:#ffd88a;background:#4a3a1c}
+.shop-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:10px;margin:0 0 6px}
+.shop-deco{min-width:0;padding:10px 6px;background:var(--card);border-radius:16px;box-shadow:inset 0 0 0 1px var(--line)}
+.shop-deco .deco-sample{width:64px;height:38px}
+.shop-deco[data-frame] .deco-sample{width:56px;height:56px}
+.shop-deco[data-background] .deco-sample{width:64px;height:64px}
+.shop-deco .chip-button{font-size:12px;padding:5px 10px}
+.shop-deco .chip-button[data-armed]{background:#ff7aa8;color:#fff}
+.wallet-line{display:flex;align-items:center;gap:6px;margin:0 0 10px;font-weight:800;color:var(--ink2)}
+.wallet-line svg{width:18px;height:18px}
+.wallet-card{display:grid;gap:4px;padding:18px;border-radius:20px;color:#fff;background:radial-gradient(120% 90% at 100% 0%,#ffffff33,transparent 55%),linear-gradient(135deg,#ff8a5c,#ff5e8e 55%,#b05cff);box-shadow:0 12px 24px -14px #ff5e8e}
+.wallet-card small{opacity:.85;font-weight:700}
+.wallet-card strong{font-size:32px;letter-spacing:.02em}
+.wallet-card span{font-size:12px;opacity:.9;line-height:1.5}
+.ledger-row b{font-variant-numeric:tabular-nums;font-weight:800;white-space:nowrap;flex:none}
+.ledger-row b.in{color:#e0457b}
+.ledger-row b.out{color:var(--ink)}
+.gift-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:8px;margin:0 0 12px}
+.gift-item{display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 4px 8px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 1px var(--line);font-size:13px;color:var(--ink);text-align:center}
+.gift-item small{font-size:11.5px;color:var(--ink2)}
+.gift-item .gi-emoji{font-size:30px;line-height:1.1}
+.gift-item .gi-note{font-size:10.5px;line-height:1.35}
+.gift-item .gi-tools{display:flex;gap:2px}
+.gift-item .gi-tools .text-button{font-size:11px;padding:2px 6px;min-height:0}
+.gift-item.own{box-shadow:inset 0 0 0 1.5px #ffb3cf}
+button.gift-item[aria-pressed=true]{box-shadow:inset 0 0 0 2.5px #ff5e8e;background:#fff0f5}
+:root[data-theme=dark] button.gift-item[aria-pressed=true]{background:#46203a}
+button.gift-item[data-short]{opacity:.55}
+.gift-card{display:flex;flex-direction:column;width:min(230px,70vw);border-radius:16px;overflow:hidden;text-align:left;background:linear-gradient(135deg,#fff1f6,#ffe2ee);box-shadow:0 6px 16px -10px #ff5e8e,inset 0 0 0 1px #ffc6da;color:#7a2c4d}
+.gift-card .gc-main{display:flex;align-items:center;gap:10px;padding:12px 14px}
+.gift-card .gc-emoji{font-size:34px;line-height:1;filter:drop-shadow(0 3px 4px #ff5e8e44)}
+.gift-card .gc-text{display:grid;gap:2px;min-width:0}
+.gift-card .gc-text small{font-size:12px;opacity:.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gift-card .gc-foot{padding:5px 14px;font-size:11px;font-weight:700;background:#ffffff99;color:#b5577d}
+.gift-card.done{filter:saturate(.6) opacity(.85)}
+:root[data-theme=dark] .gift-card{background:linear-gradient(135deg,#4a2240,#3a1d3c);color:#ffd6e6;box-shadow:inset 0 0 0 1px #6a3358}
+:root[data-theme=dark] .gift-card .gc-foot{background:#00000030;color:#ffb3cf}
+.gift-open{display:grid;justify-items:center;gap:6px;padding:8px 0 4px;text-align:center}
+.gift-open .go-emoji{font-size:64px;line-height:1.1;filter:drop-shadow(0 6px 10px #ff5e8e44)}
+.gift-open .go-name{margin:0;font-size:20px;font-weight:800}
+.deco[data-background=meteor] .deco-sample{background-size:30px 30px,20px 20px,24px 24px,14px 14px,20px 20px,100% 100%,100% 100%}

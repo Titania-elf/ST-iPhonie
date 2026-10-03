@@ -5,6 +5,7 @@
 //   redpacket: amount, state:'sent'|'opened', openedBy? · transfer: amount, state:'sent'|'accepted'|'returned'
 //   location: text = place, detail = address · pat: target (who was patted) · dice: text = 1..6
 //   notice: text = what `from` did, with {对方} standing for `target` · recall: a withdrawn message · system: app notes
+//   gift: gift:{name, emoji, price}, state:'sent'|'accepted'|'returned', openedBy? (a present; price 0 when a character sends it)
 //   call: dir:'in'|'out' (from is who called), state:'answered'|'missed'|'declined'|'cancelled', duration (seconds),
 //         lines:[{from, text, translation, emotion}] what was said, voicemail:[{text, translation, emotion}] a missed call's message
 // list() returns threads without their messages, plus the last message for previews, pinned threads first.
@@ -13,10 +14,10 @@
 import {connectionLost, lostError} from './idb.js';
 
 export const CHAT_STORE_LIMITS = Object.freeze({messages: 1000, text: 4000, members: 20});
-const KINDS = ['text', 'voice', 'photo', 'system', 'redpacket', 'transfer', 'location', 'pat', 'dice', 'notice', 'recall', 'call'];
+const KINDS = ['text', 'voice', 'photo', 'system', 'redpacket', 'transfer', 'location', 'pat', 'dice', 'notice', 'recall', 'call', 'gift'];
 const CALL_STATES = ['answered', 'missed', 'declined', 'cancelled'];
 const spoken = (list, max, withFrom) => (Array.isArray(list) ? list : []).slice(-max).filter(l => l && String(l.text || l.translation || '').trim()).map(l => ({...(withFrom ? {from: clip(l.from, 40).trim() || 'me'} : {}), text: clip(l.text || l.translation, 1000), translation: clip(l.translation || l.text, 1000), emotion: clip(l.emotion || 'calm', 100)}));
-const STATES = {redpacket: ['sent', 'opened'], transfer: ['sent', 'accepted', 'returned']};
+const STATES = {redpacket: ['sent', 'opened'], transfer: ['sent', 'accepted', 'returned'], gift: ['sent', 'accepted', 'returned']};
 /** Money as a string with two decimals, 0.01 to 200000; null when the value is not an amount. */
 export function money(value) {
   const n = Math.round(Number(String(value ?? '').replace(/[¥￥,，\s元]/g, '')) * 100) / 100;
@@ -33,9 +34,13 @@ function cleanMessage(m, id, at) {
   const out = {id, from, kind, text: clip(m.text, CHAT_STORE_LIMITS.text), at};
   if (kind === 'voice') { out.translation = clip(m.translation, CHAT_STORE_LIMITS.text); out.emotion = clip(m.emotion, 100); }
   if (kind === 'photo' && m.photoId) out.photoId = clip(m.photoId, 512);
+  if (kind === 'gift') {
+    const g = m.gift && typeof m.gift === 'object' ? m.gift : {};
+    out.gift = {name: clip(g.name, 20).trim(), emoji: [...clip(g.emoji, 16).trim()].slice(0, 2).join('') || '🎁', price: Math.max(0, Math.min(99999, Math.round(Number(g.price) * 100) / 100 || 0))};
+    if (!out.gift.name) throw fail('礼物缺少名字');
+  }
   if (STATES[kind]) {
-    out.amount = money(m.amount);
-    if (!out.amount) throw fail('金额无效');
+    if (kind !== 'gift') { out.amount = money(m.amount); if (!out.amount) throw fail('金额无效'); }
     out.state = STATES[kind].includes(m.state) ? m.state : 'sent';
     if (m.openedBy) out.openedBy = clip(m.openedBy, 40);
   }
@@ -51,7 +56,7 @@ function cleanMessage(m, id, at) {
     out.voicemail = spoken(m.voicemail, 4, false);
   }
   if (m.quote?.text && ['text', 'voice'].includes(kind)) out.quote = {from: clip(m.quote.from, 40), text: clip(m.quote.text, 200)};
-  const textless = ['photo', 'system', 'redpacket', 'transfer', 'pat', 'dice', 'recall', 'call'];
+  const textless = ['photo', 'system', 'redpacket', 'transfer', 'pat', 'dice', 'recall', 'call', 'gift'];
   if (!textless.includes(kind) && !out.text.trim()) throw fail('消息内容为空');
   return out;
 }

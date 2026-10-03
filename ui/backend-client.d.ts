@@ -201,13 +201,18 @@ export interface MomentComment { id: string; from: string; to?: string; text: st
 export interface MomentPost { id: string; author: string; text: string; at: number; source: 'manual' | 'auto' | 'me'; photoId?: string; imageTags?: string; imageState?: 'waiting' | 'done' | 'failed'; imageNote?: string; likes: string[]; comments: MomentComment[]; }
 export interface ChatSettings { presets: ChatPreset[]; activePreset: string; contacts: Contact[]; voiceText: VoiceTextOptions; profile: ChatProfile; /** 特别关心 */ starred: string[];
     /** Avatar choices by name ('me' = the user); names not listed use the tavern's avatar, else the first letter. */
-    avatars: Record<string, AvatarChoice>; }
+    avatars: Record<string, AvatarChoice>;
+    /** One wallet for the whole phone. */
+    wallet: Wallet; }
+/** 零钱 and its 明细 (newest first), decorations bought ('bubble:aurora'), the user's own shop gifts, gifts taken from characters. */
+export interface Wallet { balance: number; ledger: Array<{ id: string; at: number; amount: number; kind: string; note: string; who: string }>; owned: string[]; gifts: ShopGift[]; received: Array<{ id: string; at: number; from: string; name: string; emoji: string; note: string }>; }
+export interface ShopGift { id: string; name: string; emoji: string; price: number; note: string; /** true for a gift the user added */ own?: boolean; }
 export type AvatarChoice = { kind: 'photo'; photoId: string } | { kind: 'text' };
 export interface ChatContact { name: string; source: 'role' | 'manual'; id?: string; voice: boolean; engine: Engine | 'none'; language: string; persona: string; }
-export type ChatKind = 'text' | 'voice' | 'photo' | 'system' | 'redpacket' | 'transfer' | 'location' | 'pat' | 'dice' | 'notice' | 'recall' | 'call';
+export type ChatKind = 'text' | 'voice' | 'photo' | 'system' | 'redpacket' | 'transfer' | 'location' | 'pat' | 'dice' | 'notice' | 'recall' | 'call' | 'gift';
 export interface CallLine { from: 'me' | string; text: string; translation: string; emotion: string; }
 /** notice: `text` says what `from` did, with {对方} standing for `target`. recall: a withdrawn message (no content). */
-export interface ChatMessage { id: string; from: 'me' | string; kind: ChatKind; text: string; translation?: string; emotion?: string; photoId?: string; amount?: string; state?: 'sent' | 'opened' | 'accepted' | 'returned' | 'answered' | 'missed' | 'declined' | 'cancelled'; openedBy?: string; detail?: string; target?: string; quote?: { from: string; text: string }; at: number;
+export interface ChatMessage { id: string; from: 'me' | string; kind: ChatKind; text: string; translation?: string; emotion?: string; photoId?: string; amount?: string; /** kind 'gift': what it is (price 0 when a character sends it) */ gift?: { name: string; emoji: string; price: number }; state?: 'sent' | 'opened' | 'accepted' | 'returned' | 'answered' | 'missed' | 'declined' | 'cancelled'; openedBy?: string; detail?: string; target?: string; quote?: { from: string; text: string }; at: number;
     /** call: who called (from), how it ended, how long it lasted, what was said and a missed call's voice message. */
     dir?: 'in' | 'out'; duration?: number; lines?: CallLine[]; voicemail?: Omit<CallLine, 'from'>[]; }
 /** pinned: 置顶. muted: 免打扰 (its unread messages do not count toward the badge). */
@@ -588,6 +593,17 @@ export interface BackendFacade {
     previewChatPrompt(preset?: ChatPreset): string;
     /** Empty string when the preset is valid. */
     validateChatPreset(preset: ChatPreset): string;
+    /** 钱包 and 商城. */
+    wallet(): Wallet;
+    /** Buys a decoration once (paid from the wallet; too little left: an error with code 'BROKE'). */
+    buyDecoration(kind: 'bubble' | 'frame' | 'background', key: string): Wallet;
+    saveGift(gift: Partial<ShopGift>): ShopGift;
+    deleteGift(id: string): Wallet;
+    /** The user sends a red packet ({kind, amount, text}), a transfer, or a gift ({kind: 'gift', giftId, text}): paid first, refunded if it cannot be sent. */
+    sendPaid(threadId: string, message: { kind: 'redpacket' | 'transfer'; amount: string; text?: string } | { kind: 'gift'; giftId: string; text?: string }): Promise<ChatThread>;
+    /** Takes (or returns) what a contact sent: red packet, transfer or gift. Money goes into the wallet, a gift into 收到的礼物. */
+    takeSent(threadId: string, messageId: string, accept?: boolean): Promise<ChatThread>;
+    shopCatalog(): { premium: Record<'bubble' | 'frame' | 'background', Record<string, [string, number]>>; kinds: Record<string, string>; gifts: ShopGift[]; ledgerKinds: Record<string, string> };
     saveChatOptions(patch: { voiceText?: Partial<VoiceTextOptions>; profile?: Partial<ChatProfile>; starred?: string[]; /** null: back to the tavern's avatar */ avatars?: Record<string, AvatarChoice | null> }): ChatSettings;
     saveContact(contact: Partial<Contact> & { name: string }): Contact;
     deleteContact(id: string): ChatSettings;

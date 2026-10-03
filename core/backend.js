@@ -9,6 +9,7 @@ import { normalizeText, activeText, customRequest, listModels, streamText, asMes
 import { normalizeSync, runSync, SYNC_PARTS } from './sync.js';
 import { decodeMono, encodeWav } from './audio-join.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup, sealKeys, openKeys } from './backup.js';
+import { WALLET_LIMITS, PREMIUM, DECOR_KINDS, SHOP_GIFTS, LEDGER_KINDS, premiumOf, decorKey, cents, yuan, shopGifts, normalizeGift, validateGift } from './wallet.js';
 import { DRAW_ENGINES, DRAW_ENGINE_NAMES, GPT_IMAGE_MODELS, GPT_QUALITIES, normalizeGpt, gptBase, gptSize, gptPrompt, gptGenerate, normalizeComfy, comfyUrl, checkWorkflow, comfySize, comfyPrompt, comfyValues, fillWorkflow, comfyGenerate, comfyCatalog, tavernWorkflows, tavernWorkflow, orientationOf, DEFAULT_COMFY_WORKFLOW } from './image-engines.js';
 import { normalizeSettings, validateSettings, modelRules, freshState } from './state.js';
 import { normalizeRoute, switchRouteEngine, removeRoute } from './routes.js';
@@ -22,7 +23,7 @@ import { LocalLibrary, PHONE_APPS, PHONE_WALLPAPERS, PHONE_GLYPHS, PHONE_SKINS }
 import { NovelAIClient, relayUrl, FISH_PATHS, NAI_MODELS, NAI_MODEL_NAMES, NAI_SAMPLERS, NAI_SCHEDULES, buildImageRequest, guardParams, isFree, isV5, normalizeDrawParams } from './novelai.js';
 import { PIC_TAG_FORMAT, DEFAULT_DRAW_RULE, DRAW_COUNT_MAX, PRESET_REV as DRAW_PRESET_REV, drawPromptPlan, planRequest, validateDrawPreset, normalizeDraw, defaultDraw, normalizeVibeSettings } from './draw.js';
 import { defaultChat, normalizeChatPreset, normalizeContact, validateChatPreset, validateContact, chatContacts, inSpace, activeSpace, buildChatRequest, activeChatPreset, normalizeVoiceText, normalizeProfile , normalizeAvatars } from './chat.js';
-import { ChatStore } from './chats.js';
+import { ChatStore, money } from './chats.js';
 import { DrawQueue } from './draw-queue.js';
 import { CloudQueue, KeyHashQueue, newRoomCode, validRoom, sha256Hex } from './cloud-queue.js';
 import { vibeKey, readVibeFile, imageVibe, mergeVibe, encodingFor, withEncoding, vibeSummary, vibeParameters, singleFile, bundleFile, chatu8File, strength as vibeStrength, MAX_FREE_VIBES, VIBE_ANLAS } from './vibes.js';
@@ -376,6 +377,95 @@ export class TTSBackend {
     /** For a voice engine with keys: how many, which one is in use (1-based) and how many were refused while this page is open. */
     keyPool(engine) { engineCheck(engine); return this.providers.keyPool(engine); }
     keyStatus(engine) { keyCheck(engine); return engine === 'nai' ? this.novelai.configured : engine === 'gpt' ? !!this.gptKey : engine === 'llm' ? this.textKeys.has(this.settings.text.active) : this.providers.keys.has(engine); }
+
+    // ---------- 钱包 and 商城 ----------
+    wallet() { return clone(this.settings.chat.wallet); }
+    /** Money in (+) or out (-) of the wallet, with a line in its 明细. Out with too little left: code 'BROKE'. */
+    walletMove(amount, { kind = 'topup', note = '', who = '' } = {}) {
+        const value = cents(amount);
+        if (!Number.isFinite(value) || value === 0) throw Error('金额无效');
+        const next = this.getState(), w = next.chat.wallet;
+        if (value < 0 && w.balance + value < -0.001) throw Object.assign(Error(`零钱不够了：还剩 ¥${yuan(w.balance)}，要 ¥${yuan(-value)}`), { code: 'BROKE' });
+        w.balance = cents(w.balance + value);
+        w.ledger.unshift({ id: crypto.randomUUID(), at: Date.now(), amount: value, kind: String(kind).slice(0, 20), note: String(note).slice(0, 60), who: String(who).slice(0, 40) });
+        w.ledger.length = Math.min(w.ledger.length, WALLET_LIMITS.ledger);
+        this.save(next);
+        this.emit('wallet', { balance: this.settings.chat.wallet.balance });
+        return this.wallet();
+    }
+    /** Buys a decoration once; it can then be put on in 个性装扮. */
+    buyDecoration(kind, key) {
+        const item = premiumOf(kind, key);
+        if (!item) throw Error('商城里没有这件装扮');
+        if (this.settings.chat.wallet.owned.includes(decorKey(kind, key))) return this.wallet();
+        this.walletMove(-item[1], { kind: 'shop', note: DECOR_KINDS[kind] + ' · ' + item[0] });
+        const next = this.getState();
+        next.chat.wallet.owned.push(decorKey(kind, key));
+        this.save(next);
+        this.emit('wallet', {});
+        return this.wallet();
+    }
+    /** A gift of the user's own in the shop (new, or changed by id). */
+    saveGift(value) {
+        const next = this.getState(), list = next.chat.wallet.gifts, gift = validateGift(normalizeGift(clone(value || {})));
+        if (list.some(g => g.name === gift.name && g.id !== gift.id)) throw Error('已经有叫「' + gift.name + '」的礼物了');
+        const index = list.findIndex(g => g.id === gift.id);
+        if (index < 0) { if (list.length >= WALLET_LIMITS.gifts) throw Error('自定义礼物最多 ' + WALLET_LIMITS.gifts + ' 件'); list.push(gift); } else list[index] = gift;
+        this.save(next);
+        this.emit('wallet', {});
+        return clone(gift);
+    }
+    deleteGift(id) {
+        const next = this.getState();
+        next.chat.wallet.gifts = next.chat.wallet.gifts.filter(g => g.id !== id);
+        this.save(next);
+        this.emit('wallet', {});
+        return this.wallet();
+    }
+    /** The user sends a red packet, a transfer or a gift: paid from the wallet first, given back if it cannot be sent. */
+    async sendPaid(threadId, message) {
+        const thread = await this.chats.get(threadId);
+        if (!thread) throw Error('这段聊天已不存在');
+        let item = clone(message || {}), cost = 0, note = '';
+        if (item.kind === 'gift') {
+            const gift = shopGifts(this.settings.chat.wallet).find(g => g.id === item.giftId);
+            if (!gift) throw Error('商城里没有这件礼物了');
+            if (thread.type !== 'dm') throw Error('礼物只能在私聊里送');
+            item = { from: 'me', kind: 'gift', gift: { name: gift.name, emoji: gift.emoji, price: gift.price }, text: String(item.text || '').slice(0, 60), state: 'sent' };
+            cost = gift.price; note = gift.name;
+        } else if (item.kind === 'redpacket' || item.kind === 'transfer') {
+            const amount = money(item.amount);
+            if (!amount) throw Error('金额无效');
+            item = { from: 'me', kind: item.kind, amount, text: String(item.text || '').slice(0, 40), state: 'sent' };
+            cost = Number(amount); note = item.text;
+        } else throw Error('这条消息不用付钱');
+        const kind = item.kind, who = thread.name;
+        if (cost > 0) this.walletMove(-cost, { kind, note, who });
+        try { return await this.chatMutate(threadId, () => this.chats.append(threadId, [item], { read: true })); }
+        catch (error) { if (cost > 0) this.walletMove(cost, { kind: 'refund', note: (note || LEDGER_KINDS[kind]) + '（没发出去）', who }); throw error; }
+    }
+    /**
+     * The user takes or turns down what a contact sent: a red packet (opened), a transfer (accepted or returned), a
+     * gift (accepted or returned). Money taken goes into the wallet, a gift into 收到的礼物; a notice is left in the chat.
+     */
+    async takeSent(threadId, messageId, accept = true) {
+        const thread = await this.chats.get(threadId), m = thread?.messages.find(x => x.id === messageId);
+        if (!m || m.from === 'me' || !['redpacket', 'transfer', 'gift'].includes(m.kind)) throw Error('这条消息已不存在');
+        if (m.state !== 'sent') return thread;
+        const state = m.kind === 'redpacket' ? 'opened' : accept ? 'accepted' : 'returned';
+        if (m.kind === 'redpacket' && !accept) throw Error('红包不能退还');
+        await this.chatMutate(threadId, () => this.chats.updateMessage(threadId, messageId, { state, openedBy: 'me' }));
+        if (accept && m.kind !== 'gift') this.walletMove(Number(m.amount), { kind: m.kind, note: m.text, who: m.from });
+        if (accept && m.kind === 'gift') {
+            const next = this.getState(), list = next.chat.wallet.received;
+            list.unshift({ id: crypto.randomUUID(), at: Date.now(), from: m.from, name: m.gift.name, emoji: m.gift.emoji, note: m.text || '' });
+            list.length = Math.min(list.length, WALLET_LIMITS.received);
+            this.save(next);
+            this.emit('wallet', {});
+        }
+        const text = { opened: '领取了{对方}的红包', accepted: m.kind === 'gift' ? '收下了{对方}的礼物' : '收下了{对方}的转账', returned: m.kind === 'gift' ? '退还了{对方}的礼物' : '退还了{对方}的转账' }[state];
+        return this.chatMutate(threadId, () => this.chats.append(threadId, [{ from: 'me', kind: 'notice', target: m.from, text }], { read: true }));
+    }
 
     // ---------- 保存到酒馆 ----------
     /** The tavern's user files: {read(name, {blob}), write(name, data), remove(name)}. Without it, syncing is off. */
@@ -877,7 +967,11 @@ export class TTSBackend {
     saveChatOptions(patch) {
         const next = this.getState();
         if (patch?.voiceText) next.chat.voiceText = normalizeVoiceText({ ...next.chat.voiceText, ...patch.voiceText });
-        if (patch?.profile) next.chat.profile = normalizeProfile({ ...next.chat.profile, ...patch.profile });
+        if (patch?.profile) {
+            // A look from the shop goes on only once it is bought.
+            for (const kind of ['bubble', 'frame', 'background']) if (patch.profile[kind] && premiumOf(kind, patch.profile[kind]) && !next.chat.wallet.owned.includes(decorKey(kind, patch.profile[kind]))) throw Error('这件装扮还没买：先在商城里买下');
+            next.chat.profile = normalizeProfile({ ...next.chat.profile, ...patch.profile });
+        }
         if (Array.isArray(patch?.starred)) next.chat.starred = patch.starred;
         if (patch?.partition !== undefined) { if (!['none', 'card'].includes(patch.partition)) throw Error('分区方式无效'); next.chat.partition = patch.partition; }
         // avatars: {name: choice | null}; null goes back to the tavern's avatar (or the first letter).
@@ -1234,7 +1328,10 @@ export class TTSBackend {
             phoneSpace: () => ({ ...clone(this.space), on: !!this.here() }),
             saveChatPreset: preset => this.saveChatPreset(preset), deleteChatPreset: id => this.deleteChatPreset(id), selectChatPreset: id => this.selectChatPreset(id),
             previewChatPrompt: preset => this.previewChatPrompt(preset), validateChatPreset: preset => { try { validateChatPreset(normalizeChatPreset(clone(preset))); return ''; } catch (error) { return message(error); } },
-            saveChatOptions: patch => this.saveChatOptions(clone(patch)), saveContact: contact => this.saveContact(contact), deleteContact: id => this.deleteContact(id), chatContacts: () => clone(this.contacts()),
+            saveChatOptions: patch => this.saveChatOptions(clone(patch)),
+            wallet: () => this.wallet(), buyDecoration: (kind, key) => this.buyDecoration(kind, key), saveGift: gift => this.saveGift(gift), deleteGift: id => this.deleteGift(id),
+            sendPaid: (threadId, message) => this.sendPaid(threadId, message), takeSent: (threadId, messageId, accept) => this.takeSent(threadId, messageId, accept !== false),
+            shopCatalog: () => clone({ premium: PREMIUM, kinds: DECOR_KINDS, gifts: shopGifts(this.settings.chat.wallet), ledgerKinds: LEDGER_KINDS }), saveContact: contact => this.saveContact(contact), deleteContact: id => this.deleteContact(id), chatContacts: () => clone(this.contacts()),
             listThreads: () => this.threads(), getThread: id => this.chats.get(id), chatUnread: async () => (await this.threads()).reduce((n, t) => n + (t.muted ? 0 : t.unread), 0),
             createThread: value => this.chatMutate(null, () => this.chats.create({ ...clone(value), space: this.spaceKey() })),
             updateThread: (id, patch) => this.chatMutate(id, () => this.chats.update(id, clone(patch))),
