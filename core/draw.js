@@ -400,19 +400,65 @@ export function drawPromptPlan(settings, preset, only = null) {
 // ---------- Planning pictures after the reply ('separate' mode) ----------
 const TTS_BLOCK = /<tts\b[^>]*>[\s\S]*?<\/tts\s*>/gi;
 const IMG_BLOCK = /<img\b[^<>]*>[^<]*<\/img\s*>|<img\b[^<>]*\/?>/gi;
-/** Story paragraphs of a reply with their end offsets; picture blocks and voice originals are left out. */
+const VOID_TAGS = new Set(['br', 'hr', 'img', 'input', 'meta', 'link', 'source', 'wbr', 'area', 'col', 'embed', 'track', 'tts']);
+/**
+ * Parts of a reply a picture must not be put inside: every tag that spans several lines (a status bar, <details>, a
+ * preset's own blocks), code fences and HTML comments, as [start, end, name]. Tags left open are not counted.
+ */
+export function blockRanges(source) {
+  const text = String(source), ranges = [], stack = [];
+  for (const m of text.matchAll(/```[\s\S]*?(?:```|$)|<!--[\s\S]*?(?:-->|$)/g)) if (m[0].includes('\n')) ranges.push([m.index, m.index + m[0].length, m[0].startsWith('<') ? '!--' : '```']);
+  const hidden = at => ranges.some(([a, b]) => at >= a && at < b);
+  for (const m of text.matchAll(/<(\/?)([A-Za-z一-鿿][\w一-鿿:-]*)\b[^<>]*?(\/?)>/g)) {
+    if (hidden(m.index)) continue;
+    const [, closing, raw, self] = m, name = raw.toLowerCase();
+    if (self || (!closing && VOID_TAGS.has(name))) continue;
+    if (!closing) { stack.push({name, start: m.index}); continue; }
+    const at = stack.map(x => x.name).lastIndexOf(name);
+    if (at < 0) continue;
+    const open = stack[at];
+    stack.length = at;
+    const end = m.index + m[0].length;
+    if (text.slice(open.start, end).includes('\n')) ranges.push([open.start, end, name]);
+  }
+  return ranges;
+}
+/**
+ * Story paragraphs of a reply with their end offsets; picture blocks and voice originals are left out. A paragraph
+ * inside a block (a status bar at the end of the reply, a <details>) ends where that block closes, so a picture put
+ * "after" it never lands inside the block and breaks it. The block most of the story sits in (a preset's <content>
+ * wrapper) is the story itself: pictures go inside it as usual.
+ */
 export function paragraphs(message) {
   const source = String(message), out = [];
   const hidden = [...source.matchAll(IMG_BLOCK)].map(m => [m.index, m.index + m[0].length]);
+  const ranges = blockRanges(source);
+  const around = pos => ranges.filter(([a, b]) => pos > a && pos <= b).sort((x, y) => (x[1] - x[0]) - (y[1] - y[0]));
   let at = 0;
   for (const line of source.split('\n')) {
     const start = at, end = at + line.length;
     at = end + 1;
     if (hidden.some(([a, b]) => start >= a && end <= b)) continue;
     const plain = line.replace(IMG_BLOCK, '').replace(TTS_BLOCK, '').replace(/<[^>]+>/g, '').trim();
-    if (plain) out.push({text: plain.slice(0, 1200), end});
+    if (plain) out.push({text: plain.slice(0, 1200), end, blocks: around(end)});
   }
-  return out;
+  // The story's own block: the innermost block holding the most story text (none when most of it is outside blocks).
+  const weight = new Map();
+  // Code fences and comments are never the story's own block.
+  for (const p of out) { const key = p.blocks.find(r => r[2] !== '```' && r[2] !== '!--') || null; weight.set(key, (weight.get(key) || 0) + p.text.length); }
+  let main = null, best = -1;
+  for (const [key, w] of weight) if (w > best) { best = w; main = key; }
+  const mainChain = main ? ranges.filter(([a, b]) => a <= main[0] && b >= main[1]) : [];
+  for (const p of out) {
+    // Climb out of every block that is not the story's own (or one around it).
+    const outer = p.blocks.filter(r => !mainChain.includes(r));
+    if (outer.length) { p.end = Math.max(p.end, ...outer.map(r => r[1])); p.aside = true; }
+    delete p.blocks;
+  }
+  // Lines in other blocks (status bars and the like) are not the story: they are not offered as places for pictures,
+  // so a picture with no usable 位置 also goes after the last story paragraph. Kept only when there is nothing else.
+  const story = out.filter(p => !p.aside);
+  return (story.length ? story : out).map(({aside, ...p}) => p);
 }
 /** Chat-style request asking for the picture blocks of one reply. before: [{name, text}] earlier messages. */
 export function planRequest(settings, {message, before = [], preset} = {}) {
