@@ -1,4 +1,5 @@
 // Voice engines, NovelAI for drawing, and llm: the phone's own text model (an OpenAI-compatible API).
+import {connectionLost} from './idb.js';
 const engines=['fish','mini','eleven','mimo','nai','llm'];
 // Keys copied from web pages and chat apps often carry invisible characters (zero-width spaces, line breaks), full-width
 // letters typed with a Chinese input method, quotes, or a "Bearer " prefix. No key contains any of these, and a service
@@ -51,7 +52,7 @@ export class KeyStore{
   const connect=version=>new Promise((resolve,reject)=>{const req=version?this.factory.open(KEY_DB,version):this.factory.open(KEY_DB);req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains(KEY_STORE))req.result.createObjectStore(KEY_STORE,{keyPath:'id'});};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);req.onblocked=()=>reject(Error('blocked'));});
   try{this.db=await connect(0);if(!this.db.objectStoreNames.contains(KEY_STORE)){const next=this.db.version+1;this.db.close();this.db=await connect(next);}}
   catch{this.fallback=true;try{for(const [engine,key] of this.legacy.load())if(!this.touched.has(engine))this.keys.set(engine,key);}catch{}return this;}
-  this.db.onversionchange=()=>{this.db?.close();this.db=null;};
+  this.#watch(this.db);
   const rows=await this.#run('readonly',store=>store.getAll()).catch(()=>[]);
   // A key saved before this finished (save() does not wait) is newer than what is stored.
   for(const row of rows||[])if(row?.scope===this.scope&&engines.includes(row.engine)&&!this.touched.has(row.engine)){try{const key=validateKey(row.engine,row.key);if(key)this.keys.set(row.engine,key);}catch{}}
@@ -75,5 +76,13 @@ export class KeyStore{
  /** Resolves when every save so far has been written. */
  flush(){return this.writing;}
  close(){this.db?.close();this.db=null;}
- #run(mode,work){return new Promise((resolve,reject)=>{if(!this.db){reject(Error('密钥库没有打开'));return;}let tx,result;try{tx=this.db.transaction(KEY_STORE,mode);const r=work(tx.objectStore(KEY_STORE));if(r&&'onsuccess' in r)r.onsuccess=()=>{result=r.result;};}catch(error){reject(error);return;}tx.oncomplete=()=>resolve(result);tx.onabort=tx.onerror=()=>reject(tx.error);});}
+ #watch(db){db.onversionchange=()=>{db.close();if(this.db===db)this.db=null;};db.onclose=()=>{if(this.db===db)this.db=null;};}
+ // A dropped connection (iPhone Safari after the page sat in the background) is reopened once; nothing was written.
+ async #run(mode,work){
+  if(!this.db&&!this.fallback)await this.#reconnect().catch(()=>{});
+  try{return await this.#once(mode,work);}
+  catch(error){if(!connectionLost(error)&&this.db)throw error;try{this.db?.close();}catch{}this.db=null;await this.#reconnect();return this.#once(mode,work);}
+ }
+ #reconnect(){return new Promise((resolve,reject)=>{const req=this.factory.open(KEY_DB);req.onsuccess=()=>{const db=req.result;if(!db.objectStoreNames.contains(KEY_STORE)){db.close();reject(Error('密钥库没有打开'));return;}this.db=db;this.#watch(db);resolve(db);};req.onerror=()=>reject(req.error);req.onblocked=()=>reject(Error('blocked'));});}
+ #once(mode,work){return new Promise((resolve,reject)=>{if(!this.db){reject(Error('密钥库没有打开'));return;}let tx,result;try{tx=this.db.transaction(KEY_STORE,mode);const r=work(tx.objectStore(KEY_STORE));if(r&&'onsuccess' in r)r.onsuccess=()=>{result=r.result;};}catch(error){reject(error);return;}tx.oncomplete=()=>resolve(result);tx.onabort=tx.onerror=()=>reject(tx.error);});}
 }

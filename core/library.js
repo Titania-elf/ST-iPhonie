@@ -14,6 +14,7 @@
  * getPhoto/getReference/getFavorite return null for missing IDs; deletes return
  * whether an owned row existed. Every write resolves only after transaction commit.
  */
+import {connectionLost, lostError} from './idb.js';
 export const LIBRARY_LIMITS = Object.freeze({total:256*1024*1024,photo:12*1024*1024,reference:20*1024*1024,vibe:40*1024*1024});
 export const PHONE_APPS = Object.freeze(['roles','engines','presets','library','gallery','notes','listen','settings','draw','chat','forum','peek']);
 export const PHONE_WALLPAPERS = Object.freeze(['sky','silver','midnight','rose','sand','aero','fresh']);
@@ -56,6 +57,7 @@ function publicRow(row,metadata=false){
 function bytes(row){const metadata={...row};delete metadata.blob;delete metadata._bytes;return encoder.encode(JSON.stringify(metadata)).byteLength+(row.blob?.size||0);}
 function friendly(error){
  if(error?.code&&typeof error.code==='string'&&!(error instanceof DOMException))return error;
+ if(connectionLost(error))return lostError(error);
  if(error?.name==='QuotaExceededError')return fail('设备存储空间不足，内容没有保存；请先释放空间','STORAGE_FULL');
  if(error?.name==='AbortError')return fail('保存被中止，内容没有更新，请重试','STORAGE_ABORTED');
  return fail('无法读写本地资料，请检查浏览器的存储权限后重试','STORAGE_UNAVAILABLE');
@@ -87,25 +89,29 @@ export class LocalLibrary {
    req.onsuccess=()=>{
     if(settled||this.#closed){req.result.close();rejectOnce(fail('本地资料已关闭','CLOSED'));return;}
     settled=true;this.#db=req.result;
-    this.#db.onversionchange=()=>{this.#db?.close();this.#db=null;};
-    resolve(this.#db);
+    const db=this.#db;db.onversionchange=()=>{db.close();if(this.#db===db)this.#db=null;};db.onclose=()=>{if(this.#db===db)this.#db=null;};
+    resolve(db);
    };
   }).finally(()=>{this.#opening=null;});
   return this.#opening;
  }
- async #read(name,id){
+ // A dropped connection (iPhone Safari after the page sat in the background) is reopened once; nothing was written.
+ async #run(work,again=true){
   const db=await this.#open();
-  return new Promise((resolve,reject)=>{
+  try{return await work(db);}
+  catch(error){if(error?.code!=='STORAGE_LOST'||this.#closed)throw error;if(this.#db===db){try{db.close();}catch{}this.#db=null;}if(again)return this.#run(work,false);throw error;}
+ }
+ async #read(name,id){
+  return this.#run(db=>new Promise((resolve,reject)=>{
    let tx,result;
    try{tx=db.transaction(name,'readonly');const store=tx.objectStore(name);const req=id===undefined?store.index('scope').getAll(this.#scope):store.get(this.#key(id));req.onsuccess=()=>{result=req.result;};}
    catch(e){reject(friendly(e));return;}
    tx.oncomplete=()=>resolve(result);
    tx.onabort=()=>reject(friendly(tx.error));tx.onerror=()=>{};
-  });
+  }));
  }
  async #mutate(change){
-  const db=await this.#open();
-  return new Promise((resolve,reject)=>{
+  return this.#run(db=>new Promise((resolve,reject)=>{
    let tx,result,ownError,remaining=STORES.length;const rows={},puts=[],deletes=[];
    try{tx=db.transaction(STORES,'readwrite');}catch(e){reject(friendly(e));return;}
    tx.oncomplete=()=>resolve(structuredClone(result));
@@ -125,7 +131,7 @@ export class LocalLibrary {
     const req=tx.objectStore(name).index('scope').getAll(this.#scope);
     req.onsuccess=()=>{rows[name]=new Map(req.result.map(row=>[row.id,row]));if(--remaining===0)apply();};
    }
-  });
+  }));
  }
  async #list(name,metadata=false){const rows=await this.#read(name);return rows.sort((a,b)=>b.updatedAt-a.updatedAt||a.id.localeCompare(b.id)).map(row=>publicRow(row,metadata));}
  async #remove(name,id){identifier(id);return this.#mutate(({remove})=>remove(name,id));}
@@ -232,12 +238,12 @@ export class LocalLibrary {
   return {wallpaper,icons,iconStyle:['color','glass','mono'].includes(iconStyle)?iconStyle:'color',skin:PHONE_SKINS.includes(skin)?skin:'sky',lockOnOpen:lockOnOpen===true,volume:Number.isFinite(volume)?Math.min(1,Math.max(0,volume)):1,...dates};
  }
  async stats(){
-  const db=await this.#open();return new Promise((resolve,reject)=>{
+  return this.#run(db=>new Promise((resolve,reject)=>{
    let tx;const result={bytes:0,limit:LIBRARY_LIMITS.total,notes:0,photos:0,favorites:0,references:0,vibes:0};
    try{tx=db.transaction(STORES,'readonly');for(const name of STORES){const req=tx.objectStore(name).index('scope').getAll(this.#scope);req.onsuccess=()=>{if(name!=='phone')result[name]=req.result.length;result.bytes+=req.result.reduce((n,row)=>n+bytes(row),0);};}}
    catch(e){reject(friendly(e));return;}
    tx.oncomplete=()=>resolve(structuredClone(result));tx.onabort=()=>reject(friendly(tx.error));tx.onerror=()=>{};
-  });
+  }));
  }
  async close(){this.#closed=true;const db=this.#db||await this.#opening?.catch(()=>null);db?.close();this.#db=null;}
 }

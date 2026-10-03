@@ -1,4 +1,5 @@
 import {sha256Hex} from './hash.js';
+import {connectionLost} from './idb.js';
 
 const MAX_BYTES = 200 * 1024 * 1024;
 export async function requestHash(request) {
@@ -17,21 +18,28 @@ export class AudioCache {
    request.onupgradeneeded = () => request.result.createObjectStore('audio', { keyPath: 'id' });
    request.onsuccess = () => {
     if (settled || this.closed) { request.result.close(); if (!settled) { settled = true; resolve(null); } return; }
-    settled = true; request.result.onversionchange = () => request.result.close(); resolve(request.result);
+    settled = true; const db = request.result; db.onversionchange = () => db.close(); db.onclose = () => { this.db = null; }; resolve(db);
    };
    request.onerror = () => fail(request.error);
    request.onblocked = () => fail(Error('缓存正在被另一个页面使用'));
   }).catch(() => { this.failed = true; if (!this.closed) this.notify('本机无法保存语音缓存；仍可生成和播放'); return null; });
   return this.db;
  }
- async transaction(mode, action) {
+ // A dropped connection (iPhone Safari after the page sat in the background) is reopened once; nothing was written.
+ async transaction(mode, action, again = true) {
   const db = await this.open(); if (!db) return null;
-  return new Promise((resolve, reject) => {
-   const tx = db.transaction('audio', mode); let value;
-   try { value = action(tx.objectStore('audio')); } catch (error) { tx.abort(); reject(error); return; }
-   tx.oncomplete = () => resolve(value && typeof value === 'object' && 'onsuccess' in value ? value.result : value);
-   tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error || Error('缓存操作中止'));
-  });
+  try {
+   return await new Promise((resolve, reject) => {
+    const tx = db.transaction('audio', mode); let value;
+    try { value = action(tx.objectStore('audio')); } catch (error) { tx.abort(); reject(error); return; }
+    tx.oncomplete = () => resolve(value && typeof value === 'object' && 'onsuccess' in value ? value.result : value);
+    tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error || Error('缓存操作中止'));
+   });
+  } catch (error) {
+   if (!again || this.closed || !connectionLost(error)) throw error;
+   if (await this.db === db) { try { db.close(); } catch {} this.db = null; }
+   return this.transaction(mode, action, false);
+  }
  }
  id(key) { return this.scope + ':' + key; }
  async getRecord(key) { try { return await this.transaction('readonly', store => store.get(this.id(key))) || null; } catch { return null; } }

@@ -1,6 +1,7 @@
 // Documents of the smaller phone apps (论坛 posts and its 热搜, 查手机 snapshots), kept in this browser (IndexedDB) and
 // scoped to the tavern account like the other local data. Each document is {id, kind, at, ...}; the apps check their own
 // fields (core/forum.js, core/peek.js) before anything is written.
+import {connectionLost, lostError} from './idb.js';
 const fail = (message, code = 'INVALID') => Object.assign(new Error(message), {code});
 
 export class AppStore {
@@ -18,22 +19,32 @@ export class AppStore {
       req.onsuccess = () => {
         if (this.#closed) { req.result.close(); reject(fail('已关闭', 'CLOSED')); return; }
         this.#db = req.result;
-        this.#db.onversionchange = () => { this.#db?.close(); this.#db = null; };
-        resolve(this.#db);
+        const db = this.#db;
+        db.onversionchange = () => { db.close(); if (this.#db === db) this.#db = null; };
+        db.onclose = () => { if (this.#db === db) this.#db = null; };
+        resolve(db);
       };
     }).finally(() => { this.#opening = null; });
     return this.#opening;
   }
-  async #tx(mode, work) {
+  // A dropped connection (iPhone Safari after the page sat in the background) is reopened once; nothing was written.
+  async #tx(mode, work, again = true) {
     const db = await this.#open();
-    return new Promise((resolve, reject) => {
-      let result, own, tx;
-      try { tx = db.transaction('docs', mode); } catch { reject(fail('已关闭', 'CLOSED')); return; }
-      const store = tx.objectStore('docs');
-      tx.oncomplete = () => resolve(result);
-      tx.onabort = () => reject(own || fail(tx.error?.name === 'QuotaExceededError' ? '设备存储空间不足，没有保存' : '没有保存，请重试', 'STORAGE'));
-      work(store, value => { result = value; }, error => { own = error; tx.abort(); });
-    });
+    try {
+      return await new Promise((resolve, reject) => {
+        let result, own, tx;
+        try { tx = db.transaction('docs', mode); } catch (error) { reject(this.#closed ? fail('已关闭', 'CLOSED') : lostError(error)); return; }
+        const store = tx.objectStore('docs');
+        tx.oncomplete = () => resolve(result);
+        tx.onabort = () => reject(own || (connectionLost(tx.error) ? lostError(tx.error) : fail(tx.error?.name === 'QuotaExceededError' ? '设备存储空间不足，没有保存' : '没有保存，请重试', 'STORAGE')));
+        work(store, value => { result = value; }, error => { own = error; tx.abort(); });
+      });
+    } catch (error) {
+      if (error?.code !== 'STORAGE_LOST' || this.#closed) throw error;
+      if (this.#db === db) { try { db.close(); } catch {} this.#db = null; }
+      if (again) return this.#tx(mode, work, false);
+      throw error;
+    }
   }
   #all(store, then) { const req = store.index('scope').getAll(this.#scope); req.onsuccess = () => then(req.result); }
   #public(row) { if (!row) return null; const {scope, ...rest} = row; return structuredClone(rest); }

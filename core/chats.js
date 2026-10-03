@@ -10,6 +10,7 @@
 // list() returns threads without their messages, plus the last message for previews, pinned threads first.
 // A thread can be pinned (置顶) or muted (免打扰: its unread messages do not count toward the app's badge).
 // streak (聊天火花): days in a row, up to today or yesterday, on which both the user and the other side wrote.
+import {connectionLost, lostError} from './idb.js';
 
 export const CHAT_STORE_LIMITS = Object.freeze({messages: 1000, text: 4000, members: 20});
 const KINDS = ['text', 'voice', 'photo', 'system', 'redpacket', 'transfer', 'location', 'pat', 'dice', 'notice', 'recall', 'call'];
@@ -72,22 +73,32 @@ export class ChatStore {
       req.onsuccess = () => {
         if (this.#closed) { req.result.close(); reject(fail('聊天记录已关闭', 'CLOSED')); return; }
         this.#db = req.result;
-        this.#db.onversionchange = () => { this.#db?.close(); this.#db = null; };
-        resolve(this.#db);
+        const db = this.#db;
+        db.onversionchange = () => { db.close(); if (this.#db === db) this.#db = null; };
+        db.onclose = () => { if (this.#db === db) this.#db = null; };
+        resolve(db);
       };
     }).finally(() => { this.#opening = null; });
     return this.#opening;
   }
-  async #tx(mode, work) {
+  // A dropped connection (iPhone Safari after the page sat in the background) is reopened once; nothing was written.
+  async #tx(mode, work, again = true) {
     const db = await this.#open();
-    return new Promise((resolve, reject) => {
-      let result, own, tx;
-      try { tx = db.transaction('threads', mode); } catch { reject(fail('聊天记录已关闭', 'CLOSED')); return; }
-      const store = tx.objectStore('threads');
-      tx.oncomplete = () => resolve(result);
-      tx.onabort = () => reject(own || fail(tx.error?.name === 'QuotaExceededError' ? '设备存储空间不足，聊天没有保存' : '聊天记录没有保存，请重试', 'STORAGE'));
-      work(store, value => { result = value; }, error => { own = error; tx.abort(); });
-    });
+    try {
+      return await new Promise((resolve, reject) => {
+        let result, own, tx;
+        try { tx = db.transaction('threads', mode); } catch (error) { reject(this.#closed ? fail('聊天记录已关闭', 'CLOSED') : lostError(error)); return; }
+        const store = tx.objectStore('threads');
+        tx.oncomplete = () => resolve(result);
+        tx.onabort = () => reject(own || (connectionLost(tx.error) ? lostError(tx.error) : fail(tx.error?.name === 'QuotaExceededError' ? '设备存储空间不足，聊天没有保存' : '聊天记录没有保存，请重试', 'STORAGE')));
+        work(store, value => { result = value; }, error => { own = error; tx.abort(); });
+      });
+    } catch (error) {
+      if (error?.code !== 'STORAGE_LOST' || this.#closed) throw error;
+      if (this.#db === db) { try { db.close(); } catch {} this.#db = null; }
+      if (again) return this.#tx(mode, work, false);
+      throw error;
+    }
   }
   #get(store, id, then) {
     const req = store.get([this.#scope, String(id)]);

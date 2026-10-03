@@ -2,6 +2,7 @@
 // Post: {id, author:'me'|name, text, at, source:'manual'|'auto'|'me'|'chat', photoId?, imageTags?, imageState?:'waiting'|'done'|'failed',
 //        imageNote?, likes:[name|'me'], comments:[{id, from:'me'|name, to?:'me'|name, text, at}]}
 import {MOMENTS_LIMITS} from './moments.js';
+import {connectionLost, lostError} from './idb.js';
 
 const fail = (message, code = 'INVALID') => Object.assign(new Error(message), {code});
 const clip = (value, max) => String(value ?? '').slice(0, max);
@@ -43,22 +44,32 @@ export class MomentStore {
       req.onsuccess = () => {
         if (this.#closed) { req.result.close(); reject(fail('朋友圈已关闭', 'CLOSED')); return; }
         this.#db = req.result;
-        this.#db.onversionchange = () => { this.#db?.close(); this.#db = null; };
-        resolve(this.#db);
+        const db = this.#db;
+        db.onversionchange = () => { db.close(); if (this.#db === db) this.#db = null; };
+        db.onclose = () => { if (this.#db === db) this.#db = null; };
+        resolve(db);
       };
     }).finally(() => { this.#opening = null; });
     return this.#opening;
   }
-  async #tx(mode, work) {
+  // A dropped connection (iPhone Safari after the page sat in the background) is reopened once; nothing was written.
+  async #tx(mode, work, again = true) {
     const db = await this.#open();
-    return new Promise((resolve, reject) => {
-      let result, own, tx;
-      try { tx = db.transaction('posts', mode); } catch { reject(fail('朋友圈已关闭', 'CLOSED')); return; }
-      const store = tx.objectStore('posts');
-      tx.oncomplete = () => resolve(result);
-      tx.onabort = () => reject(own || fail(tx.error?.name === 'QuotaExceededError' ? '设备存储空间不足，朋友圈没有保存' : '朋友圈没有保存，请重试', 'STORAGE'));
-      work(store, value => { result = value; }, error => { own = error; tx.abort(); });
-    });
+    try {
+      return await new Promise((resolve, reject) => {
+        let result, own, tx;
+        try { tx = db.transaction('posts', mode); } catch (error) { reject(this.#closed ? fail('朋友圈已关闭', 'CLOSED') : lostError(error)); return; }
+        const store = tx.objectStore('posts');
+        tx.oncomplete = () => resolve(result);
+        tx.onabort = () => reject(own || (connectionLost(tx.error) ? lostError(tx.error) : fail(tx.error?.name === 'QuotaExceededError' ? '设备存储空间不足，朋友圈没有保存' : '朋友圈没有保存，请重试', 'STORAGE')));
+        work(store, value => { result = value; }, error => { own = error; tx.abort(); });
+      });
+    } catch (error) {
+      if (error?.code !== 'STORAGE_LOST' || this.#closed) throw error;
+      if (this.#db === db) { try { db.close(); } catch {} this.#db = null; }
+      if (again) return this.#tx(mode, work, false);
+      throw error;
+    }
   }
   #all(store, then) { const req = store.index('scope').getAll(this.#scope); req.onsuccess = () => then(req.result); }
   #public(row) { if (!row) return null; const {scope, ...rest} = row; return structuredClone(rest); }
