@@ -423,6 +423,29 @@ export function planRequest(settings, {message, before = [], preset} = {}) {
   const body = paragraphs(message).map((x, i) => `[P${i + 1}] ${x.text}`).join('\n');
   return [{role: 'system', content: system}, {role: 'user', content: `${context}【这段正文】\n${body}\n\n（请输出 ${countOf(p)} 个出图块。）`}];
 }
+/** 「从剧情生成」 in the drawing app: a request of its own (no story preset, no chain of thought), worded for the engine. */
+export function suggestRequest(settings, {before = []} = {}) {
+  const gpt = settings.draw?.engine === 'gpt';
+  const system = [
+    '你是绘图提示词助手。根据给出的剧情，写出最有画面感的一幕的绘图提示词。',
+    gpt ? '用英文写，逗号分隔，danbooru tag 和简短的英文短语都可以：人数、动作、表情、服装、场景、光线、构图。不写露骨内容。'
+      : '用英文 danbooru tag，逗号分隔：人数（1girl、2girls 等）、动作、表情、服装、场景、光线、构图。',
+    '不写剧情里的人名，不写画师名和质量词。只输出这一行提示词，不要思考过程、解释、标题或任何标签。'
+  ].join('\n');
+  const story = before.length ? before.map(m => `${m.name}：${m.text}`).join('\n') : '（还没有剧情）';
+  return [{role: 'system', content: system}, {role: 'user', content: `【最近的剧情】\n${story}\n\n只输出提示词：`}];
+}
+/** The prompt line out of a reply: thinking blocks, tags, code fences and labels taken out. */
+export function cleanSuggestion(text) {
+  const lines = String(text || '')
+    .replace(/<(think|thinking|reasoning|thought|analysis)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
+    .replace(/^[\s\S]*<\/(?:think|thinking|reasoning)\s*>/i, '')
+    .replace(/```[a-z]*|```/gi, '').replace(/<[^>]+>/g, '')
+    .split('\n').map(l => l.replace(/^\s*(?:prompt|tags?|提示词)\s*[:：]\s*/i, '').trim()).filter(Boolean);
+  // Lines of Chinese prose are the model talking about the picture, not the prompt.
+  const tagged = lines.filter(l => !/[一-鿿]{4,}/.test(l));
+  return (tagged.length ? tagged : lines).join(', ').replace(/\s*,\s*/g, ', ').replace(/(, )+$/, '').trim();
+}
 /** Puts planned blocks into the reply after their paragraphs. Blocks without a usable 位置 go after the last one. */
 export function insertPlanned(message, reply) {
   const source = String(message), paras = paragraphs(source), blocks = [];

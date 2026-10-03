@@ -10,7 +10,7 @@
 // Redrawing adds a version (the old ones stay for comparison); deleting removes the shown version and its file.
 // When the last version is deleted the record becomes {removed: true, versions: []}, so it is not drawn again
 // automatically. Older records ({url, seed, …}) read as a single version.
-import {parsePictures, pictureInputs, planRequest, insertPlanned, withoutPictures, sameExact} from './core/draw.js';
+import {parsePictures, pictureInputs, planRequest, insertPlanned, withoutPictures, sameExact, suggestRequest, cleanSuggestion} from './core/draw.js';
 import {openImageViewer} from './image-viewer.js';
 import {downloadAction} from './download.js';
 import {TIER_NAMES, NAI_MODEL_NAMES} from './core/novelai.js';
@@ -379,10 +379,14 @@ export function createPictureHost({context, redrawMessage = (id, message) => con
     return {id, url};
   }
   async function suggestPrompt() {
-    const ctx = context();
-    if (!ctx.generateQuietPrompt) throw Error('当前酒馆版本不支持后台生成');
-    const text = await ctx.generateQuietPrompt({quietPrompt: '根据最近的剧情，写一组用于 NovelAI 绘图的英文 danbooru tag，描述当前最有画面感的一幕：人数（1girl、2girls 等）、动作、表情、服装、场景、光线、构图。只输出逗号分隔的英文 tag，不要画师名和质量词，不要任何解释。', removeReasoning: true});
-    return String(text || '').replace(/```[a-z]*|```/g, '').replace(/\n+/g, ', ').trim();
+    // The same text model as everything else in the phone (引擎 → 文字模型): the tavern's model without its story
+    // preset, or the custom API. The tavern's quiet generation would carry the whole story preset, and with it a
+    // chain of thought or XML template the model then writes out.
+    const ctx = context(), chat = ctx.chat || [];
+    const reply = await backend.generateText(ctx, {prompt: suggestRequest(settings(), {before: before(chat.length, 6)}), trimNames: false, responseLength: 400});
+    const line = cleanSuggestion(reply);
+    if (!line) throw Error('模型没有写出提示词，再试一次');
+    return line;
   }
   const subscriptionLabel = sub => sub ? `${TIER_NAMES[sub.tier] || '未知档位'} · Anlas ${sub.anlas}` : '';
 
