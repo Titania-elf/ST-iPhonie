@@ -44,6 +44,8 @@ export interface GeneralSettings {
     waveformEnabled: boolean;
     /** Built-in wallpapers move slowly (clouds, stars, bubbles, leaves, fireflies). */
     wallpaperMotion?: boolean;
+    /** Story requests send older replies without voice tags (each line becomes its translation); the newest voiced reply keeps them while voice is on. */
+    stripVoice?: boolean;
 }
 export interface Injection {
     position: InjectionPosition;

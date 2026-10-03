@@ -3,7 +3,8 @@ import { TTSBackend } from './core/backend.js';
 import { normalizeSettings,validateSettings,modelRules,NAMESPACE } from './core/state.js';
 import { parseDialogue,renderDialogue,plainDialogue,promptPlan,validatePreset,isPlaceholderRole,DEFAULT_PROMPT,knownFormats,dialogueProblems,escapeHTML } from './core/protocol.js';
 import { FloatingPlayer } from './core/floating.js';
-import { renderPictures, drawPromptPlan, withoutPictures } from './core/draw.js';
+import { renderPictures, drawPromptPlan } from './core/draw.js';
+import { outgoingChat } from './core/outgoing.js';
 import { createPictureHost } from './host-pictures.js';
 import { createChatHost } from './host-chat.js';
 import { createMomentsHost } from './host-moments.js';
@@ -20,9 +21,10 @@ const listeners=[],prompts=new Set();
 // The latest notices and errors, for the self-check.
 const recent=[];function remember(message,kind='notice'){recent.push({at:Date.now(),kind,message:String(message||'').slice(0,300)});if(recent.length>12)recent.shift();}
 const context=()=>globalThis.SillyTavern?.getContext();
-// Generation interceptor (manifest generate_interceptor): picture blocks stay in the chat but are left out of the
-// messages sent to the model, so old pictures do not cost tokens on every request. Replaced, never mutated.
-globalThis.stIphonieInterceptor=function(chat){if(!active||settings?.draw?.strip===false)return;for(let i=0;i<chat.length;i++){const m=chat[i];if(typeof m?.mes==='string'&&/<img\b/i.test(m.mes))chat[i]={...m,mes:withoutPictures(m.mes)};}};
+// Generation interceptor (manifest generate_interceptor): picture blocks and voice tags stay in the chat but are left
+// out of the messages sent to the model, so they cost no tokens and users need no regex. The newest voiced reply keeps
+// its tags while voice is on, as an example of the format. Replaced, never mutated.
+globalThis.stIphonieInterceptor=function(chat){if(!active)return;let list=[];try{list=formats();}catch{}outgoingChat(chat,{pictures:settings?.draw?.strip!==false,voice:settings?.general?.stripVoice!==false,keepLatest:voiceOn(),formats:list});};
 // A call while the phone is closed: a note that stays until answered, and a tap on it opens the phone on the call.
 function ringing(name){if(panel?.open)return;remember(name+' 来电');const open=()=>openPanel();if(globalThis.toastr)globalThis.toastr.info('点这里打开小手机接听',`📞 ${name} 来电`,{timeOut:settings?.calls?.ring*1000||30000,extendedTimeOut:0,tapToDismiss:true,onclick:open});else console.info('[ST-iPhonie]',name+' 来电');}
 // The tavern's own avatars, for the phone: each character card's picture by name, and the current persona's.
