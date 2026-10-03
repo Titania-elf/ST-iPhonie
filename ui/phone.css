@@ -210,6 +210,8 @@ a{color:var(--accent-ink)}
 .round-button svg{width:22px;height:22px}
 .actions{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0 8px}
 .actions>*{flex:1}
+/* An 「i」 in a row of buttons keeps its round size instead of stretching like the buttons. */
+.actions>.info{flex:none;align-self:center}
 .savebar{position:sticky;bottom:-40px;margin:20px -16px 0;padding:14px 16px 50px;display:flex;gap:10px;align-items:center;background:linear-gradient(transparent,var(--bg) 26%);z-index:5}
 .savebar>button{flex:1}
 .savebar>.primary{flex:1.6}
@@ -1208,3 +1210,4 @@ small.peek-draw{cursor:default;color:var(--ink2)}
 .draw-engines{margin:0 0 10px}
 .sheet-help{margin:0;padding:8px 14px 10px;font-size:12.5px;line-height:1.6;color:var(--ink2);white-space:pre-line;background:var(--card2);border-radius:12px}
 .group>.sheet-help{border-radius:0}
+.info{flex-shrink:0}
