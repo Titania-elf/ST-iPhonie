@@ -126,7 +126,18 @@ export interface DrawSettings {
 /** url: '' for OpenAI, else a relay ending at /v1. ask: confirm every (paid) picture; off also lets new replies draw. style: its own 画风 ('' = NovelAI's). */
 export interface GptImageSettings { url: string; model: string; quality: 'auto' | 'low' | 'medium' | 'high'; orientation: 'portrait' | 'landscape' | 'square'; ask: boolean; style: string; }
 /** Reached through the tavern's ComfyUI proxy. workflow: API-format JSON with "%prompt%" and the other placeholders ('' = the default one). */
-export interface ComfySettings { url: string; workflow: string; model: string; vae: string; sampler: string; scheduler: string; steps: number; scale: number; width: number; height: number; clipSkip: number; style: string; }
+export interface ComfySettings { url: string; workflow: string; model: string; vae: string; sampler: string; scheduler: string; steps: number; scale: number; width: number; height: number; clipSkip: number; style: string; loras: ComfyLora[]; stages: Record<string, ComfyLora[]>; }
+/** One LoRA in a stack. name: the lora_name ComfyUI accepts. trigger: comma-separated words prepended to the prompt. */
+export interface ComfyLora { id: string; name: string; on: boolean; model: number; clip: number; trigger: string; }
+/** One row of the LoRA picker: ComfyUI's own file name, decorated where ComfyUI-Lora-Manager knows the file (known). */
+export interface LoraRow { name: string; stem: string; display: string; folder: string; baseModel: string; preview: string; favorite: boolean; usage: number; modified: number; tags: string[]; known: boolean; }
+/** transport: how ComfyUI was reached ('none' never reaches here — it throws). manager: Lora Manager's version, '' when it is not installed. */
+export interface LoraCatalog { transport: 'direct' | 'plugin' | 'legacy'; manager: string; rows: LoraRow[]; total: number; decorated: number; unmatched: number; truncated: boolean; }
+/** One sampler pass: denoise < 1 is a detail/refine pass. */
+export interface LoraPass { id: string; index: number; denoise: number; }
+/** One place a stack can go: a `Lora Loader (LoraManager)` node the plugin writes into ('node'), or a chain it injects at the model loader ('inject') when the workflow has no such node. feeds/upstream are pass indices and stage keys. stack is what the workflow's own node holds right now. */
+export interface LoraStage { key: string; kind: 'node' | 'inject'; nodeId: string; classType: string; feeds: number[]; upstream: string[]; stack: Array<{name: string; model: number; clip: number}>; }
+export interface LoraPlan { passes: LoraPass[]; stages: LoraStage[]; uncovered: number[]; }
 export interface VibeGroup { id: string; name: string; items: Array<{ vibe: string; strength: number }>; }
 export interface VibeSettings { enabled: boolean; use: { kind: '' | 'group' | 'vibe'; id: string }; groups: VibeGroup[]; }
 /** One saved vibe as the phone sees it: never the image or the encodings. keys: models it is encoded for (v4-5full …). */
@@ -452,6 +463,19 @@ export interface BackendFacade {
     /** Workflows saved in the tavern's own image generation (file names), and one of them as text. */
     comfyWorkflows(): Promise<string[]>;
     comfyWorkflow(name: string): Promise<string>;
+    /** The LoRA picker's list. Throws when neither the browser nor the tavern can read ComfyUI; force re-reads it. */
+    loraCatalog(force?: boolean): Promise<LoraCatalog>;
+    /** One file's trigger words, from ComfyUI-Lora-Manager's own scan. Throws when it is not installed. */
+    loraTrigger(name: string): Promise<{ trigger: string }>;
+    /** For the self-check: how the list can be read right now. Never throws; error says why it cannot. */
+    loraProbe(): Promise<{ transport: string; manager: string; total: number; decorated: number; unmatched: number; error: string }>;
+    /** The workflow's LoRA stages and the stack the plugin holds for each. all is every stage's stack, flattened.
+     *  The first stage's stack is the same array as comfy.loras; the rest are seeded from the workflow until edited. */
+    comfyStages(workflow?: string): { plan: LoraPlan; stacks: Record<string, ComfyLora[]>; all: ComfyLora[] };
+    /** Saves one stage's stack (key from comfyStages().plan.stages). */
+    comfySaveStack(key: string, loras: ComfyLora[]): DrawSettings;
+    /** Marks an imported API-format workflow with the plugin's placeholders. */
+    comfyAutoPlaceholders(text: string): { workflow: string; marked: string[]; notes: string[]; model: string };
     saveStyle(style: Omit<DrawStyle, 'id'> & { id?: string }): DrawStyle;
     deleteStyle(id: string): DrawSettings;
     saveDrawPreset(preset: Omit<DrawPreset, 'id'> & { id?: string }): DrawPreset;

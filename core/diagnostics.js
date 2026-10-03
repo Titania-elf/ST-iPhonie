@@ -65,7 +65,8 @@ export function buildReport(f) {
   const d = f.draw;
   if (d && (d.enabled || d.engine !== 'nai')) add('绘图', [
     item('info', '用哪个画', DRAW_NAMES[d.engine] || d.engine),
-    ...(d.comfy ? [item(d.comfy.model || d.comfy.workflow ? 'info' : 'warn', 'ComfyUI', `${d.comfy.url} · ${d.comfy.model || '还没选模型'} · ${d.comfy.workflow ? '自定义工作流' : '默认工作流'}`)] : [])
+    ...(d.comfy ? [item(d.comfy.model || d.comfy.workflow ? 'info' : 'warn', 'ComfyUI', `${d.comfy.url} · ${d.comfy.model || '还没选模型'} · ${d.comfy.workflow ? '自定义工作流' : '默认工作流'}${d.comfy.loras?.length ? ` · LoRA ${d.comfy.loras.filter(l => l.on !== false).length}/${d.comfy.loras.length} 个启用` : ''}`)] : []),
+    ...(d.comfy?.lora ? [loraItem(d.comfy.lora)] : [])
   ]);
 
   const r = f.reply;
@@ -95,6 +96,17 @@ export function buildReport(f) {
 }
 
 function mb(bytes) { return bytes >= 1024 ** 3 ? (bytes / 1024 ** 3).toFixed(1) + ' GB' : Math.round(bytes / 1024 ** 2) + ' MB'; }
+
+/** How the LoRA list is being read, and what is missing when it cannot be (see core/lora-manager.js). */
+function loraItem(l) {
+  if (!l.total) return item('warn', 'LoRA 列表读不到', l.error || '手填文件名和「从当前工作流识别」照常能用。');
+  const how = {direct: '浏览器直连 ComfyUI', plugin: '酒馆的 LoRA 桥转发', legacy: '旧的酒馆补丁（可以删掉了，插件现在自己能读）'}[l.transport] || l.transport;
+  const detail = [`读到 ${l.total} 个`, how];
+  if (l.manager) detail.push(`Lora Manager ${l.manager} · ${l.decorated} 个有封面和触发词`);
+  else detail.push('没装 ComfyUI-Lora-Manager：列表里只有文件名，触发词要手动填');
+  if (l.unmatched) detail.push(`${l.unmatched} 个 Lora Manager 有、ComfyUI 读不到（已跳过）`);
+  return item(l.manager ? 'ok' : 'info', 'LoRA 列表', detail.join(' · '));
+}
 
 function reportText(f, sections, counts) {
   const lines = [`ST-iPhonie 自检报告 · ${time(f.at || Date.now())}`, `问题 ${counts.error} · 提醒 ${counts.warn} · 正常 ${counts.ok}`, ''];

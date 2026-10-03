@@ -1,5 +1,6 @@
 import {createView, esc, btn, field, input, select, textArea, toggle, heading, help, groupTitle, plate, avatar, empty} from './common.js';
 import {icon} from './icons.js';
+import {filterLoraRows, sortLoraRows, loraFacets, loraKey, LORA_SORTS} from '../core/lora-manager.js';
 import {openImageViewer} from '../image-viewer.js';
 import {downloadAction} from '../download.js';
 import {vibePanel} from './vibes.js';
@@ -15,6 +16,9 @@ export function drawApp(ctx) {
   let tab = 'prompt', prompt = '', negative = '', characters = [], seed = -1, results = [], current = -1, newest = false, busy = false, subscription = null, styleDraft = null, epoch = 0;
   // ComfyUI: models, samplers and schedulers read from it (null until 读取 is pressed).
   let comfyInfo = null;
+  // ComfyUI LoRA: the browsable list, kept between openings of the 添加 LoRA dialog ({error} when nothing could be
+  // read; the backend caches the reads themselves, so 刷新 is the only thing that goes back to ComfyUI).
+  let loraCat = null;
   const vibes = vibePanel({ctx, api, root: () => v.root, rerender: () => render()});
   let queue = api.drawQueue?.() || [], cloudError = api.cloudQueueError?.() || '', cloudNote = null;
   const jobState = j => j.state === 'running' ? '正在画' : j.state === 'busy' ? `账号正忙，稍后重试（第 ${j.attempt} 次）` : j.state === 'spacing' ? '马上开始'
@@ -58,12 +62,13 @@ export function drawApp(ctx) {
   async function render() {
     const ticket = ++epoch, d = state(), e = d.engine, s = styleDraft || style(), q = quote(), p = q.params, keyed = api.drawReady();
     if (e !== 'nai' && tab === 'vibe') tab = 'prompt';
+    if (e !== 'comfy' && tab === 'lora') tab = 'prompt';
     const shown = results[current];
     const main = shown ? await urlFor(shown.photoId) : '';
     const thumbs = await Promise.all(results.map(r => urlFor(r.photoId)));
     if (v.disposed || ticket !== epoch) return;
     const size = SIZES.find(([, , w, h]) => w === d.params.width && h === d.params.height)?.[0] || 'custom';
-    const tabs = [['prompt', '提示词'], ['chars', '角色'], ['params', '参数'], ...(e === 'nai' ? [['vibe', 'Vibe']] : []), ['chat', '正文出图']];
+    const tabs = [['prompt', '提示词'], ['chars', '角色'], ['params', '参数'], ...(e === 'comfy' ? [['lora', 'LoRA']] : []), ...(e === 'nai' ? [['vibe', 'Vibe']] : []), ['chat', '正文出图']];
     v.root.dataset.engine = e;
     let body = '';
     if (tab === 'prompt') body = `
@@ -78,6 +83,7 @@ export function drawApp(ctx) {
       + `<div class="actions">${btn('add-char', icon('add') + '从角色里添加', 'secondary')}${btn('add-custom', icon('add') + '手动添加', 'secondary')}</div>`;
     if (tab === 'params' && e === 'gpt') body = gptParams(d.gpt);
     if (tab === 'params' && e === 'comfy') body = comfyParams(d.comfy);
+    if (tab === 'lora' && e === 'comfy') body = loraTab();
     if (tab === 'params' && e === 'nai') body = `
       <div class="group pad">
         ${field('模型', select('model', d.params.model, api.drawCatalog.models.map(m => [m, api.drawCatalog.modelNames[m] || m])), /^nai-diffusion-5/.test(d.params.model) ? 'V5 对 Opus 不是无限的：免费档内的图用一份会慢慢恢复的免费额度，用完后改扣 Anlas。V4.5 及更早的模型仍然无限。' : '')}
@@ -112,7 +118,8 @@ export function drawApp(ctx) {
       <div class="actions">${btn('plan-latest', icon('wand') + '给最新回复配图', 'secondary', api.planLatestPictures && d.enabled ? '' : 'disabled')}</div>
       <div class="group pad"><p class="hint" style="padding:6px 0">出图块长这样（一张图一块）：${help('场景和每个人分开写：人数、镜头、光线放场景；表情、视线、动作放各自的角色行。插件把画风固定串接在场景前面，把角色 App 里的固定外貌补进对应的角色行，再交给选中的绘图引擎（GPT 会整理成英文描述，ComfyUI 会合成一条提示词）。新角色第一次出现时，模型写的「新外貌」会自动存进角色 App。图片会上传到酒馆，并存进相册。')}</p><pre class="code-preview">${esc(api.picTagFormat)}</pre></div>
       <p class="hint">每条回复固定出 ${(d.presets.find(p => p.id === d.activePreset) || d.presets[0]).count} 张图，在出图规则里改张数。</p><div class="actions">${btn('open-presets', icon('edit') + '编辑出图规则', 'secondary')}</div>`;
-    const sub = e === 'gpt' ? d.gpt.model : e === 'comfy' ? (d.comfy.model || '还没选模型').replace(/\.[^.]*$/, '') : subscription ? `${TIERS[subscription.tier] || '订阅'} · ${subscription.anlas} Anlas` : keyed ? '读取中' : '';
+    const loraOn = d.comfy.loras.filter(l => l.on !== false).length;
+    const sub = e === 'gpt' ? d.gpt.model : e === 'comfy' ? (d.comfy.model || '还没选模型').replace(/\.[^.]*$/, '') + (loraOn ? ` · LoRA ${loraOn}` : '') : subscription ? `${TIERS[subscription.tier] || '订阅'} · ${subscription.anlas} Anlas` : keyed ? '读取中' : '';
     v.draw(heading('绘图', keyed ? `<span class="chip">${esc(sub)}</span>` : '', engineName(e))
       + `<div class="segmented draw-engines" role="group" aria-label="用哪个画">${api.drawCatalog.engines.map(k => `<button data-action="draw-engine" data-pick="${k}" aria-pressed="${k === e}">${esc(engineName(k))}</button>`).join('')}</div>`
       + (keyed ? '' : `<div class="banner">${icon('key')}<span>${esc(api.drawMissing())}。</span>${btn('go-key', '去填写', 'chip-button')}</div>`)
@@ -170,6 +177,183 @@ export function drawApp(ctx) {
     if (!v.disposed) render();
   }
 
+  /**
+   * The LoRA tab: one card per stack the workflow offers. A two-pass workflow usually carries one Lora Loader
+   * (LoraManager) per pass, and each card is written into its own node at request time, so the first pass and the
+   * second can run different loras instead of sharing one pile. A workflow with no such node gets one card, injected
+   * at the model loader exactly as before.
+   */
+  function loraTab() {
+    const {plan, stacks} = api.comfyStages();
+    const passName = i => {
+      const pass = plan.passes[i];
+      if (!pass) return `第 ${i + 1} 遍`;
+      return `第 ${i + 1} 遍${pass.denoise < 1 ? `（降噪 ${pass.denoise}）` : ''}`;
+    };
+    const row = (stageKey, l, i, count) => `
+      <div class="group pad">
+        <div class="row-heading"><input class="switch" type="checkbox" data-lora="on" data-stage="${esc(stageKey)}" data-index="${i}" aria-label="启用 ${esc(l.name)}" ${l.on !== false ? 'checked' : ''}><strong class="mono" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(l.name)}">${esc(l.name)}</strong>${i > 0 ? btn('lora-up', icon('up'), 'text-button', `data-stage="${esc(stageKey)}" data-index="${i}" aria-label="上移 ${esc(l.name)}"`) : ''}${i < count - 1 ? btn('lora-down', icon('down'), 'text-button', `data-stage="${esc(stageKey)}" data-index="${i}" aria-label="下移 ${esc(l.name)}"`) : ''}${btn('lora-remove', icon('trash'), 'text-button', `data-stage="${esc(stageKey)}" data-index="${i}" aria-label="移除 ${esc(l.name)}"`)}</div>
+        <div class="field"><div class="meter-label"><span>模型权重</span><output>${Number(l.model).toFixed(2)}</output></div><input class="slider" type="range" data-lora="model" data-stage="${esc(stageKey)}" data-index="${i}" min="0" max="1.5" step="0.05" value="${Number(l.model)}" aria-label="模型权重"></div>
+        <div class="field"><div class="meter-label"><span>文本权重</span><output>${Number(l.clip).toFixed(2)}</output></div><input class="slider" type="range" data-lora="clip" data-stage="${esc(stageKey)}" data-index="${i}" min="0" max="1.5" step="0.05" value="${Number(l.clip)}" aria-label="文本权重"></div>
+        <div class="field"><span>触发词${help('LoRA 的触发词会自动拼进这张图正面提示词的最前面（重复的 tag 会去掉）。点右边的按钮从 ComfyUI 的 Lora Manager 读；没装或没记录就手动填，几个词用逗号隔开。不想要拼接就清空。')}</span><div class="inline-row"><input data-lora="trigger" data-stage="${esc(stageKey)}" data-index="${i}" value="${esc(l.trigger || '')}" placeholder="留空就不拼；可点右侧按钮自动获取" autocomplete="off" spellcheck="false" aria-label="触发词">${btn('lora-fetch', icon('wand'), 'chip-button', `data-stage="${esc(stageKey)}" data-index="${i}" aria-label="自动获取触发词"`)}</div></div>
+      </div>`;
+    const stageCard = stage => {
+      const loras = stacks[stage.key] || [];
+      const feeds = plan.passes.length <= 1 ? ''
+        : stage.feeds.length === plan.passes.length ? '每一遍都用'
+        : `只作用于 ${stage.feeds.map(passName).join('、')}`;
+      const title = [stage.kind === 'inject' ? '插在底模后' : `节点 ${stage.nodeId} · Lora Loader (LoraManager)`, feeds].filter(Boolean).join(' · ');
+      const inherits = stage.upstream.length ? `<p class="hint" style="padding:0">这份栈叠在 ${stage.upstream.map(k => '节点 ' + k.split(':')[1]).join('、')} 之上：那边写进去的 LoRA 在这里照样生效。</p>` : '';
+      return `<div class="group pad">
+        <div class="row-heading"><strong style="flex:1">${esc(title)}</strong>${loras.filter(l => l.on !== false).length ? plate(`${loras.filter(l => l.on !== false).length} 个启用`) : ''}</div>
+        ${inherits}
+        ${stage.kind === 'node' ? `<p class="hint" style="padding:0">出图时写进工作流的这个节点，工作流本身不会被改。</p>` : `<p class="hint" style="padding:0">工作流里没有能装一摞 LoRA 的 Lora Loader (LoraManager) 节点，插件只能自己插一串。想让每一遍用不同的 LoRA，在 ComfyUI 里给每一遍各接一个 Lora Loader (LoraManager)。</p>`}
+      </div>
+      ${loras.length ? loras.map((l, i) => row(stage.key, l, i, loras.length)).join('') : `<div class="group pad"><p class="hint" style="padding:0">这一份是空的。</p></div>`}
+      <div class="actions">${btn('add-lora', icon('add') + '添加 LoRA', 'secondary', `data-stage="${esc(stage.key)}"`)}</div>`;
+    };
+    const uncovered = plan.uncovered.length ? `<div class="group pad"><p class="hint error-copy" style="padding:0">${esc(plan.uncovered.map(passName).join('、'))}走的路径上没有 Lora Loader (LoraManager) 节点，插件管不到那几遍。想管的话，在 ComfyUI 里给那几遍各接一个。</p></div>` : '';
+    return `
+      <div class="group pad"><p class="hint" style="padding:0">这里的 LoRA 随改随用：每次出图，插件把启用的 LoRA 按阶段写进当前工作流（保存的工作流不会被改动），并把触发词拼进提示词。出一张图后，换个 LoRA、拖一下权重，再点「生成」就是新效果；想公平对比就把种子固定住。</p></div>
+      ${plan.stages.map(stageCard).join('')}
+      ${uncovered}
+      <div class="actions">${btn('lora-scan', icon('search') + '从当前工作流识别', 'secondary')}</div>`;
+  }
+
+  /**
+   * The 添加 LoRA dialog. The rows are ComfyUI's own list of loadable files, so anything picked here will load;
+   * covers, model names, base models and folders come from ComfyUI-Lora-Manager where it is installed. The whole
+   * list is in memory, so searching, filtering and sorting never wait on the network — only 刷新 goes back out.
+   */
+  function openLoraDialog(stageKey) {
+    let search = '', folder = '', baseModel = '', favoritesOnly = false, sort = 'name';
+    // The bare controls below carry their key as the aria-label; name them the way field() does for labelled ones.
+    const labeled = (html, label) => html.replace(/aria-label="[^"]*"/, `aria-label="${esc(label)}"`);
+    const d = ctx.dialog('添加 LoRA', `
+      <p class="hint">把 LoRA 加进这一份里，可以连加几个，按添加顺序叠加；加完点「完成」。</p>
+      <p class="hint" data-lora-status style="padding:0 2px 8px">正在读 LoRA 列表…</p>
+      <div class="group pad" data-lora-tools hidden>
+        <div class="inline-row">${labeled(input('lora-search', '', 'text', 'autocomplete="off" spellcheck="false" placeholder="搜名字、文件夹、标签"'), '搜索 LoRA')}${labeled(select('lora-sort', 'name', LORA_SORTS), '排序')}</div>
+      </div>
+      <div class="filter-row" data-lora-filters hidden></div>
+      <div class="group pick-list" data-lora-list hidden></div>
+      <details data-group="lora-manual"><summary>手填文件名</summary><div class="group pad">
+        ${field('文件名', input('lora-manual', '', 'text', 'autocomplete="off" spellcheck="false" placeholder="models/loras 下的文件名，如 myStyle.safetensors"'), '列表读不到时用：填 ComfyUI 的 models/loras 目录下的文件名；在子文件夹里的要带上子文件夹，如 style/xxx.safetensors。')}
+        <div class="key-actions">${btn('lora-add-manual', '添加', 'primary')}</div>
+      </div></details>
+      <div class="actions">${btn('lora-done', '完成', 'primary')}${btn('lora-refresh', icon('refresh') + '刷新列表', 'secondary')}</div>`);
+
+    const add = name => {
+      name = String(name || '').trim();
+      if (!name) { ctx.notify('请填写文件名'); return false; }
+      const loras = structuredClone(api.comfyStages().stacks[stageKey] || []);
+      if (loras.some(l => loraKey(l.name) === loraKey(name))) { ctx.notify('这一份里已经有它了'); return false; }
+      if (loras.length >= 10) { ctx.notify('一份里最多 10 个 LoRA，先移除一些吧'); return false; }
+      loras.push({id: crypto.randomUUID(), name, on: true, model: 1, clip: 1, trigger: ''});
+      api.comfySaveStack(stageKey, loras);
+      render();
+      ctx.notify(`「${name}」已加进这一份`);
+      // Trigger words come from the manager's own scan, so this is a local lookup; without a manager it just fails.
+      api.loraTrigger(name).then(info => {
+        if (!info.trigger) return;
+        const now = structuredClone(api.comfyStages().stacks[stageKey] || []), at = now.findIndex(l => loraKey(l.name) === loraKey(name));
+        if (at >= 0 && !now[at].trigger) { now[at].trigger = info.trigger; api.comfySaveStack(stageKey, now); render(); }
+      }).catch(() => {});
+      return true;
+    };
+
+    const statusLine = () => {
+      if (!loraCat) return '正在读 LoRA 列表…';
+      if (loraCat.error) return loraCat.error;
+      const c = loraCat.catalog, bits = [`读到 ${c.total} 个 LoRA，点一个加进栈`];
+      if (c.manager) bits.push(`Lora Manager ${c.manager}`);
+      else bits.push('装上 ComfyUI-Lora-Manager 就能看到封面、底模和自动触发词');
+      if (c.transport === 'plugin') bits.push('由酒馆代读');
+      if (c.transport === 'legacy') bits.push('走的是旧补丁，可以删掉了');
+      if (c.truncated) bits.push('太多了，只列了前面一部分');
+      if (c.unmatched) bits.push(`${c.unmatched} 个 Lora Manager 里有、ComfyUI 读不到（已跳过）`);
+      return bits.join(' · ');
+    };
+
+    const chip = (label, active, attrs) => `<button type="button" aria-pressed="${active}" ${attrs}>${esc(label)}</button>`;
+    const showFilters = () => {
+      const box = d.body.querySelector('[data-lora-filters]');
+      if (!loraCat?.catalog) { box.hidden = true; return; }
+      const {folders, baseModels, favorites} = loraFacets(loraCat.catalog.rows);
+      const anyFilter = !!(folder || baseModel || favoritesOnly);
+      const chips = [chip('全部', !anyFilter, 'data-lora-filter="all"')];
+      if (favorites) chips.push(chip(`★ 收藏 ${favorites}`, favoritesOnly, 'data-lora-filter="fav"'));
+      for (const b of baseModels) chips.push(chip(`${b.value} ${b.count}`, baseModel === b.value, `data-lora-filter="base" data-value="${esc(b.value)}"`));
+      if (folders.length > 1) for (const f of folders) chips.push(chip(`${f.value || '根目录'} ${f.count}`, folder === f.value, `data-lora-filter="folder" data-value="${esc(f.value)}"`));
+      box.hidden = chips.length < 2;
+      box.innerHTML = chips.join('');
+    };
+
+    const showList = () => {
+      const box = d.body.querySelector('[data-lora-list]'), status = d.body.querySelector('[data-lora-status]'), tools = d.body.querySelector('[data-lora-tools]');
+      if (status) status.textContent = statusLine();
+      const rows = loraCat?.catalog?.rows || [];
+      if (tools) tools.hidden = rows.length < 8;
+      if (!rows.length) { box.hidden = true; showFilters(); return; }
+      const have = new Set((api.comfyStages().stacks[stageKey] || []).map(l => loraKey(l.name)));
+      const shown = sortLoraRows(filterLoraRows(rows, {search, folder, baseModel, favoritesOnly}), sort);
+      box.hidden = false;
+      box.innerHTML = shown.length ? shown.map(r => {
+        const meta = [r.baseModel, r.folder || '根目录', r.favorite ? '★ 收藏' : '', r.usage ? `用过 ${r.usage} 次` : ''].filter(Boolean).join(' · ');
+        return `<button class="list-row lora-row" data-lora-pick="${esc(r.name)}">
+          ${r.preview ? `<img class="lora-thumb" src="${esc(r.preview)}" alt="" loading="lazy" decoding="async">` : `<i class="lora-thumb"></i>`}
+          <span><strong>${esc(r.display)}</strong><small class="mono">${esc(r.name)}</small>${meta ? `<small>${esc(meta)}</small>` : ''}</span>
+          ${have.has(loraKey(r.name)) ? plate('已在栈里') : icon('add')}</button>`;
+      }).join('') : `<p class="hint">没有匹配的 LoRA，换个词或点「全部」。</p>`;
+      showFilters();
+    };
+
+    const read = async (force = false) => {
+      try { loraCat = {catalog: await api.loraCatalog(force)}; }
+      catch (error) { loraCat = {error: error.message}; }
+      if (!d.body.isConnected) return;
+      showList();
+    };
+
+    if (loraCat) showList(); // reopened: what was read last time is still on screen while this read confirms it
+    d.body.addEventListener('input', e => {
+      if (!e.target.matches('[data-field=lora-search]')) return;
+      search = e.target.value.trim();
+      showList();
+    });
+    d.body.addEventListener('change', e => {
+      if (!e.target.matches('[data-field=lora-sort]')) return;
+      sort = e.target.value;
+      showList();
+    });
+    d.body.addEventListener('click', async e => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      try {
+        if (b.dataset.loraFilter) {
+          const kind = b.dataset.loraFilter, value = b.dataset.value || '';
+          if (kind === 'all') { folder = ''; baseModel = ''; favoritesOnly = false; }
+          else if (kind === 'fav') favoritesOnly = !favoritesOnly;
+          else if (kind === 'base') baseModel = baseModel === value ? '' : value;
+          else if (kind === 'folder') folder = folder === value ? '' : value;
+          showList();
+        }
+        else if (b.dataset.loraPick) {
+          // Marking the one row keeps the list still: a full redraw would reflow and re-decode every cover.
+          if (add(b.dataset.loraPick) && b.lastElementChild) b.lastElementChild.outerHTML = plate('已在栈里');
+        }
+        else if (b.dataset.action === 'lora-add-manual') {
+          const box = d.body.querySelector('[data-field=lora-manual]');
+          if (add(box?.value)) { if (box) box.value = ''; showList(); }
+        }
+        else if (b.dataset.action === 'lora-done') d.close();
+        else if (b.dataset.action === 'lora-refresh') await v.busy(b, () => read(true));
+      } catch (error) { ctx.notify(error.message, {error: true}); }
+    });
+    read();
+  }
+
+
   async function refreshSubscription(force = false) {
     if (eng() !== 'nai' || !api.keyStatus('nai')) { subscription = null; return; }
     try { subscription = await api.naiSubscription(force); }
@@ -217,6 +401,22 @@ export function drawApp(ctx) {
   v.on('change', '[data-field^=comfy-]', el => { api.saveDraw({comfy: {[el.dataset.field.slice(6)]: el.value.trim()}}); render(); });
   v.on('input', '[data-comfy]', el => { el.previousElementSibling.querySelector('output').textContent = el.dataset.comfy === 'scale' ? Number(el.value).toFixed(1) : el.value; });
   v.on('change', '[data-comfy]', el => { api.saveDraw({comfy: {[el.dataset.comfy]: Number(el.value)}}); render(); });
+  // LoRA stack rows: switches and sliders redraw, the trigger word saves quietly on blur. Every row names the stage
+  // it belongs to, since a workflow can carry more than one stack.
+  v.on('input', '[data-lora]', el => {
+    if (el.dataset.lora === 'model' || el.dataset.lora === 'clip') { const out = el.previousElementSibling?.querySelector('output'); if (out) out.textContent = Number(el.value).toFixed(2); }
+  });
+  v.on('change', '[data-lora]', el => {
+    const stage = el.dataset.stage, loras = structuredClone(api.comfyStages().stacks[stage] || []);
+    const l = loras[Number(el.dataset.index)], key = el.dataset.lora;
+    if (!l) return;
+    if (key === 'on') l.on = el.checked;
+    else if (key === 'model' || key === 'clip') l[key] = Number(el.value);
+    else if (key === 'trigger') l.trigger = el.value.trim();
+    else return;
+    api.comfySaveStack(stage, loras);
+    if (key !== 'trigger') render();
+  });
   v.on('change', '[data-cloud]', () => { api.saveDraw({queue: {cloud: cloudFields()}}); cloudNote = null; });
   v.on('change', 'input.switch[data-field]', el => {
     const key = el.dataset.field;
@@ -239,6 +439,54 @@ export function drawApp(ctx) {
       case 'gpt-orientation': api.saveDraw({gpt: {orientation: el.dataset.value}}); render(); break;
       case 'comfy-size': { const [, , width, height] = SIZES.find(s => s[0] === el.dataset.size); api.saveDraw({comfy: {width, height}}); render(); break; }
       case 'comfy-read': await v.busy(el, readComfy); break;
+      case 'add-lora': openLoraDialog(el.dataset.stage); break;
+      case 'lora-scan': {
+        // Fills the stages that are still empty from the workflow's own LoRA nodes; a stage the user has already
+        // filled is left alone, so pressing this can never wipe a stack that is only written at request time.
+        const {plan, stacks} = api.comfyStages();
+        let filled = 0, kept = 0;
+        for (const stage of plan.stages) {
+          if (!stage.stack.length) continue;
+          if ((stacks[stage.key] || []).length) { kept++; continue; }
+          api.comfySaveStack(stage.key, stage.stack.map(l => ({...l, id: crypto.randomUUID(), on: true, trigger: ''})));
+          filled++;
+        }
+        render();
+        if (!plan.stages.some(s => s.stack.length)) ctx.notify(plan.stages.length > 1 ? '工作流里的 LoRA 节点都是空的' : '当前工作流里没有现成的 LoRA 节点');
+        else ctx.notify(`从工作流收了 ${filled} 份${kept ? `；另有 ${kept} 份插件里已经有了，没动` : ''}`);
+        break;
+      }
+      case 'lora-fetch': {
+        const stage = el.dataset.stage, before = structuredClone(api.comfyStages().stacks[stage] || []);
+        const i = Number(el.dataset.index), l = before[i];
+        if (!l) break;
+        await v.busy(el, async () => {
+          const info = await api.loraTrigger(l.name);
+          const now = structuredClone(api.comfyStages().stacks[stage] || []);
+          if (now[i]?.name === l.name) {
+            if (info.trigger) { now[i].trigger = info.trigger; api.comfySaveStack(stage, now); }
+            render();
+            ctx.notify(info.trigger ? `触发词已填好：${info.trigger}` : 'Lora Manager 里没记它的触发词（自制的 LoRA 多半没有），手动填吧');
+          }
+        });
+        break;
+      }
+      case 'lora-remove': {
+        const stage = el.dataset.stage, loras = structuredClone(api.comfyStages().stacks[stage] || []);
+        loras.splice(Number(el.dataset.index), 1);
+        api.comfySaveStack(stage, loras);
+        render();
+        break;
+      }
+      case 'lora-up': case 'lora-down': {
+        const stage = el.dataset.stage, loras = structuredClone(api.comfyStages().stacks[stage] || []);
+        const i = Number(el.dataset.index), j = el.dataset.action === 'lora-up' ? i - 1 : i + 1;
+        if (!loras[i] || !loras[j]) break;
+        [loras[i], loras[j]] = [loras[j], loras[i]];
+        api.comfySaveStack(stage, loras);
+        render();
+        break;
+      }
       case 'size': { const [, , width, height] = SIZES.find(s => s[0] === el.dataset.size); api.saveDraw({params: {width, height}}); render(); break; }
       case 'dice': seed = Math.floor(Math.random() * 4294967295); render(); break;
       case 'thumb': current = index; render(); break;

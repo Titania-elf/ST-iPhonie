@@ -10,7 +10,8 @@ import { normalizeSync, runSync, SYNC_PARTS } from './sync.js';
 import { decodeMono, encodeWav } from './audio-join.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup, sealKeys, openKeys } from './backup.js';
 import { WALLET_LIMITS, PREMIUM, DECOR_KINDS, SHOP_GIFTS, LEDGER_KINDS, premiumOf, decorKey, cents, yuan, shopGifts, normalizeGift, validateGift } from './wallet.js';
-import { DRAW_ENGINES, DRAW_ENGINE_NAMES, GPT_IMAGE_MODELS, GPT_QUALITIES, normalizeGpt, gptBase, gptSize, gptPrompt, gptGenerate, normalizeComfy, comfyUrl, checkWorkflow, comfySize, comfyPrompt, comfyValues, fillWorkflow, comfyGenerate, comfyCatalog, tavernWorkflows, tavernWorkflow, orientationOf, DEFAULT_COMFY_WORKFLOW } from './image-engines.js';
+import { DRAW_ENGINES, DRAW_ENGINE_NAMES, GPT_IMAGE_MODELS, GPT_QUALITIES, normalizeGpt, gptBase, gptSize, gptPrompt, gptGenerate, normalizeComfy, comfyUrl, checkWorkflow, comfySize, comfyPrompt, comfyValues, fillWorkflow, comfyGenerate, comfyCatalog, loraPlan, applyLoras, loraTriggers, autoPlaceholders, tavernWorkflows, tavernWorkflow, orientationOf, DEFAULT_COMFY_WORKFLOW } from './image-engines.js';
+import { loraCatalog, loraTriggerWords, forgetLoraCache } from './lora-manager.js';
 import { normalizeSettings, validateSettings, modelRules, freshState } from './state.js';
 import { normalizeRoute, switchRouteEngine, removeRoute } from './routes.js';
 import { DEFAULT_PROMPT, DEFAULT_FORMAT, promptPlan, validatePreset, parseDialogue, isPlaceholderRole, knownFormats } from './protocol.js';
@@ -630,7 +631,10 @@ export class TTSBackend {
             const c = patch.comfy && typeof patch.comfy === 'object' ? clone(patch.comfy) : {};
             if ('url' in c) c.url = comfyUrl(c.url);
             if ('workflow' in c) c.workflow = checkWorkflow(c.workflow);
+            const was = draw.comfy.url;
             draw.comfy = normalizeComfy({ ...draw.comfy, ...c });
+            // A new address is a new ComfyUI: what was probed and listed for the old one says nothing about it.
+            if (draw.comfy.url !== was) { forgetLoraCache(was); forgetLoraCache(draw.comfy.url); }
         }
         // The 画风 picked belongs to the engine in use.
         if ('activeStyle' in patch) { if (!draw.styles.some(s => s.id === patch.activeStyle)) throw Error('画风预设不存在'); if (draw.engine === 'nai') draw.activeStyle = patch.activeStyle; else draw[draw.engine].style = patch.activeStyle; }
@@ -873,6 +877,48 @@ export class TTSBackend {
     async comfyCatalog(url) { this.assertOpen(); return comfyCatalog({ fetch: this.imageFetch, headers: this.tavernHeaders(), url: comfyUrl(url ?? this.settings.draw.comfy.url) }); }
     async comfyWorkflows() { this.assertOpen(); return tavernWorkflows({ fetch: this.imageFetch, headers: this.tavernHeaders() }); }
     async comfyWorkflow(name) { this.assertOpen(); return tavernWorkflow({ fetch: this.imageFetch, headers: this.tavernHeaders(), name: String(name || '') }); }
+    /** ComfyUI LoRA: the browsable list (ComfyUI's own names, decorated by ComfyUI-Lora-Manager where it is
+     *  installed), one file's trigger words from that same scan, and the lora nodes already wired into a workflow
+     *  (which works anywhere, for 从当前工作流识别). See core/lora-manager.js for how ComfyUI is reached. */
+    async loraCatalog(force = false) { this.assertOpen(); return loraCatalog({ fetch: this.imageFetch, headers: this.tavernHeaders(), url: comfyUrl(this.settings.draw.comfy.url), force: !!force }); }
+    async loraTrigger(name) { this.assertOpen(); return loraTriggerWords({ fetch: this.imageFetch, headers: this.tavernHeaders(), url: comfyUrl(this.settings.draw.comfy.url), name: String(name || '') }); }
+    /** For the self-check: how the LoRA list can be read right now. Never throws — "not at all" is an answer too. */
+    async loraProbe() {
+        this.assertOpen();
+        try {
+            const { transport, manager, total, decorated, unmatched } = await this.loraCatalog();
+            return { transport, manager, total, decorated, unmatched, error: '' };
+        } catch (error) { return { transport: 'none', manager: '', total: 0, decorated: 0, unmatched: 0, error: error.message }; }
+    }
+    /**
+     * The workflow's LoRA stages: what each stack node feeds, and the stack the plugin holds for it. The first stage's
+     * stack is comfy.loras (where the plugin's single stack has always lived, so nothing changes for anyone who never
+     * touches the rest); the others live in comfy.stages, seeded from the workflow's own node until the user edits
+     * them. all is every enabled lora of every stage, for the trigger words and the counts.
+     */
+    comfyStages(workflow) {
+        this.assertOpen();
+        const c = this.settings.draw.comfy;
+        const text = typeof workflow === 'string' && workflow.trim() ? workflow : c.workflow || DEFAULT_COMFY_WORKFLOW;
+        const plan = loraPlan(text);
+        const saved = c.stages || {}, stacks = {};
+        plan.stages.forEach((stage, i) => {
+            if (i === 0) stacks[stage.key] = c.loras;
+            else if (stage.key in saved) stacks[stage.key] = saved[stage.key];
+            // Never touched: start from what the workflow's own node holds, so接管 doesn't silently drop those loras.
+            else stacks[stage.key] = stage.stack.map(l => ({...l, id: crypto.randomUUID(), on: true, trigger: ''}));
+        });
+        return { plan, stacks, all: Object.values(stacks).flat() };
+    }
+    /** Saves one stage's stack: the first stage keeps using comfy.loras, the rest go to comfy.stages. */
+    comfySaveStack(key, loras) {
+        this.assertOpen();
+        const list = clone(Array.isArray(loras) ? loras : []);
+        const first = this.comfyStages().plan.stages[0]?.key;
+        return key === first ? this.saveDraw({ comfy: { loras: list } }) : this.saveDraw({ comfy: { stages: {...(this.settings.draw.comfy.stages || {}), [key]: list} } });
+    }
+    /** Marks an imported workflow with the plugin's placeholders (see autoPlaceholders). */
+    comfyAutoPlaceholders(text) { return autoPlaceholders(String(text || '')); }
     /** Draws with GPT or ComfyUI. Inputs are the NovelAI-shaped picture (scene prompt, one caption per person). */
     async drawWithEngine(engine, { prompt, negative, characters, quote, signal }) {
         const draw = this.settings.draw, p = quote.params;
@@ -883,7 +929,12 @@ export class TTSBackend {
         }
         const c = draw.comfy, seed = p.seed >= 0 ? p.seed : Math.floor(Math.random() * 4294967295);
         const text = comfyPrompt({ prompt, negative, characters });
-        const workflow = fillWorkflow(c.workflow, comfyValues(c, { prompt: text.prompt, negative: text.negative, width: p.width, height: p.height, seed }));
+        // The loras the stacks ask for: trigger words go in front of the positive prompt (every stage's, since the
+        // conditioning nodes are usually shared), and each stack is drawn into the workflow in memory — an injected
+        // chain where the workflow has no stack node, a widget write where it has one. The saved workflow is untouched.
+        const { plan, stacks, all } = this.comfyStages();
+        text.prompt = loraTriggers(text.prompt, all);
+        const workflow = applyLoras(fillWorkflow(c.workflow, comfyValues(c, { prompt: text.prompt, negative: text.negative, width: p.width, height: p.height, seed })), plan, stacks);
         const blob = await comfyGenerate({ fetch: this.imageFetch, headers: this.tavernHeaders(), url: c.url, workflow, signal });
         return { blob, seed, params: { model: c.model || '工作流', width: p.width, height: p.height, steps: c.steps, scale: c.scale, sampler: c.sampler }, prompt: text.prompt };
     }
@@ -1275,7 +1326,7 @@ export class TTSBackend {
             previewPrompt: preset => this.previewPrompt(preset), promptPlan: () => clone(promptPlan(this.settings, modelRules(this.settings))), parse: text => this.parse(text),
             voiceBalance: (engine, refresh) => this.voiceBalance(engine, refresh), keyStatus: engine => this.keyStatus(engine), keyHint: engine => this.keyHint(engine), keyPool: engine => this.keyPool(engine), keyList: engine => this.keyList(engine), addKeys: (engine, value) => this.addKeys(engine, value), removeKey: (engine, index) => this.removeKey(engine, index), useKey: (engine, index) => this.useKey(engine, index), setKey: (engine, key) => this.setKey(engine, key), clearKey: engine => this.clearKey(engine),
             saveDraw: patch => this.saveDraw(patch), saveStyle: style => this.saveStyle(style), deleteStyle: id => this.deleteStyle(id),
-            drawReady: () => this.drawReady(), drawMissing: () => this.drawMissing(), paidPrompt: () => this.paidPrompt(), comfyCatalog: url => this.comfyCatalog(url), comfyWorkflows: () => this.comfyWorkflows(), comfyWorkflow: name => this.comfyWorkflow(name),
+            drawReady: () => this.drawReady(), drawMissing: () => this.drawMissing(), paidPrompt: () => this.paidPrompt(), comfyCatalog: url => this.comfyCatalog(url), comfyWorkflows: () => this.comfyWorkflows(), comfyWorkflow: name => this.comfyWorkflow(name), loraCatalog: force => this.loraCatalog(force), loraTrigger: name => this.loraTrigger(name), loraProbe: () => this.loraProbe(), comfyStages: workflow => this.comfyStages(workflow), comfySaveStack: (key, loras) => this.comfySaveStack(key, loras), comfyAutoPlaceholders: text => this.comfyAutoPlaceholders(text),
             saveDrawPreset: preset => this.saveDrawPreset(preset), deleteDrawPreset: id => this.deleteDrawPreset(id), previewDrawPrompt: preset => this.previewDrawPrompt(preset),
             naiSubscription: refresh => this.naiSubscription(refresh), naiProbe: () => this.naiProbe(), fishProbe: () => { this.assertOpen(); keyCheck('fish'); return this.providers.probeFish(clone(this.settings.connections.fish)); },
             listVibes: () => this.listVibes(), importVibes: (files, options) => this.importVibes(files, clone(options || {})), updateVibe: (id, patch) => this.updateVibe(id, clone(patch || {})), deleteVibe: id => this.deleteVibe(id), deleteVibes: ids => this.deleteVibes([...(ids || [])]), exportVibes: target => this.exportVibes(clone(target || {})), vibePlan: model => clone(this.vibePlan(model || this.settings.draw.params.model)), drawQuote: params => this.drawQuote(params),

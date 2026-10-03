@@ -46,11 +46,16 @@ export function enginesApp(ctx) {
   /** The text model preset being edited (the draft's active one). */
   const textPreset = () => textDraft.presets.find(p => p.id === textDraft.active) || textDraft.presets[0];
   const nameOf = id => id === 'nai' ? 'NovelAI' : id === 'gpt' ? 'GPT 生图' : id === 'comfy' ? 'ComfyUI' : id === 'llm' ? '文字模型' : engines[id];
+  /** The enabled LoRAs across every stage, the way the draw itself counts them. */
+  const comfyLoraChip = () => {
+    const on = api.comfyStages().all.filter(l => l.on !== false).length;
+    return on ? on + ' 个' : '—';
+  };
   function card(id, tag = 'button') {
     const comfy = id === 'comfy', saved = comfy ? !!api.getState().draw.comfy.url : api.keyStatus(id), nai = id === 'nai', llm = id === 'llm', d = api.getState().draw;
     const name = nameOf(id), t = llm ? (engine === 'llm' && textDraft ? textDraft : api.getState().text) : null, custom = t?.source === 'custom';
     const fields = id === 'gpt' ? [['MODEL', d.gpt.model], ['QUALITY', d.gpt.quality.toUpperCase()]]
-      : comfy ? [['MODEL', d.comfy.model ? d.comfy.model.replace(/\.[^.]*$/, '').slice(0, 18) : '未选'], ['WORKFLOW', d.comfy.workflow ? '自定义' : '默认']]
+      : comfy ? [['MODEL', d.comfy.model ? d.comfy.model.replace(/\.[^.]*$/, '').slice(0, 18) : '未选'], ['WORKFLOW', d.comfy.workflow ? '自定义' : '默认'], ['LORA', comfyLoraChip()]]
       : llm
       ? [['SOURCE', custom ? 'CUSTOM API' : 'TAVERN'], ['MODEL', custom ? t.presets.find(p => p.id === t.active)?.model || '未填写' : '跟随酒馆']]
       : nai
@@ -160,13 +165,13 @@ export function enginesApp(ctx) {
             ? select('comfy-model', c.model, [['', '请选择'], ...models.map(m => [m.value, m.text])])
             : input('comfy-model', c.model, 'text', 'autocomplete="off" spellcheck="false" placeholder="点上面「测试并读取模型」，或直接填文件名"'), '工作流里 "%model%" 填的就是它（默认工作流用 CheckpointLoaderSimple 读取）。')}
         </div>`
-      + groupTitle('工作流', help(`在 ComfyUI 里搭好工作流，用「导出 (API)」（Export (API)）存成 JSON 文件，点「导入 JSON 文件」选它（也可以把内容粘到框里再保存）。把需要插件填的地方写成占位符（带引号）：\n${placeholders}\n\n至少要有 "%prompt%"。留空就用酒馆自带的默认工作流（一个 checkpoint + 一个 KSampler）。酒馆的生图里存过的工作流可以直接读进来。`))
+      + groupTitle('工作流', help(`在 ComfyUI 里搭好工作流，用「导出 (API)」（Export (API)）存成 JSON 文件，点「导入 JSON 文件」选它（也可以把内容粘到框里再保存）。把需要插件填的地方写成占位符（带引号）：\n${placeholders}\n\n至少要有 "%prompt%"。留空就用酒馆自带的默认工作流（一个 checkpoint + 一个 KSampler）。酒馆的生图里存过的工作流可以直接读进来。\n\n不想手动改占位符：导入没标过的工作流时插件会自动问你要不要标，也可以随时点「自动标记占位符」——插件顺着连线找出提示词、负面、种子、步数、CFG、采样器、尺寸、底模的位置标好，认不准的格子不会动。`))
       + `<div class="group pad">
           ${textArea('comfy-workflow', c.workflow, `class="code" rows="8" spellcheck="false" placeholder="留空 = 默认工作流"`)}
           <div class="key-actions"><label class="file-pick"><input type="file" accept=".json,application/json" data-comfy-file aria-label="导入工作流 JSON 文件"><span>导入 JSON 文件</span></label>${btn('comfy-load-wf', '从酒馆读取', 'secondary')}</div>
-          <div class="key-actions">${btn('save-comfy-wf', '保存粘贴的工作流', 'primary')}${c.workflow ? btn('comfy-default-wf', '改回默认', 'danger') : ''}</div>
+          <div class="key-actions">${btn('save-comfy-wf', '保存粘贴的工作流', 'primary')}${btn('comfy-auto-mark', icon('wand') + '自动标记占位符', 'secondary')}${c.workflow ? btn('comfy-default-wf', '改回默认', 'danger') : ''}</div>
         </div>
-        <p class="hint">ComfyUI 没有 NovelAI 那种分角色的提示词：插件把场景和每个人的外貌合成一条提示词；NovelAI 的权重写法（{tag}、[tag]、1.2::tag::）会换成 (tag:1.1) 这种。采样器、步数、尺寸在绘图 App 的「参数」里改。</p>
+        <p class="hint">ComfyUI 没有 NovelAI 那种分角色的提示词：插件把场景和每个人的外貌合成一条提示词；NovelAI 的权重写法（{tag}、[tag]、1.2::tag::）会换成 (tag:1.1) 这种。采样器、步数、尺寸在绘图 App 的「参数」里改；LoRA 在绘图 App 的「LoRA」页签里随时增删调权重，出图时自动插进当前工作流，触发词自动拼进提示词。</p>
         <div class="actions">${btn('open-draw', icon('paint') + '打开绘图', 'primary')}</div>`);
   }
   async function loadComfy() {
@@ -174,6 +179,26 @@ export function enginesApp(ctx) {
     try { comfyInfo = await api.comfyCatalog(v.root.querySelector('[data-field=comfy-url]')?.value); }
     catch (error) { comfyInfo = {error: error.message, models: [], samplers: [], schedulers: []}; }
     if (!v.disposed && engine === 'comfy') render();
+  }
+
+  /** Saves an imported workflow; when it carries no %prompt%, marks the placeholders itself and reports what it did. */
+  async function importComfyWorkflow(raw, okMessage) {
+    try { api.saveDraw({comfy: {workflow: raw}}); render(); ctx.notify(okMessage); return; }
+    catch (error) { if (!/没有 "%prompt%"/.test(error.message)) throw error; }
+    const marked = api.comfyAutoPlaceholders(raw);
+    try { api.saveDraw({comfy: {workflow: marked.workflow, ...(marked.model ? {model: marked.model} : {})}}); }
+    catch (error) { ctx.notify(marked.notes.length ? `自动标记没认出提示词的位置（${marked.notes[0]}）` : error.message); return; }
+    render();
+    showMarkSummary(marked, `已自动标记并导入${marked.model ? '，底模已按工作流选好' : ''}`);
+  }
+  /** What 自动标记占位符 did: one line per marked spot, one per spot it left alone. */
+  function showMarkSummary(r, title = '自动标记占位符') {
+    const lines = [
+      ...r.marked.map(m => `<p class="probe-line">✓ ${esc(m)}</p>`),
+      ...r.notes.map(m => `<p class="probe-line">— ${esc(m)}</p>`)
+    ];
+    ctx.dialog(title, `<div class="group pad">${lines.join('') || '<p class="probe-line">— 没有要标的位置：占位符已经齐了</p>'}</div>
+      <p class="hint">吃不准的格子插件没有动。占位符随时可以在工作流框里手动增删；改完保存即可。</p>`);
   }
 
   function control(f, c, rowIndex = null, parent = null) {
@@ -396,15 +421,14 @@ export function enginesApp(ctx) {
   }
   v.on('input', '[data-param]', el => { if (!['checkbox', 'file'].includes(el.type) && el.tagName !== 'SELECT') return updateParam(el, false); });
   v.on('change', '[data-param]', el => updateParam(el, true));
-  // ComfyUI: a workflow JSON file, checked and saved as it is chosen.
+  // ComfyUI: a workflow JSON file, checked and saved as it is chosen (auto-marked first when it has no placeholders).
   v.on('change', '[data-comfy-file]', async el => {
     const file = el.files?.[0];
     el.value = '';
     if (!file) return;
     try {
       if (file.size > 300000) throw Error('工作流太大了（超过 300 KB）');
-      api.saveDraw({comfy: {workflow: await file.text()}});
-      render(); ctx.notify('已导入「' + file.name.replace(/\.json$/i, '') + '」');
+      await importComfyWorkflow(await file.text(), '已导入「' + file.name.replace(/\.json$/i, '') + '」');
     } catch (error) { ctx.notify(error.message); }
   });
   v.on('click', '[data-action]', async el => {
@@ -489,7 +513,31 @@ export function enginesApp(ctx) {
       }
       case 'save-comfy-url': api.saveDraw({comfy: {url: v.root.querySelector('[data-field=comfy-url]').value}}); render(); ctx.notify('ComfyUI 地址已保存'); break;
       case 'comfy-test': await v.busy(el, loadComfy); break;
-      case 'save-comfy-wf': api.saveDraw({comfy: {workflow: v.root.querySelector('[data-field=comfy-workflow]').value}}); render(); ctx.notify(api.getState().draw.comfy.workflow ? '工作流已保存' : '工作流是空的，用默认工作流'); break;
+      case 'save-comfy-wf': {
+        const raw = v.root.querySelector('[data-field=comfy-workflow]').value;
+        try {
+          api.saveDraw({comfy: {workflow: raw}});
+          render(); ctx.notify(api.getState().draw.comfy.workflow ? '工作流已保存' : '工作流是空的，用默认工作流');
+          break;
+        } catch (error) {
+          if (!/没有 "%prompt%"/.test(error.message)) { ctx.notify(error.message); break; }
+          if (!await ctx.confirm('要自动标记占位符吗？', '这份工作流里没有 %prompt%，插件认不出往哪填提示词。可以让插件顺着连线把提示词、种子、尺寸这些位置标出来（认不准的格子不会动）。')) { ctx.notify(error.message); break; }
+          const marked = api.comfyAutoPlaceholders(raw);
+          try { api.saveDraw({comfy: {workflow: marked.workflow, ...(marked.model ? {model: marked.model} : {})}}); }
+          catch (error2) { ctx.notify(marked.notes.length ? `自动标记没认出提示词的位置（${marked.notes[0]}）` : error2.message); break; }
+          render(); showMarkSummary(marked, `已自动标记并保存${marked.model ? '，底模已按工作流选好' : ''}`);
+          break;
+        }
+      }
+      case 'comfy-auto-mark': {
+        const raw = (v.root.querySelector('[data-field=comfy-workflow]')?.value || '').trim() || api.getState().draw.comfy.workflow;
+        if (!raw) { ctx.notify('先导入或粘贴一份工作流'); break; }
+        const marked = api.comfyAutoPlaceholders(raw);
+        try { api.saveDraw({comfy: {workflow: marked.workflow, ...(marked.model ? {model: marked.model} : {})}}); }
+        catch (error) { ctx.notify(marked.notes.length ? `自动标记没认出提示词的位置（${marked.notes[0]}）` : error.message); break; }
+        render(); showMarkSummary(marked);
+        break;
+      }
       case 'comfy-default-wf': if (await ctx.confirm('改回默认工作流？', '现在这份工作流会被清掉。')) { api.saveDraw({comfy: {workflow: ''}}); render(); } break;
       case 'comfy-load-wf': await v.busy(el, async () => {
         const names = await api.comfyWorkflows();

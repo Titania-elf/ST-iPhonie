@@ -1,0 +1,8 @@
+{
+  "name": "st-iphonie-lora",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "description": "Read-only forwarder for the ComfyUI LoRA list and ComfyUI-Lora-Manager metadata."
+}
