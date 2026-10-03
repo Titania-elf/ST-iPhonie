@@ -92,7 +92,7 @@ function speakers(){const ctx=context(),names=new Set(),add=n=>{if(n&&String(n).
  if(ctx.groupId){const group=ctx.groups?.find(g=>g.id===ctx.groupId);for(const member of group?.members||[])add(ctx.characters?.find(c=>c.avatar===member)?.name);}
  const recent=(ctx.chat||[]).filter(m=>m&&!m.is_system).slice(-8);for(const m of recent){if(!m.is_user)add(m.name);for(const line of parsed(m.mes||'').lines)add(line.role);}
  const text=recent.slice(-3).map(m=>m.mes||'').join('\n');for(const r of settings.routes)if(r.name&&text.includes(r.name))add(r.name);return [...names];}
-function inject(type,options,dryRun){clearPrompts();if(!active)return;const only=speakers();for(const p of [...(voiceOn()?promptPlan(settings,modelRules(settings,only),only):[]),...drawPromptPlan(settings),...(chats?.bringPlan(typeof type==='string'?type:'',dryRun===true)||[])]){context().setExtensionPrompt(p.key,p.text,p.position,p.depth,false,p.role);prompts.add(p.key);}}
+function inject(type,options,dryRun){clearPrompts();if(!active)return;const only=speakers();for(const p of [...(voiceOn()?promptPlan(settings,modelRules(settings,only),only):[]),...drawPromptPlan(settings,undefined,only),...(chats?.bringPlan(typeof type==='string'?type:'',dryRun===true)||[])]){context().setExtensionPrompt(p.key,p.text,p.position,p.depth,false,p.role);prompts.add(p.key);}}
 function persist(next){return backend.save(next);}
 const voiceOn=()=>settings?.general?.voiceEnabled!==false;
 function storeSettings(next){const voiced=voiceOn();settings=next;context().extensionSettings[NAMESPACE]=structuredClone(next);context().saveSettingsDebounced();if(active){inject();syncFloating();if(voiced!==voiceOn()){player.stop();rerender();}else scheduleRender();}}

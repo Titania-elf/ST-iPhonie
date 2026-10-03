@@ -15,8 +15,12 @@ export function validateSettings(s){if(JSON.stringify(s).length>2_000_000)throw 
 // The 情绪 field is used by the plugin: MiniMax gets it as its emotion setting, Fish and Eleven v3/v4 as an opening tag.
 const ENGINE_NAMES={fish:'Fish Audio',mini:'MiniMax',eleven:'ElevenLabs',mimo:'小米 MiMo'};
 /** Roles to write rules for: those named in `only` (the speakers of this chat) when any of them is known, else all. */
-export function speakingRoutes(s,only=null){const configured=s.routes.filter(r=>!isPlaceholderRole(r.name));if(!only?.length)return configured;const wanted=new Set(only.map(n=>String(n).trim()));const picked=configured.filter(r=>wanted.has(r.name));return picked.length?picked:configured;}
-export function modelRules(s,only=null){const {FISH_S1_EMOTIONS,FISH_S1_TONES,FISH_S1_SOUNDS,MINI_SOUNDS,ELEVEN_TAGS,MIMO_STYLES,MIMO_SOUNDS}=TTSParameters.vocab;const output=[];const configured=speakingRoutes(s,only);const routes=configured.length?configured:[{name:'未配置角色',engine:'fish',model:s.connections.fish.model}];
+// only: the speakers of the current story (null: every role, for previews). Roles not in the story are never named in
+// a story request, or the model takes them as the cast (a new chat of a world card kept bringing back saved roles).
+export function speakingRoutes(s,only=null){const configured=s.routes.filter(r=>!isPlaceholderRole(r.name));if(!Array.isArray(only))return configured;const wanted=new Set(only.map(n=>String(n).trim()));return configured.filter(r=>wanted.has(r.name));}
+export function modelRules(s,only=null){const {FISH_S1_EMOTIONS,FISH_S1_TONES,FISH_S1_SOUNDS,MINI_SOUNDS,ELEVEN_TAGS,MIMO_STYLES,MIMO_SOUNDS}=TTSParameters.vocab;const output=[];const configured=speakingRoutes(s,only);const registered=s.routes.filter(r=>!isPlaceholderRole(r.name));
+ // Nobody registered in the story yet: the rules of the engines in use, without names.
+ const nameless=!configured.length&&registered.length,routes=configured.length?configured:nameless?[...new Map(registered.map(r=>[r.engine+'|'+(r.model||''),{...r,name:'说话者'}])).values()]:[{name:'未配置角色',engine:'fish',model:s.connections.fish.model}];
  for(const r of routes){const model=r.model||s.connections[r.engine]?.model||TTSParameters.catalogs[r.engine]?.model||'';let rule;
   if(r.engine==='mimo'){
    rule='情绪字段用中文写一个词，最好从这些里选：'+MIMO_STYLES.join('、')+'；插件会把它写成句首的圆括号标签。原文里还可以在语气变化的位置插方括号细节标签，只用这些：'+MIMO_SOUNDS.map(x=>'['+x+']').join('、')+'；一句最多两三个，只描述声音，不写动作。';
@@ -35,6 +39,6 @@ export function modelRules(s,only=null){const {FISH_S1_EMOTIONS,FISH_S1_TONES,FI
   }
   // Speakers that share a rule share one entry: the rule is written once, with every name and model in front.
   const same=output.find(o=>o.rule===rule),who=String(r.name),label=(ENGINE_NAMES[r.engine]||r.engine)+' '+model;
-  if(same){const group=same.groups.find(g=>g.label===label);if(group)group.names.push(who);else same.groups.push({label,names:[who]});}
+  if(same){const group=same.groups.find(g=>g.label===label);if(group){if(!group.names.includes(who))group.names.push(who);}else same.groups.push({label,names:[who]});}
   else output.push({rule,groups:[{label,names:[who]}]});}
  return '各说话者的朗读规则（只用于台词，不改变人物设定）：\n'+output.map(o=>'· '+o.groups.map(g=>g.names.join('、')+'（'+g.label+'）').join('、')+'：\n  '+o.rule).join('\n');}

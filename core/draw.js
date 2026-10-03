@@ -261,26 +261,28 @@ export const activeStyle = draw => draw.styles.find(s => s.id === draw.activeSty
 const activePreset = (draw, preset) => preset || draw.presets.find(x => x.id === draw.activePreset) || draw.presets[0];
 const countOf = p => Math.min(DRAW_COUNT_MAX, Math.max(1, Math.round(Number(p.count)) || 1));
 
-/** 名单 for the rules: registered names with their fixed appearance. */
-export function castList(settings) {
-  const roles = settings.routes.filter(r => !isPlaceholderRole(r.name));
-  if (!roles.length) return '（还没有登记的角色）';
+/** 名单 for the rules: registered names with their fixed appearance. only: the story's speakers (story requests name
+ *  nobody else, or the model takes them as the cast). */
+export function castList(settings, only = null) {
+  const wanted = Array.isArray(only) ? new Set(only.map(n => String(n).trim())) : null;
+  const roles = settings.routes.filter(r => !isPlaceholderRole(r.name) && (!wanted || wanted.has(r.name)));
+  if (!roles.length) return wanted ? '（这段剧情里还没有登记的角色）' : '（还没有登记的角色）';
   return roles.map(r => r.appearance?.trim() ? `${r.name}（${r.appearance.trim().slice(0, 160)}）` : `${r.name}（还没有外貌）`).join('；');
 }
-function ruleText(settings, p, format, contract) {
-  const count = countOf(p), list = castList(settings);
+function ruleText(settings, p, format, contract, only = null) {
+  const count = countOf(p), list = castList(settings, only);
   const fill = t => t.replaceAll('{{出图格式}}', format).replaceAll('{{角色列表}}', list).replaceAll('{{出图数量}}', String(count));
   const entries = p.entries.filter(e => e.enabled && e.text.trim());
   return {entries, fill, tail: fill(contract(count))};
 }
 
 /** Prompt entries injected with the story request ('inline' mode only). Keys share the sttts.entry. prefix. */
-export function drawPromptPlan(settings, preset) {
+export function drawPromptPlan(settings, preset, only = null) {
   const draw = settings.draw;
   if (!preset && (!draw?.enabled || draw.mode !== 'inline')) return [];
   const p = activePreset(draw, preset);
   if (!p) return [];
-  const {entries, fill, tail} = ruleText(settings, p, PIC_TAG_FORMAT, drawContract);
+  const {entries, fill, tail} = ruleText(settings, p, PIC_TAG_FORMAT, drawContract, only);
   return entries.map((e, index) => {
     const i = e.injection || p.injection;
     return {
