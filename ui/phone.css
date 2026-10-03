@@ -1211,3 +1211,8 @@ small.peek-draw{cursor:default;color:var(--ink2)}
 .sheet-help{margin:0;padding:8px 14px 10px;font-size:12.5px;line-height:1.6;color:var(--ink2);white-space:pre-line;background:var(--card2);border-radius:12px}
 .group>.sheet-help{border-radius:0}
 .info{flex-shrink:0}
+.file-pick{position:relative;display:flex;align-items:center;min-height:40px;padding:8px 14px;border-radius:14px;background:var(--card2);color:var(--e-ink,var(--ink));font-weight:700;font-size:13.5px;cursor:pointer;box-shadow:inset 0 0 0 1.5px var(--line)}
+.file-pick.done{background:var(--e-soft,var(--card2));box-shadow:inset 0 0 0 1.5px var(--e,var(--line))}
+.file-pick input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.file-pick:focus-within{outline:2px solid var(--e,var(--accent));outline-offset:2px}
+.key-actions>.file-pick{justify-content:center}

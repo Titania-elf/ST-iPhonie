@@ -121,6 +121,8 @@ export async function httpError(engine,response,what='',secrets=[],relay=false){
  // Through a relay its own words are the reason ("no key left in the shared pool"): a general explanation of the
  // status would point at the wrong thing.
  const relayWords=relay&&typeof detail.message==='string'&&detail.message.trim()?hide(detail.message.trim().slice(0,300)):'';
+ // Fish cannot find the voice id: a wrong id, a deleted voice, or someone's private voice (a relay asks with its own key).
+ if(engine==='fish'&&/reference not found/i.test(String(detail.message||'')))return Object.assign(Error(names[engine]+(relay?' 中转':'')+'：找不到这个音色（Reference not found）。音色 ID 填错了，或者这个音色已经删掉、是别人账号的私有音色'+(relay?'；用中转时，私有音色只有中转用你自己的密钥才看得到':'')+'。换一个公开音色试试就知道是不是这个原因'),{status:response.status,code:'reference_not_found',refusedField:'',relay});
  if(relayWords)return Object.assign(Error(names[engine]+' 中转'+(what?' '+what:'')+'：HTTP '+response.status+' · 中转说：'+relayWords),{status:response.status,code,refusedField:'',relay:true});
  return Object.assign(Error(names[engine]+(what?' '+what:'')+'：HTTP '+response.status+' · '+reason+(said?'（'+said+'）':'')),{status:response.status,code,refusedField:refused?.[1]||''});
 }

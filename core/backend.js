@@ -7,6 +7,7 @@ import { normalizeMoments, buildMomentsRequest } from './moments.js';
 import { normalizeCalls, buildCallRequest } from './call.js';
 import { normalizeText, activeText, customRequest, listModels, streamText, asMessages, TEXT_PRESET_ID } from './llm.js';
 import { normalizeSync, runSync, SYNC_PARTS } from './sync.js';
+import { decodeMono, encodeWav } from './audio-join.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup, sealKeys, openKeys } from './backup.js';
 import { DRAW_ENGINES, DRAW_ENGINE_NAMES, GPT_IMAGE_MODELS, GPT_QUALITIES, normalizeGpt, gptBase, gptSize, gptPrompt, gptGenerate, normalizeComfy, comfyUrl, checkWorkflow, comfySize, comfyPrompt, comfyValues, fillWorkflow, comfyGenerate, comfyCatalog, tavernWorkflows, tavernWorkflow, orientationOf, DEFAULT_COMFY_WORKFLOW } from './image-engines.js';
 import { normalizeSettings, validateSettings, modelRules, freshState } from './state.js';
@@ -1058,7 +1059,15 @@ export class TTSBackend {
         for (let i = 0; i < bytes.length; i += 8192) text += String.fromCharCode(...bytes.subarray(i, i + 8192));
         return btoa(text);
     }
-    async reference(file) {
+    /** Keeps a reference audio (Fish) or clone sample (MiMo). wav: MiMo takes only mp3 and wav, so anything else
+     *  (an iPhone recording is m4a) is decoded here and kept as a mono wav. */
+    async reference(file, { wav = false } = {}) {
+        const plain = /wav|wave|mpeg|mp3/i.test(file?.type || '') || /\.(wav|mp3)$/i.test(file?.name || '');
+        if (wav && file && !plain) {
+            let samples;
+            try { samples = await decodeMono(globalThis, file, 24000); } catch { throw Error('这个音频读不出来，请换成 mp3 或 wav'); }
+            file = new File([encodeWav(samples, 24000)], String(file.name || '样本').replace(/\.[^.]+$/, '') + '.wav', { type: 'audio/wav' });
+        }
         const record = await this.library.saveReference({ name: file?.name || '参考音频', blob: file });
         const audio = await this.base64(file);
         this.assertOpen();
@@ -1179,7 +1188,7 @@ export class TTSBackend {
             generateImage: input => this.generateImage(input).then(({ blob, ...result }) => result),
             drawQueue: () => this.drawQueue.list(), cancelDraw: key => this.drawQueue.cancel(key), cancelAllDraws: () => this.drawQueue.cancelAll(),
             cloudQueueError: () => this.drawQueue.remoteError, testCloudQueue: value => this.testCloudQueue(value), newRoomCode: () => newRoomCode(),
-            reference: file => this.reference(file), listReferences: () => this.library.listReferences(), deleteReference: id => this.deleteReference(id),
+            reference: (file, options) => this.reference(file, clone(options || {})), listReferences: () => this.library.listReferences(), deleteReference: id => this.deleteReference(id),
             engineSchema: (engine, connection) => this.getEngineSchema(engine, connection),
             validateConnection: (engine, connection) => { try { modelCheck(engine, connection.model); return TTSParameters.validate(engine, connection); } catch (error) { return message(error); } },
             voices: (engine, connection, query) => { engineCheck(engine); return this.providers.voices(engine, connection || this.settings.connections[engine], query); },

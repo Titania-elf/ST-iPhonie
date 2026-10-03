@@ -160,10 +160,11 @@ export function enginesApp(ctx) {
             ? select('comfy-model', c.model, [['', '请选择'], ...models.map(m => [m.value, m.text])])
             : input('comfy-model', c.model, 'text', 'autocomplete="off" spellcheck="false" placeholder="点上面「测试并读取模型」，或直接填文件名"'), '工作流里 "%model%" 填的就是它（默认工作流用 CheckpointLoaderSimple 读取）。')}
         </div>`
-      + groupTitle('工作流', help(`在 ComfyUI 里搭好工作流，用「导出 (API)」（Export (API)）存成 JSON 粘到这里。把需要插件填的地方写成占位符（带引号）：\n${placeholders}\n\n至少要有 "%prompt%"。留空就用酒馆自带的默认工作流（一个 checkpoint + 一个 KSampler）。酒馆的生图里存过的工作流可以直接读进来。`))
+      + groupTitle('工作流', help(`在 ComfyUI 里搭好工作流，用「导出 (API)」（Export (API)）存成 JSON 文件，点「导入 JSON 文件」选它（也可以把内容粘到框里再保存）。把需要插件填的地方写成占位符（带引号）：\n${placeholders}\n\n至少要有 "%prompt%"。留空就用酒馆自带的默认工作流（一个 checkpoint + 一个 KSampler）。酒馆的生图里存过的工作流可以直接读进来。`))
       + `<div class="group pad">
           ${textArea('comfy-workflow', c.workflow, `class="code" rows="8" spellcheck="false" placeholder="留空 = 默认工作流"`)}
-          <div class="key-actions">${btn('save-comfy-wf', '保存工作流', 'primary')}${btn('comfy-load-wf', '从酒馆读取', 'secondary')}${c.workflow ? btn('comfy-default-wf', '改回默认', 'danger') : ''}</div>
+          <div class="key-actions"><label class="file-pick"><input type="file" accept=".json,application/json" data-comfy-file aria-label="导入工作流 JSON 文件"><span>导入 JSON 文件</span></label>${btn('comfy-load-wf', '从酒馆读取', 'secondary')}</div>
+          <div class="key-actions">${btn('save-comfy-wf', '保存粘贴的工作流', 'primary')}${c.workflow ? btn('comfy-default-wf', '改回默认', 'danger') : ''}</div>
         </div>
         <p class="hint">ComfyUI 没有 NovelAI 那种分角色的提示词：插件把场景和每个人的外貌合成一条提示词；NovelAI 的权重写法（{tag}、[tag]、1.2::tag::）会换成 (tag:1.1) 这种。采样器、步数、尺寸在绘图 App 的「参数」里改。</p>
         <div class="actions">${btn('open-draw', icon('paint') + '打开绘图', 'primary')}</div>`);
@@ -186,7 +187,9 @@ export function enginesApp(ctx) {
     if (f.type === 'boolean') return `<div class="setting-row"><span>${esc(f.label)}${help(note)}</span><input type="checkbox" class="switch" ${attrs} ${value ? 'checked' : ''}></div>`;
     let html;
     if (f.type === 'select') html = `<span class="select"><select ${attrs}>${f.options.map(([option, label]) => `<option value="${esc(option)}" ${value === option ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></span>`;
-    else if (f.type === 'file') html = `<input type="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.opus" ${attrs}>${value ? '<small>已选参考音频</small>' : ''}`;
+    // The browser's own file box says 「未选择任何文件」 again once the page redraws, although the audio is kept: a button
+    // that says what is there instead.
+    else if (f.type === 'file') html = `<label class="file-pick${value ? ' done' : ''}"><input type="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.opus" ${attrs}><span>${value ? '✓ 已存好 · 点这里换一个' : '选择音频文件'}</span></label>`;
     else if (['textarea', 'lines'].includes(f.type)) html = `<textarea rows="4" ${attrs}>${esc(value)}</textarea>`;
     else html = `<input type="${f.type === 'number' ? 'number' : 'text'}" ${attrs} value="${esc(value)}" ${f.min !== undefined ? `min="${f.min}"` : ''} ${f.max !== undefined ? `max="${f.max}"` : ''} ${f.step !== undefined ? `step="${f.step}"` : ''}>`;
     return field(f.label, html, note);
@@ -369,9 +372,20 @@ export function enginesApp(ctx) {
         const file = el.files?.[0];
         if (!file) return;
         el.disabled = true;
+        const label = el.nextElementSibling;
+        if (label) label.textContent = '正在存……';
         try {
-          const id = await api.reference(file);
-          if (c.params[f.key].includes(row)) { row[col.key] = id; if (draft() === c) { changed(); render(); } }
+          const id = await api.reference(file, {wav: engine === 'mimo'});
+          if (!c.params[f.key].includes(row)) return;
+          row[col.key] = id;
+          // A clone sample is named after its file when it has no name yet; the list is saved right away when every
+          // row is complete, so the audio is not lost if 保存配置 is forgotten.
+          const named = f.columns.some(x => x.key === 'name');
+          if (named && !String(row.name || '').trim()) row.name = file.name.replace(/\.[^.]+$/, '').trim().slice(0, 40) || '样本';
+          let saved = false;
+          try { api.saveConnection(engine, {params: {[f.key]: structuredClone(c.params[f.key])}}); saved = true; } catch {}
+          if (draft() === c) { dirty = JSON.stringify(c) !== JSON.stringify(api.getState().connections[engine]); render(); }
+          ctx.notify(!saved ? '音频已存进浏览器，把这一行填完整后点「保存配置」' : named ? `样本「${row.name}」已保存，角色的音色填「${row.name}」` : '参考音频已保存');
         } finally { if (el.isConnected) el.disabled = false; }
         return;
       }
@@ -382,6 +396,17 @@ export function enginesApp(ctx) {
   }
   v.on('input', '[data-param]', el => { if (!['checkbox', 'file'].includes(el.type) && el.tagName !== 'SELECT') return updateParam(el, false); });
   v.on('change', '[data-param]', el => updateParam(el, true));
+  // ComfyUI: a workflow JSON file, checked and saved as it is chosen.
+  v.on('change', '[data-comfy-file]', async el => {
+    const file = el.files?.[0];
+    el.value = '';
+    if (!file) return;
+    try {
+      if (file.size > 300000) throw Error('工作流太大了（超过 300 KB）');
+      api.saveDraw({comfy: {workflow: await file.text()}});
+      render(); ctx.notify('已导入「' + file.name.replace(/\.json$/i, '') + '」');
+    } catch (error) { ctx.notify(error.message); }
+  });
   v.on('click', '[data-action]', async el => {
     switch (el.dataset.action) {
       case 'engine': if (order.at(-1) === el.dataset.engine) edit(el.dataset.engine); else bringFront(el.dataset.engine); break;
