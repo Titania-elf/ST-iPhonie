@@ -13,6 +13,8 @@
   --mimo:#ff6a3d;--mimo-ink:#b13a12;--mimo-soft:#ffe6dc;--mimo-btn:#e4552a;--mimo-on:#fff;
   --nai:#7d80f2;--nai-ink:#3f43ad;--nai-soft:#ecebff;--nai-btn:#4f54c8;--nai-on:#fff;
   --llm:#23b19c;--llm-ink:#0f6e60;--llm-soft:#d8f6ef;--llm-btn:#1a9a87;--llm-on:#fff;
+  --gpt:#4f6d8a;--gpt-ink:#26415c;--gpt-soft:#e3ebf3;--gpt-btn:#3a5a7a;--gpt-on:#fff;
+  --comfy:#b061d8;--comfy-ink:#6a2c8c;--comfy-soft:#f4e6fb;--comfy-btn:#9244bd;--comfy-on:#fff;
   font-family:"PingFang SC","HarmonyOS Sans SC","MiSans","Microsoft YaHei",system-ui,sans-serif;font-size:15px;
 }
 :root[data-theme=dark]{
@@ -27,6 +29,8 @@
   --mimo:#ff8a62;--mimo-ink:#ffb79c;--mimo-soft:#46261d;--mimo-btn:#ff8a62;--mimo-on:#2e0e04;
   --nai:#9ea1ff;--nai-ink:#c6c8ff;--nai-soft:#28295e;--nai-btn:#9ea1ff;--nai-on:#0b0c2a;
   --llm:#5fd6c1;--llm-ink:#9ff0e1;--llm-soft:#173f3f;--llm-btn:#5fd6c1;--llm-on:#062421;
+  --gpt:#8fb0d1;--gpt-ink:#c0d6ec;--gpt-soft:#1f3047;--gpt-btn:#8fb0d1;--gpt-on:#0a1522;
+  --comfy:#cf95ef;--comfy-ink:#e6c4f8;--comfy-soft:#3a2348;--comfy-btn:#cf95ef;--comfy-on:#22082e;
 }
 [data-engine=fish]{--e:var(--fish);--e-ink:var(--fish-ink);--e-soft:var(--fish-soft);--e-btn:var(--fish-btn);--e-on:var(--fish-on)}
 [data-engine=mini]{--e:var(--mini);--e-ink:var(--mini-ink);--e-soft:var(--mini-soft);--e-btn:var(--mini-btn);--e-on:var(--mini-on)}
@@ -34,6 +38,8 @@
 [data-engine=mimo]{--e:var(--mimo);--e-ink:var(--mimo-ink);--e-soft:var(--mimo-soft);--e-btn:var(--mimo-btn);--e-on:var(--mimo-on)}
 [data-engine=nai]{--e:var(--nai);--e-ink:var(--nai-ink);--e-soft:var(--nai-soft);--e-btn:var(--nai-btn);--e-on:var(--nai-on)}
 [data-engine=llm]{--e:var(--llm);--e-ink:var(--llm-ink);--e-soft:var(--llm-soft);--e-btn:var(--llm-btn);--e-on:var(--llm-on)}
+[data-engine=gpt]{--e:var(--gpt);--e-ink:var(--gpt-ink);--e-soft:var(--gpt-soft);--e-btn:var(--gpt-btn);--e-on:var(--gpt-on)}
+[data-engine=comfy]{--e:var(--comfy);--e-ink:var(--comfy-ink);--e-soft:var(--comfy-soft);--e-btn:var(--comfy-btn);--e-on:var(--comfy-on)}
 [data-engine=none]{--e:var(--ink2);--e-ink:var(--ink2);--e-soft:var(--card2);--e-btn:var(--ink2);--e-on:var(--card)}
 
 /* ---------- Base ---------- */
@@ -499,7 +505,7 @@ details>div{padding-bottom:10px}
 .wave-button[data-state=waiting] .wave{color:var(--danger)}
 
 /* ---------- Draw ---------- */
-.view[data-app=draw]{--e:var(--nai);--e-ink:var(--nai-ink);--e-soft:var(--nai-soft);--e-btn:var(--nai-btn);--e-on:var(--nai-on)}
+.view[data-app=draw]:not([data-engine]){--e:var(--nai);--e-ink:var(--nai-ink);--e-soft:var(--nai-soft);--e-btn:var(--nai-btn);--e-on:var(--nai-on)}
 .draw-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 2px 12px}
 .draw-meta .chip-button svg:last-child{width:14px;height:14px}
 .chip.warn{background:var(--danger-soft);color:var(--danger)}
@@ -509,17 +515,17 @@ details>div{padding-bottom:10px}
 .canvas-card .canvas-main:only-child{max-width:100%}
 .canvas-main img{display:block;width:100%;height:100%;object-fit:contain}
 .canvas-main.empty{display:grid;place-items:center;text-align:center;font-size:13px;font-weight:800;color:var(--ink2);background:radial-gradient(var(--dot) 1.5px,transparent 1.9px) 0 0/12px 12px,var(--card2)}
-.canvas-busy{position:absolute;inset:0;display:grid;place-items:center;font-size:13px;font-weight:800;color:var(--nai-ink);background:color-mix(in srgb,var(--card2) 70%,transparent);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
-.canvas-busy:after{content:"";position:absolute;left:0;bottom:0;height:4px;width:40%;background:var(--nai);border-radius:4px;animation:busy 1.2s ease-in-out infinite alternate}
+.canvas-busy{position:absolute;inset:0;display:grid;place-items:center;font-size:13px;font-weight:800;color:var(--e-ink);background:color-mix(in srgb,var(--card2) 70%,transparent);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.canvas-busy:after{content:"";position:absolute;left:0;bottom:0;height:4px;width:40%;background:var(--e);border-radius:4px;animation:busy 1.2s ease-in-out infinite alternate}
 @keyframes busy{from{transform:translateX(0)}to{transform:translateX(150%)}}
 /* The earlier pictures: as tall as the canvas, scrolling inside (padding leaves room for the chosen one's ring). */
 .canvas-side{width:58px;max-height:min(44dvh,360px);box-sizing:border-box;padding:3px;display:flex;flex-direction:column;gap:6px;flex-shrink:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
 .canvas-side::-webkit-scrollbar{display:none}
 .thumb{width:52px;flex-shrink:0;aspect-ratio:2/3;border-radius:8px;overflow:hidden;padding:0;background:var(--card2);box-shadow:0 0 0 2px var(--line)}
-.thumb[aria-pressed=true]{box-shadow:0 0 0 3px var(--nai)}
+.thumb[aria-pressed=true]{box-shadow:0 0 0 3px var(--e)}
 .thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .canvas-meta{text-align:center;font-family:"JetBrains Mono",ui-monospace,Consolas,monospace;font-size:11px}
-.style-card summary svg{width:18px;height:18px;color:var(--nai)}
+.style-card summary svg{width:18px;height:18px;color:var(--e)}
 .style-card summary .save-state{margin-left:auto;margin-right:6px}
 .draw-tabs{margin-top:16px}
 /* Five tabs: each label stays on one line. */
@@ -565,7 +571,7 @@ details>div{padding-bottom:10px}
 .size-chips button{display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 2px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 2px var(--line);font-size:12px;font-weight:800}
 .size-chips button i{display:block;border:2px solid currentColor;border-radius:3px}
 .size-chips button small{font:600 10px "JetBrains Mono",ui-monospace,monospace}
-.size-chips button[aria-pressed=true]{background:var(--nai-soft);color:var(--nai-ink);box-shadow:inset 0 0 0 2.5px var(--nai)}
+.size-chips button[aria-pressed=true]{background:var(--e-soft);color:var(--e-ink);box-shadow:inset 0 0 0 2.5px var(--e)}
 .inline-row{display:flex;gap:8px;align-items:center}
 .inline-row input{flex:1}
 .draw-char .row-heading{gap:8px;margin-top:8px}
@@ -1197,3 +1203,8 @@ button.moment-note{color:var(--accent-ink);text-decoration:underline;text-underl
 .peek-pic img{width:100%;height:100%;object-fit:cover;display:block}
 .peek-draw{all:unset;cursor:pointer;justify-self:start;font-size:11.5px;font-weight:800;color:var(--accent);padding:2px 0}
 small.peek-draw{cursor:default;color:var(--ink2)}
+
+.bank-card .card-number.address{font-size:15px;letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.draw-engines{margin:0 0 10px}
+.sheet-help{margin:0;padding:8px 14px 10px;font-size:12.5px;line-height:1.6;color:var(--ink2);white-space:pre-line;background:var(--card2);border-radius:12px}
+.group>.sheet-help{border-radius:0}

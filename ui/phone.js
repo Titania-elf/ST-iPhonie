@@ -131,6 +131,19 @@ export function createPhoneApp({window: win, api, mount = win.document.getElemen
       }
     };
     overlay.addEventListener('click', e => { if (e.target === overlay || e.target.closest('[data-sheet-close]')) result.close(null); });
+    // An 「i」 inside a sheet opens its note right under the row (opening the 说明 sheet would close this one); again to fold it.
+    overlay.addEventListener('click', e => {
+      const info = e.target.closest('[data-help]');
+      if (!info || !overlay.contains(info)) return;
+      e.preventDefault();
+      const row = info.closest('.setting-row, .field, .actions, .row-heading') || info.parentElement, next = row.nextElementSibling;
+      if (next?.classList.contains('sheet-help')) { next.remove(); info.setAttribute('aria-expanded', 'false'); return; }
+      const note = doc.createElement('p');
+      note.className = 'help-copy sheet-help';
+      note.textContent = info.dataset.help;
+      row.after(note);
+      info.setAttribute('aria-expanded', 'true');
+    });
     overlay.addEventListener('keydown', e => {
       if (e.key !== 'Tab') return;
       const controls = [...overlay.querySelectorAll('button,input,select,textarea,a[href]')].filter(el => !el.disabled && !el.hidden);

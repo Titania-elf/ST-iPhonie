@@ -129,7 +129,7 @@ export function settingsApp(ctx) {
           <div class="field"><div class="meter-label"><span>播放音量</span><output>${Math.round(phone.volume * 100)}%</output></div><input class="slider" type="range" data-field="volume" min="0" max="100" value="${Math.round(phone.volume * 100)}" aria-label="播放音量"></div>
         </div>`
       + groupTitle('绘图')
-      + `<div class="group">${toggle('drawEnabled', '正文出图', s.draw.enabled, '开启后，绘图预设会加进聊天请求，让模型在正文里写出图标签。')}${toggle('drawAuto', '新回复自动出图', s.draw.auto, '只在免费档内自动画；超出免费档或读不到订阅时，正文里显示“点击生成”。')}${toggle('drawFold', '正文图片默认收起', s.draw.fold, '正文里只留一个小缩略图，点开再看。每张图也能单独收起或展开。')}${toggle('drawGuard', '免费档守卫', s.draw.guard, '步数不超过 28、尺寸不超过 1024×1024，不会发出扣 Anlas 的请求。')}</div>`
+      + `<div class="group">${toggle('drawEnabled', '正文出图', s.draw.enabled, '开启后，绘图预设会加进聊天请求，让模型在正文里写出图标签。')}${toggle('drawAuto', '新回复自动出图', s.draw.auto, '只自动画不花钱的：NovelAI 免费档内的图、ComfyUI 的图；GPT 生图在「每张先问」关掉后也会自动画。其余的正文里显示“点击生成”。用哪个引擎画在绘图 App 顶上选。')}${toggle('drawFold', '正文图片默认收起', s.draw.fold, '正文里只留一个小缩略图，点开再看。每张图也能单独收起或展开。')}${toggle('drawGuard', '免费档守卫', s.draw.guard, '步数不超过 28、尺寸不超过 1024×1024，不会发出扣 Anlas 的请求。')}</div>`
       + groupTitle('分区')
       + (() => { const space = api.phoneSpace?.() || {}; return `<div class="group">${toggle('partition', '按角色卡分开', s.chat.partition === 'card', '打开后，每张角色卡（群聊是每个群）一部手机：聊天记录、朋友圈、论坛、查手机各管各的，换卡就换手机；联系人只有这张卡的角色、在这张卡剧情里说过话的角色，和在这张卡里手动加的联系人。「我」跟着酒馆给这张卡锁定的人设走。\n\n打开之前就有的聊天和动态没有归属，每张卡都看得到；不想要的可以删掉。关掉分区后，所有东西又会一起显示。')}
           <div class="setting-row"><span>现在是</span><small>${space.key ? esc(space.name || '这张角色卡') + (s.chat.partition === 'card' ? ' 的手机' : '') : '没有打开角色卡'}</small></div></div>`; })()
@@ -277,7 +277,7 @@ export function settingsApp(ctx) {
       case 'clear-cache':
         if (await ctx.confirm('清理语音缓存？', '正在播放的音频会停止，收藏和其他资料会保留。')) { await v.busy(el, () => api.clearCache()); await render(); ctx.notify('语音缓存已清理'); }
         break;
-      case 'about': ctx.help('ST-iPhonie\n酒馆里的小手机：聊天、角色配音、听取、NovelAI 绘图、收藏、相册和备忘录。\n\n密钥和本地资料保存在当前浏览器与酒馆地址。状态栏的信号和电量是装饰。语音只在你点击播放或试听后生成。'); break;
+      case 'about': ctx.help('ST-iPhonie\n酒馆里的小手机：聊天、角色配音、听取、绘图（NovelAI、GPT 生图、ComfyUI）、收藏、相册和备忘录。\n\n密钥和本地资料保存在当前浏览器与酒馆地址。状态栏的信号和电量是装饰。语音只在你点击播放或试听后生成。'); break;
     }
   });
   render().catch(e => ctx.notify(e.message));

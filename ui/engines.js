@@ -6,9 +6,12 @@ import {icon, spark} from './icons.js';
 export function enginesApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'engines'), drafts = new Map();
   let engine = null, dirty = false, subscription = null, subscriptionError = '', subscriptionStatus = 0, textDraft = null, models = [];
+  // ComfyUI: what the last connection check found ({models, samplers, schedulers} or {error}), and the tavern's workflows.
+  let comfyInfo = null;
   // The wallet is a stack: the last card is the one in front. A tap on another card draws it to the front; a tap on
   // the front card opens it.
-  let order = ['llm', ...Object.keys(engines), 'nai'];
+  let order = ['llm', ...Object.keys(engines), 'comfy', 'gpt', 'nai'];
+  const IMAGE = ['nai', 'gpt', 'comfy'];
   // Voice balances shown on the ElevenLabs and Fish cards: engine -> {value, error, loading}.
   const balances = new Map(), PRICED = ['eleven', 'fish'];
   const number = n => Number(n).toLocaleString('zh-CN');
@@ -42,11 +45,13 @@ export function enginesApp(ctx) {
   };
   /** The text model preset being edited (the draft's active one). */
   const textPreset = () => textDraft.presets.find(p => p.id === textDraft.active) || textDraft.presets[0];
-  const nameOf = id => id === 'nai' ? 'NovelAI' : id === 'llm' ? '文字模型' : engines[id];
+  const nameOf = id => id === 'nai' ? 'NovelAI' : id === 'gpt' ? 'GPT 生图' : id === 'comfy' ? 'ComfyUI' : id === 'llm' ? '文字模型' : engines[id];
   function card(id, tag = 'button') {
-    const saved = api.keyStatus(id), nai = id === 'nai', llm = id === 'llm';
+    const comfy = id === 'comfy', saved = comfy ? !!api.getState().draw.comfy.url : api.keyStatus(id), nai = id === 'nai', llm = id === 'llm', d = api.getState().draw;
     const name = nameOf(id), t = llm ? (engine === 'llm' && textDraft ? textDraft : api.getState().text) : null, custom = t?.source === 'custom';
-    const fields = llm
+    const fields = id === 'gpt' ? [['MODEL', d.gpt.model], ['QUALITY', d.gpt.quality.toUpperCase()]]
+      : comfy ? [['MODEL', d.comfy.model ? d.comfy.model.replace(/\.[^.]*$/, '').slice(0, 18) : '未选'], ['WORKFLOW', d.comfy.workflow ? '自定义' : '默认']]
+      : llm
       ? [['SOURCE', custom ? 'CUSTOM API' : 'TAVERN'], ['MODEL', custom ? t.presets.find(p => p.id === t.active)?.model || '未填写' : '跟随酒馆']]
       : nai
       ? [['TIER', subscription ? TIERS[subscription.tier] || '未知' : '—'], ['ANLAS', subscription ? String(subscription.anlas) : '—']]
@@ -55,12 +60,12 @@ export function enginesApp(ctx) {
         : [['MODEL', api.getState().connections[id].model], ['ROLES', api.getState().routes.filter(r => r.engine === id && r.voice).length + ' 个角色']];
     const front = order.at(-1) === id;
     const attrs = tag === 'button' ? `data-action="engine" data-engine="${id}" aria-label="${name}，${front ? '点一下打开' : '点一下抽到最前面'}"` : `data-engine="${id}"`;
-    const dots = `•••• •••• •••• ${api.keyHint?.(id) || '••••'}`;
-    const number = llm ? (custom ? (saved ? dots : '未绑定密钥 · 点卡片去填写') : '用酒馆当前连接的模型') : saved ? dots : '未绑定密钥 · 点卡片去填写';
+    const dots = comfy ? '' : `•••• •••• •••• ${api.keyHint?.(id) || '••••'}`;
+    const number = comfy ? d.comfy.url.replace(/^https?:\/\//, '') : llm ? (custom ? (saved ? dots : '未绑定密钥 · 点卡片去填写') : '用酒馆当前连接的模型') : saved ? dots : '未绑定密钥 · 点卡片去填写';
     return `<${tag} class="bank-card${tag === 'div' ? ' detail-card' : ''}" ${attrs}>${spark()}
-      <span class="card-top"><span class="card-name">${name}</span><span class="card-kind">${nai ? 'IMAGE' : llm ? 'TEXT' : 'VOICE'}${icon('nfc')}</span></span>
+      <span class="card-top"><span class="card-name">${name}</span><span class="card-kind">${IMAGE.includes(id) ? 'IMAGE' : llm ? 'TEXT' : 'VOICE'}${icon('nfc')}</span></span>
       <span class="card-chip"></span>
-      <span class="card-number${number.startsWith('•') ? '' : ' none'}">${number}</span>
+      <span class="card-number${number.startsWith('•') || comfy ? '' : ' none'}${comfy ? ' address' : ''}">${number}</span>
       <span class="card-bottom">${fields.map(([k, value]) => `<span><span class="k">${k}</span><span class="v">${esc(value)}</span></span>`).join('')}<span class="card-brand">ST-iPhonie</span></span></${tag}>`;
   }
 
@@ -113,6 +118,63 @@ export function enginesApp(ctx) {
         <div class="actions">${btn('open-draw', icon('paint') + '打开绘图', 'primary')}</div>`);
   }
 
+  /** The engine the 绘图 App draws with: a line on each image card, with a button to switch to this one. */
+  const drawingWith = id => {
+    const using = api.getState().draw.engine === id;
+    return `<div class="group"><div class="setting-row"><span>绘图 App 用它来画</span>${using ? plate('正在用') : btn('use-draw-engine', '改用它画', 'chip-button', `data-engine="${id}"`)}</div></div>`;
+  };
+  function renderGpt() {
+    const saved = api.keyStatus('gpt'), g = api.getState().draw.gpt;
+    v.root.dataset.engine = 'gpt';
+    v.draw(heading('GPT 生图', '', 'Image Card')
+      + card('gpt', 'div')
+      + drawingWith('gpt')
+      + groupTitle('连接')
+      + `<div class="group pad">
+          <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? `已保存${api.keyHint('gpt') ? '，末尾 ' + esc(api.keyHint('gpt')) : ''}` : '还没有填写'}</span></div>
+          ${field(g.url ? '中转密钥' : 'OpenAI API Key', input('key', '', 'password', `autocomplete="off" placeholder="${saved ? '已保存，填写新的可替换' : g.url ? '填中转要求的密钥' : 'sk- 开头'}"`), '插件从浏览器直接请求 OpenAI（或你填的中转），密钥只保存在当前浏览器和酒馆地址。每张图都按对方的价格收费。')}
+          <div class="key-actions">${btn('save-key', icon('key') + '保存密钥', 'primary')}${btn('reveal-key', '显示', 'secondary')}${btn('clear-key', '清除', 'danger')}</div>
+        </div>`
+      + groupTitle('接口', help('留空就直连 OpenAI（https://api.openai.com/v1）。用中转时填中转给的地址，写到 /v1 为止；插件请求的是「地址/images/generations」。\n\n中转要允许跨域（CORS）；酒馆用 HTTPS 打开时，中转也要用 HTTPS。'))
+      + `<div class="group pad">
+          ${field('接口地址', input('gpt-url', g.url, 'url', 'autocomplete="off" placeholder="留空直连 OpenAI，例如 https://relay.example.com/v1"'))}
+          <div class="key-actions">${btn('save-gpt-url', g.url ? '保存地址' : '使用中转', 'primary')}</div>
+          ${field('模型', input('gpt-model', g.model, 'text', `list="sttts-gpt-models" autocomplete="off" spellcheck="false"`) + `<datalist id="sttts-gpt-models">${api.drawCatalog.gptModels.map(m => `<option value="${esc(m)}">`).join('')}</datalist>`, 'gpt-image 系列画得最好；dall-e-3 便宜一些但不太听 tag。中转上别的模型名（只要是 OpenAI 的 images 接口）也可以直接填。')}
+        </div>
+        <p class="hint">GPT 读不懂 NovelAI 的写法：插件会把出图块里的英文 tag 和每个人的外貌整理成一段英文描述再发过去；画师串、权重括号和负面不会发。GPT 的内容审核比较严，被拒时会显示它给的原因。画质、画幅和要不要每张先问，在绘图 App 的「参数」里改。</p>
+        <div class="actions">${btn('open-draw', icon('paint') + '打开绘图', 'primary')}</div>`);
+  }
+  function renderComfy() {
+    const c = api.getState().draw.comfy, info = comfyInfo, models = info?.models || [];
+    v.root.dataset.engine = 'comfy';
+    const placeholders = '"%prompt%"（正面）、"%negative_prompt%"（负面）、"%seed%"、"%steps%"、"%scale%"、"%width%"、"%height%"、"%sampler%"、"%scheduler%"、"%model%"、"%vae%"、"%denoise%"、"%clip_skip%"';
+    v.draw(heading('ComfyUI', '', 'Image Card')
+      + card('comfy', 'div')
+      + drawingWith('comfy')
+      + groupTitle('连接', help('插件通过酒馆服务器去连 ComfyUI（和酒馆自带的生图一样），所以不用开跨域，手机上打开酒馆也能用。\n\n地址要填「酒馆所在的电脑」能打开的地址：ComfyUI 和酒馆在同一台电脑上，就是 http://127.0.0.1:8188；在另一台电脑上，填那台电脑的局域网地址，并且 ComfyUI 要用 --listen 启动。'))
+      + `<div class="group pad">
+          ${field('ComfyUI 地址', input('comfy-url', c.url, 'url', 'autocomplete="off" placeholder="http://127.0.0.1:8188"'))}
+          <div class="key-actions">${btn('save-comfy-url', '保存地址', 'primary')}${btn('comfy-test', icon('refresh') + '测试并读取模型', 'secondary')}</div>
+          ${info ? `<p class="hint${info.error ? ' error-copy' : ''}" style="padding:0">${esc(info.error || `✓ 连上了：${models.length} 个模型、${info.samplers.length} 个采样器`)}</p>` : ''}
+          ${field('模型', models.length
+            ? select('comfy-model', c.model, [['', '请选择'], ...models.map(m => [m.value, m.text])])
+            : input('comfy-model', c.model, 'text', 'autocomplete="off" spellcheck="false" placeholder="点上面「测试并读取模型」，或直接填文件名"'), '工作流里 "%model%" 填的就是它（默认工作流用 CheckpointLoaderSimple 读取）。')}
+        </div>`
+      + groupTitle('工作流', help(`在 ComfyUI 里搭好工作流，用「导出 (API)」（Export (API)）存成 JSON 粘到这里。把需要插件填的地方写成占位符（带引号）：\n${placeholders}\n\n至少要有 "%prompt%"。留空就用酒馆自带的默认工作流（一个 checkpoint + 一个 KSampler）。酒馆的生图里存过的工作流可以直接读进来。`))
+      + `<div class="group pad">
+          ${textArea('comfy-workflow', c.workflow, `class="code" rows="8" spellcheck="false" placeholder="留空 = 默认工作流"`)}
+          <div class="key-actions">${btn('save-comfy-wf', '保存工作流', 'primary')}${btn('comfy-load-wf', '从酒馆读取', 'secondary')}${c.workflow ? btn('comfy-default-wf', '改回默认', 'danger') : ''}</div>
+        </div>
+        <p class="hint">ComfyUI 没有 NovelAI 那种分角色的提示词：插件把场景和每个人的外貌合成一条提示词；NovelAI 的权重写法（{tag}、[tag]、1.2::tag::）会换成 (tag:1.1) 这种。采样器、步数、尺寸在绘图 App 的「参数」里改。</p>
+        <div class="actions">${btn('open-draw', icon('paint') + '打开绘图', 'primary')}</div>`);
+  }
+  async function loadComfy() {
+    comfyInfo = null; render();
+    try { comfyInfo = await api.comfyCatalog(v.root.querySelector('[data-field=comfy-url]')?.value); }
+    catch (error) { comfyInfo = {error: error.message, models: [], samplers: [], schedulers: []}; }
+    if (!v.disposed && engine === 'comfy') render();
+  }
+
   function control(f, c, rowIndex = null, parent = null) {
     const value = rowIndex === null ? c.params[f.key] : c.params[parent.key][rowIndex][f.key];
     const reason = parent?.unavailable || f.unavailable || '';
@@ -152,7 +214,7 @@ export function enginesApp(ctx) {
 
   function renderList() {
     delete v.root.dataset.engine;
-    v.draw(heading('引擎', help('每个服务一张卡：文字模型、四家语音引擎（Fish Audio、MiniMax、ElevenLabs、小米 MiMo），加上绘图用的 NovelAI。点一张卡片把它抽到最前面，再点一下打开，查看连接和全部参数。ElevenLabs 和 Fish 的卡片上显示剩余额度。\n卡片只显示密钥是否保存，不显示内容；“已保存”不代表鉴权成功。'), 'Wallet · 05')
+    v.draw(heading('引擎', help('每个服务一张卡：文字模型、四家语音引擎（Fish Audio、MiniMax、ElevenLabs、小米 MiMo），加上绘图用的 NovelAI、GPT 生图和 ComfyUI（绘图 App 里选用哪个画）。点一张卡片把它抽到最前面，再点一下打开，查看连接和全部参数。ElevenLabs 和 Fish 的卡片上显示剩余额度。\n卡片只显示密钥是否保存，不显示内容；“已保存”不代表鉴权成功。'), 'Wallet · 05')
       + `<div class="wallet">${order.map(id => card(id)).join('')}</div>`);
     for (const id of PRICED) if (!balances.has(id)) loadBalance(id);
   }
@@ -261,12 +323,13 @@ export function enginesApp(ctx) {
       + `<div class="savebar"><span class="save-state" data-save-state>${dirty ? '未保存' : '已保存'}</span>${btn('save-text', '保存', 'primary')}</div>`);
   }
 
-  const render = () => engine === 'nai' ? renderNovelAI() : engine === 'llm' ? renderText() : engine ? renderDetail() : renderList();
+  const render = () => engine === 'nai' ? renderNovelAI() : engine === 'gpt' ? renderGpt() : engine === 'comfy' ? renderComfy() : engine === 'llm' ? renderText() : engine ? renderDetail() : renderList();
   function edit(id) {
     engine = id;
     if (!order.length || order.at(-1) !== id) order = [...order.filter(x => x !== id), id];
     if (id === 'llm') { textDraft = structuredClone(api.getState().text); dirty = false; render(); v.root.scrollTop = 0; return; }
     if (id === 'nai') { render(); v.root.scrollTop = 0; loadSubscription(false); return; }
+    if (id === 'gpt' || id === 'comfy') { render(); v.root.scrollTop = 0; return; }
     if (!drafts.has(id)) drafts.set(id, structuredClone(api.getState().connections[id]));
     dirty = JSON.stringify(draft()) !== JSON.stringify(api.getState().connections[id]);
     render();
@@ -286,6 +349,9 @@ export function enginesApp(ctx) {
       changed();
       return;
     }
+    if (el.dataset.field === 'gpt-model') { try { api.saveDraw({gpt: {model: el.value.trim()}}); ctx.notify('模型已保存'); } catch (error) { ctx.notify(error.message); } render(); return; }
+    if (el.dataset.field === 'comfy-model') { api.saveDraw({comfy: {model: el.value.trim()}}); render(); return; }
+    if (['gpt-url', 'comfy-url', 'comfy-workflow'].includes(el.dataset.field)) return;
     if (el.dataset.field === 'guard') { api.saveDraw({guard: el.checked}); render(); return; }
     if (el.dataset.field === 'relayOpus') { api.saveDraw({relay: {assumeOpus: el.checked}}); render(); return; }
     if (el.dataset.field === 'relay') return;
@@ -390,6 +456,28 @@ export function enginesApp(ctx) {
       }); break;
       case 'refresh-balance': await v.busy(el, () => loadBalance(engine, true)); break;
       case 'open-draw': ctx.open('draw'); break;
+      case 'use-draw-engine': api.saveDraw({engine: el.dataset.engine}); render(); ctx.notify(`绘图改用 ${nameOf(el.dataset.engine)} 画`); break;
+      case 'save-gpt-url': {
+        api.saveDraw({gpt: {url: v.root.querySelector('[data-field=gpt-url]').value}});
+        render(); ctx.notify(api.getState().draw.gpt.url ? '接口地址已保存' : '已改回直连 OpenAI');
+        break;
+      }
+      case 'save-comfy-url': api.saveDraw({comfy: {url: v.root.querySelector('[data-field=comfy-url]').value}}); render(); ctx.notify('ComfyUI 地址已保存'); break;
+      case 'comfy-test': await v.busy(el, loadComfy); break;
+      case 'save-comfy-wf': api.saveDraw({comfy: {workflow: v.root.querySelector('[data-field=comfy-workflow]').value}}); render(); ctx.notify(api.getState().draw.comfy.workflow ? '工作流已保存' : '工作流是空的，用默认工作流'); break;
+      case 'comfy-default-wf': if (await ctx.confirm('改回默认工作流？', '现在这份工作流会被清掉。')) { api.saveDraw({comfy: {workflow: ''}}); render(); } break;
+      case 'comfy-load-wf': await v.busy(el, async () => {
+        const names = await api.comfyWorkflows();
+        if (!names.length) { ctx.notify('酒馆里还没有存过工作流'); return; }
+        const d = ctx.dialog('从酒馆读取工作流', `<div class="group">${names.map(n => `<button class="list-row" data-wf="${esc(n)}"><span><strong>${esc(n.replace(/\.json$/i, ''))}</strong></span>${icon('next')}</button>`).join('')}</div>`);
+        d.body.addEventListener('click', async e => {
+          const b = e.target.closest('[data-wf]');
+          if (!b) return;
+          d.close();
+          try { api.saveDraw({comfy: {workflow: await api.comfyWorkflow(b.dataset.wf)}}); render(); ctx.notify('已读入「' + b.dataset.wf.replace(/\.json$/i, '') + '」'); }
+          catch (error) { ctx.notify(error.message); }
+        });
+      }); break;
       case 'add-key': {
         const added = api.addKeys(engine, v.root.querySelector('[data-field=key]').value);
         balances.delete(engine); render(); ctx.notify(added > 1 ? `已添加 ${added} 个密钥` : '密钥已保存'); loadBalance(engine, true);
@@ -409,7 +497,7 @@ export function enginesApp(ctx) {
         break;
       }
       case 'clear-key': if (engine === 'llm') { if (await ctx.confirm('清除这套接口的密钥？', '其他接口预设的密钥不受影响。')) { api.clearTextKey(textDraft.active); render(); } break; }
-        if (await ctx.confirm(engine === 'nai' ? '清除密钥？' : '清除全部密钥？', '之后使用这个引擎需要重新填写。')) { api.clearKey(engine); if (engine === 'nai') subscription = null; balances.delete(engine); render(); } break;
+        if (await ctx.confirm(['nai', 'gpt'].includes(engine) ? '清除密钥？' : '清除全部密钥？', '之后使用这个引擎需要重新填写。')) { api.clearKey(engine); if (engine === 'nai') subscription = null; balances.delete(engine); render(); } break;
       case 'reveal-key': {
         const field = v.root.querySelector('[data-field=key]');
         field.type = field.type === 'password' ? 'text' : 'password';

@@ -44,8 +44,8 @@ export function momentsPanel(ctx, {v, frame, me, visible}) {
     if (p.photoId) return `<button type="button" class="moment-photo" data-action="view-photo" data-id="${esc(p.id)}" aria-label="查看配图"><img data-photo="${esc(p.photoId)}" alt="${esc(nameOf(p.author))} 的配图"></button>`;
     if (!p.imageTags) return '';
     if (p.imageState === 'waiting') return '<p class="moment-note">配图正在画……</p>';
-    // Without a NovelAI key there is nothing to retry; once a key is saved the note turns into a button again.
-    if (p.imageState === 'failed' && /密钥/.test(p.imageNote || '') && !api.keyStatus('nai')) return `<p class="moment-note">${esc(p.imageNote)}，这张配图没有画</p>`;
+    // Without a drawing engine set up there is nothing to retry; once it is the note turns into a button again.
+    if (p.imageState === 'failed' && /密钥/.test(p.imageNote || '') && !api.drawReady()) return `<p class="moment-note">${esc(p.imageNote)}，这张配图没有画</p>`;
     if (p.imageState === 'failed') return `<button type="button" class="moment-note" data-action="draw-image" data-id="${esc(p.id)}">${esc(p.imageNote || '配图没画出来')} · 点一下重画</button>`;
     return `<button type="button" class="moment-note" data-action="draw-image" data-id="${esc(p.id)}">这条动态有配图 · 点一下画出来</button>`;
   }
@@ -137,7 +137,7 @@ export function momentsPanel(ctx, {v, frame, me, visible}) {
     const d = sheet('动态设置', `<div class="group">${toggle('auto', '角色自己发动态', m.auto, '打开后，每隔几条正文回复，角色们会自己发一次动态（会调用一次酒馆当前的模型，花费和一次聊天回复差不多）。')}
         ${field('每几条正文回复发一次', input('every', m.every, 'number', 'min="1" max="100" step="1"'))}
         ${field('每天最多自动发几次', input('dailyMax', m.dailyMax, 'number', 'min="1" max="30" step="1"'))}
-        ${toggle('images', '动态配图', m.images, '有画面感的动态会用 NovelAI 画一张配图。只在免费档内自动画；会扣 Anlas 的图要你点一下确认。没有 NovelAI 密钥时只显示文字。')}
+        ${toggle('images', '动态配图', m.images, '有画面感的动态会用绘图 App 里选的引擎画一张配图。只自动画不花钱的（NovelAI 免费档内、ComfyUI）；会扣 Anlas 或 GPT 要花钱的图，要你点一下确认。引擎没配好时只显示文字。')}
         ${toggle('replyToMe', '角色回复我', m.replyToMe, '你发动态或评论后，角色会点赞、评论和回复（每次调用一次模型）。')}</div>
       <div class="actions">${btn('edit-prompt', icon('edit') + '编辑聊天预设', 'secondary')}${help('动态怎么写，在预设 App 的聊天预设里：勾了「朋友圈」的规则就用在这里。')}</div>
       <div class="actions">${btn('clear-moments', icon('trash') + '清空动态', 'danger')}</div>`, {
@@ -171,8 +171,8 @@ export function momentsPanel(ctx, {v, frame, me, visible}) {
         return true;
       }
       case 'draw-image': {
-        const paid = /Anlas/.test(target?.imageNote || '');
-        if (!paid || await ctx.confirm('这张图会扣 Anlas', '超出了 NovelAI 的免费档，确认后再画。')) background(api.momentsDrawImage(id, paid));
+        const paid = /Anlas|花钱/.test(target?.imageNote || ''), ask = api.paidPrompt();
+        if (!paid || await ctx.confirm(ask.title, ask.text)) background(api.momentsDrawImage(id, paid));
         return true;
       }
     }

@@ -1,7 +1,8 @@
 // The self-check report: facts gathered in the tavern page become sections of findings and a plain-text report that
 // can be copied and sent to whoever is helping. Nothing here reads or prints keys.
 
-const ENGINE_NAMES = {fish: 'Fish Audio', mini: 'MiniMax', eleven: 'ElevenLabs', mimo: '小米 MiMo', nai: 'NovelAI'};
+const ENGINE_NAMES = {fish: 'Fish Audio', mini: 'MiniMax', eleven: 'ElevenLabs', mimo: '小米 MiMo', nai: 'NovelAI', gpt: 'GPT 生图'};
+const DRAW_NAMES = {nai: 'NovelAI', gpt: 'GPT 生图', comfy: 'ComfyUI'};
 const MARKS = {ok: '✓', warn: '⚠', error: '✗', info: '·'};
 const item = (level, label, detail = '') => ({level, label, detail: String(detail ?? '')});
 const time = at => new Date(at).toLocaleString('zh-CN', {hour12: false});
@@ -60,6 +61,12 @@ export function buildReport(f) {
     else keys.push(item('info', `${name} 已填写密钥`, k.detail || '没有免费的检查方法，播放时才知道能不能用'));
   }
   add('密钥', keys.length ? keys : [item('info', '还没有填写任何密钥')]);
+
+  const d = f.draw;
+  if (d && (d.enabled || d.engine !== 'nai')) add('绘图', [
+    item('info', '用哪个画', DRAW_NAMES[d.engine] || d.engine),
+    ...(d.comfy ? [item(d.comfy.model || d.comfy.workflow ? 'info' : 'warn', 'ComfyUI', `${d.comfy.url} · ${d.comfy.model || '还没选模型'} · ${d.comfy.workflow ? '自定义工作流' : '默认工作流'}`)] : [])
+  ]);
 
   const r = f.reply;
   if (!r) add('最近一条回复', [item('info', '当前聊天还没有角色回复')]);

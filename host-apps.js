@@ -87,7 +87,7 @@ export function createAppsHost({context, settings, backend}) {
       const thread = (await backend.threads()).find(t => t.type === 'dm' && t.members[0] === name);
       const history = thread ? (await backend.chats.get(thread.id)).messages.filter(m => m.kind !== 'system').slice(-20) : [];
       const story = storyLines(ctx.chat, preset.context, user);
-      const prompt = buildPeekRequest({preset, person, story, user, userPersona: userPersona(), history, images: !!backend.keyStatus('nai'), lore: await lore(preset, [person], story, history.map(m => m.text || ''))});
+      const prompt = buildPeekRequest({preset, person, story, user, userPersona: userPersona(), history, images: !!backend.drawReady(), lore: await lore(preset, [person], story, history.map(m => m.text || ''))});
       const found = parsePeek(await ask(ctx, prompt, preset), {name, user});
       return backend.savePeek({name, ...found});
     });
@@ -99,7 +99,7 @@ export function createAppsHost({context, settings, backend}) {
     const key = backend.spaceKey(), snap = (await backend.apps.get(peekId(name, key))) || (key ? await backend.apps.get(peekId(name)) : null), id = snap?.id, photo = snap?.photos?.[index];
     if (!photo) throw Error('这张照片已经不在了');
     if (!photo.tags) throw Error('这张照片没有画图用的描述，「再看一次」后就有了');
-    if (!backend.keyStatus('nai')) throw Error('还没有填写 NovelAI 密钥，相册只能看文字');
+    if (!backend.drawReady()) throw Error(backend.drawMissing() + '，相册只能看文字');
     const set = patch => backend.appsMutate('peek', () => backend.apps.change(id, doc => { Object.assign(doc.photos[index], patch); for (const k of Object.keys(patch)) if (patch[k] === '') delete doc.photos[index][k]; }));
     // The owner's saved look only when the picture shows a person (a selfie), not for a view or a meal.
     const person = /(\d+(?:girl|boy|other)s?|solo|selfie|portrait|upper body|cowboy shot)/i.test(photo.tags);
@@ -110,7 +110,7 @@ export function createAppsHost({context, settings, backend}) {
       await set({photoId: result.photoId, state: 'done', note: ''});
       return result.photoId;
     } catch (error) {
-      await set({state: 'failed', note: /扣 Anlas/.test(error.message) ? '这张图会扣 Anlas，点一下确认后再画' : error.message.slice(0, 200)});
+      await set({state: 'failed', note: error.code === 'PAID' ? backend.paidPrompt().note : error.message.slice(0, 200)});
       throw error;
     }
   }

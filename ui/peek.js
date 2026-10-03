@@ -34,7 +34,7 @@ export function peekApp(ctx) {
     if (tab === 'searches') return s.searches.length ? `<div class="group">${s.searches.map(q => `<div class="setting-row peek-search">${icon('search')}<span>${esc(q)}</span></div>`).join('')}</div>` : '<p class="hint">没有搜索记录。</p>';
     if (tab === 'notes') return s.notes.length ? `<div class="peek-notes">${s.notes.map(n => `<div class="note-card peek-note">${n.title ? `<strong>${esc(n.title)}</strong>` : ''}<span>${esc(n.text)}</span></div>`).join('')}</div>` : '<p class="hint">备忘录是空的。</p>';
     if (!s.photos.length) return '<p class="hint">相册里没有照片。</p>';
-    const nai = api.keyStatus('nai'), drawable = s.photos.some(p => p.tags && !p.photoId);
+    const nai = api.drawReady(), drawable = s.photos.some(p => p.tags && !p.photoId);
     const tile = (p, i) => {
       if (p.photoId) return `<figure class="peek-photo"><button type="button" class="peek-pic" data-action="peek-view" data-index="${i}" aria-label="查看照片"><img data-photo="${esc(p.photoId)}" alt="${esc(p.text)}"></button><figcaption>${esc(p.text)}</figcaption></figure>`;
       const action = !nai || !p.tags ? '' : p.state === 'waiting' ? '<small class="peek-draw">正在画……</small>'
@@ -76,8 +76,9 @@ export function peekApp(ctx) {
     for (const index of indexes) {
       try { await api.peekDraw(who, index, false); }
       catch (error) {
-        if (!/扣 Anlas/.test(error.message)) { ctx.notify(error.message, {error: true}); continue; }
-        if (await ctx.confirm('这张图会扣 Anlas', '超出了 NovelAI 的免费档，确认后再画。')) await api.peekDraw(who, index, true).catch(e => ctx.notify(e.message, {error: true}));
+        if (error.code !== 'PAID' && !/扣 Anlas|花钱/.test(error.message)) { ctx.notify(error.message, {error: true}); continue; }
+        const ask = api.paidPrompt();
+        if (await ctx.confirm(ask.title, ask.text)) await api.peekDraw(who, index, true).catch(e => ctx.notify(e.message, {error: true}));
         else break;
       }
     }

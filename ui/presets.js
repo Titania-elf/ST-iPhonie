@@ -8,6 +8,9 @@ const roles = [['system', '系统'], ['user', '用户'], ['assistant', '助手']
 // (<img> tags in the chat text). A chat rule says where it is used: 私聊, 群聊, 朋友圈.
 const KINDS = [['tts', '配音', 'listen'], ['chat', '聊天', 'chat'], ['draw', '绘图', 'draw']];
 const USES = [['dm', '私聊'], ['group', '群聊'], ['moments', '朋友圈'], ['call', '电话'], ['forum', '论坛'], ['peek', '查手机']];
+// Drawing rules: which engines an entry is sent with (none ticked or all ticked: every engine).
+const ENGINE_USES = [['nai', 'NovelAI'], ['gpt', 'GPT 生图'], ['comfy', 'ComfyUI']];
+const engineScope = e => e.engines?.length ? ' · 只给 ' + ENGINE_USES.filter(([k]) => e.engines.includes(k)).map(([, l]) => l).join('、') : '';
 
 export function presetsApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'presets'), drafts = new Map();
@@ -113,9 +116,10 @@ export function presetsApp(ctx) {
         : field('台词格式', textArea('format', p.format, 'class="code"'), '{译文}、{角色}、{情绪}、{文本} 各保留一次。译文供阅读，原语言供语音生成。默认格式是成对的 <tts></tts>，别的插件要排除语音原文时，排除标签填 <tts></tts>。')}</div>
         <details data-group="preset-injection"><summary>${chat ? '带进剧情的插入位置' : '默认插入设置'} ${help(chat ? '带进剧情的文字插在正文请求的哪里。深度与身份仅在聊天内插入时生效。' : '深度与身份仅在聊天内插入时生效；条目可以单独覆盖。')}</summary><div>${injection(p.injection)}</div></details>
         ${groupTitle(draw ? '出图规则' : chat ? '聊天与朋友圈规则' : '提示词条目', btn('add-entry', icon('add') + '条目', 'chip-button'))}
-        ${p.entries.map((e, i) => `<details data-group="entry:${esc(e.id)}" ${i === 0 ? 'open' : ''}><summary>${esc(e.title || '未命名条目')}${e.enabled ? '' : ' · 已停用'}</summary><div data-entry="${i}">
+        ${p.entries.map((e, i) => `<details data-group="entry:${esc(e.id)}" ${i === 0 ? 'open' : ''}><summary>${esc(e.title || '未命名条目')}${draw ? esc(engineScope(e)) : ''}${e.enabled ? '' : ' · 已停用'}</summary><div data-entry="${i}">
           ${toggle('enabled', '启用此条目', e.enabled)}
           ${field('条目名称', input('title', e.title))}
+          ${draw ? `<div class="field"><span>用在哪个引擎${help('勾了哪个，用那个引擎画图时才把这条规则发给模型。都勾或都不勾就是三个都用。在绘图 App 顶上选用哪个画。')}</span><div class="use-row">${ENGINE_USES.map(([u, l]) => `<label class="use-chip"><input type="checkbox" data-engine-use="${u}" ${!e.engines?.length || e.engines.includes(u) ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div></div>` : ''}
           ${chat ? `<div class="field"><span>用在</span><div class="use-row">${USES.map(([u, l]) => `<label class="use-chip"><input type="checkbox" data-use="${u}" ${(e.use || []).includes(u) ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div></div>` : ''}${field(draw || chat ? '规则' : '提示词', textArea('text', e.text, 'class="code"'), draw ? '可以用 {{出图格式}}、{{出图数量}}、{{角色列表}}。插件会在最后自动加上格式和张数的硬性要求。' : chat ? '可以用 {{用户}}、{{对象}}；写语音消息规则时用 {{语音格式}}、{{可发语音}}。用在朋友圈的规则只能用 {{用户}}。插件会在最后自动加上输出格式的硬性要求。' : '启用规则的合计文字需包含 {{格式}} 和 {{语言}}。')}
           ${chat ? '' : toggle('customInjection', '单独设置插入位置', !!e.injection)}${!chat && e.injection ? injection(e.injection, i) : ''}
           <div class="entry-tools">${btn('entry-up', icon('up') + '上移', 'text-button', `data-index="${i}" ${i === 0 ? 'disabled' : ''}`)}${btn('entry-down', icon('down') + '下移', 'text-button', `data-index="${i}" ${i === p.entries.length - 1 ? 'disabled' : ''}`)}${btn('delete-entry', icon('trash') + '删除', 'text-button', `data-index="${i}"`)}</div>
@@ -152,6 +156,15 @@ export function presetsApp(ctx) {
     if (redraw) render();
   }
   v.on('input', '[data-field]', el => { if (current && el.type !== 'checkbox' && el.tagName !== 'SELECT') update(el, false); });
+  v.on('change', '[data-engine-use]', el => {
+    const entry = current?.entries[Number(el.closest('[data-entry]')?.dataset.entry)];
+    if (!entry) return;
+    const list = [...el.closest('.use-row').querySelectorAll('[data-engine-use]')].filter(x => x.checked).map(x => x.dataset.engineUse);
+    if (!list.length || list.length === ENGINE_USES.length) delete entry.engines; else entry.engines = list;
+    const summary = el.closest('details')?.querySelector('summary');
+    if (summary) summary.textContent = (entry.title || '未命名条目') + engineScope(entry) + (entry.enabled ? '' : ' · 已停用');
+    mark();
+  });
   v.on('change', '[data-use]', el => {
     const entry = current?.entries[Number(el.closest('[data-entry]')?.dataset.entry)];
     if (!entry) return;

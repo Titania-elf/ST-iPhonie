@@ -63,15 +63,16 @@ export function createPictureHost({context, redrawMessage = (id, message) => con
     if (!response.ok && response.status !== 404) throw Error('没能从酒馆删除图片文件（' + response.status + '）');
   }
 
-  /** Asks before spending Anlas. Returns 'free', 'paid' or false (declined, or no key). */
+  /** Asks before spending Anlas (or paying for a GPT picture). Returns 'free', 'paid' or false (declined, or no key). */
   async function allowed(interactive) {
-    if (!backend.keyStatus('nai')) { if (interactive) notice('还没有填写 NovelAI 密钥，请在小手机的引擎卡包里填写'); return false; }
+    if (!backend.drawReady()) { if (interactive) notice(backend.drawMissing() + '，请在小手机的引擎卡包里填写'); return false; }
+    const engine = settings().draw.engine;
     // Through a relay counted as Opus, a subscription it does not pass on is expected, not worth a notice.
-    try { await backend.naiSubscription(); } catch (error) { const relay = settings().draw.relay; if (interactive && !(relay.url && relay.assumeOpus)) notice(error.message); }
+    if (engine === 'nai') try { await backend.naiSubscription(); } catch (error) { const relay = settings().draw.relay; if (interactive && !(relay.url && relay.assumeOpus)) notice(error.message); }
     const quote = backend.drawQuote();
     if (quote.free === true) return 'free';
     if (!interactive) return false;
-    const why = quote.free === null ? '暂时读不到 NovelAI 订阅信息，无法确认是否免费。' : '按当前参数和订阅，这张图会扣 Anlas。';
+    const why = engine === 'gpt' ? 'GPT 生图每张都要花钱（按 OpenAI 或中转的价格）。' : quote.free === null ? '暂时读不到 NovelAI 订阅信息，无法确认是否免费。' : '按当前参数和订阅，这张图会扣 Anlas。';
     return globalThis.confirm(why + '\n确定要生成吗？') ? 'paid' : false;
   }
 
@@ -216,7 +217,7 @@ export function createPictureHost({context, redrawMessage = (id, message) => con
     } else if (state === 'error') {
       el.innerHTML = frame(`<span class="sttts-pic-wait">${esc(job.message)}<br><button type="button" data-sttts-pic-action="draw">重试</button></span>`);
     } else {
-      const reason = !s.draw.enabled ? '正文出图没有开启' : !backend.keyStatus('nai') ? '还没有填写 NovelAI 密钥' : !s.draw.auto ? '自动出图已关闭' : '这张图没有自动生成';
+      const reason = !s.draw.enabled ? '正文出图没有开启' : !backend.drawReady() ? backend.drawMissing() : !s.draw.auto ? '自动出图已关闭' : s.draw.engine === 'gpt' && s.draw.gpt.ask ? 'GPT 生图每张都要花钱，点了才画' : '这张图没有自动生成';
       el.innerHTML = frame(`<span class="sttts-pic-wait">${reason}<br><button type="button" data-sttts-pic-action="draw">点击生成</button></span>`);
     }
   }

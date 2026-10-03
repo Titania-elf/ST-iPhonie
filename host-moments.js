@@ -88,7 +88,7 @@ export function createMomentsHost({context, settings, backend, notice}) {
     const post = await backend.moments.get(postId);
     if (!post?.imageTags) throw Error('这条动态没有配图描述');
     const set = patch => backend.momentsMutate(() => backend.moments.setImage(postId, patch));
-    if (!backend.keyStatus('nai')) { await set({imageState: 'failed', imageNote: '还没有填写 NovelAI 密钥'}); return null; }
+    if (!backend.drawReady()) { await set({imageState: 'failed', imageNote: backend.drawMissing()}); return null; }
     try {
       // The poster's saved look is used only when the picture shows a person (a selfie), not for a view or a meal.
       const person = /(\d+(?:girl|boy|other)s?|solo|selfie|portrait|upper body|cowboy shot)/i.test(post.imageTags);
@@ -98,7 +98,7 @@ export function createMomentsHost({context, settings, backend, notice}) {
       await set({photoId: result.photoId, imageState: 'done', imageNote: ''});
       return result.photoId;
     } catch (error) {
-      await set({imageState: 'failed', imageNote: /扣 Anlas/.test(error.message) ? '这张图会扣 Anlas，点一下确认后再画' : error.message});
+      await set({imageState: 'failed', imageNote: error.code === 'PAID' ? backend.paidPrompt().note : error.message});
       throw error;
     }
   }

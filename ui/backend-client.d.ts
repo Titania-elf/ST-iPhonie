@@ -2,7 +2,9 @@
 export type Engine = 'fish' | 'mini' | 'eleven' | 'mimo';
 /** Keys cover the voice engines and NovelAI. */
 /** llm: the key of the phone's own text model (an OpenAI-compatible API). */
-export type KeyEngine = Engine | 'nai' | 'llm';
+export type KeyEngine = Engine | 'nai' | 'llm' | 'gpt';
+/** What the drawing App and every picture use: NovelAI, a GPT image model, or the user's ComfyUI. */
+export type DrawEngine = 'nai' | 'gpt' | 'comfy';
 export type Theme = 'system' | 'light' | 'dark';
 export type InjectionPosition = 'in_chat' | 'in_prompt' | 'before_prompt';
 export type MessageRole = 'system' | 'user' | 'assistant';
@@ -116,14 +118,22 @@ export interface DrawSettings {
     relay: { url: string; assumeOpus: boolean };
     /** Vibe Transfer for every picture (V4/V4.5): what is in use and the groups; the vibes are in the local library. */
     vibe: VibeSettings;
+    /** The engine pictures are drawn with. */
+    engine: DrawEngine;
+    gpt: GptImageSettings;
+    comfy: ComfySettings;
 }
+/** url: '' for OpenAI, else a relay ending at /v1. ask: confirm every (paid) picture; off also lets new replies draw. style: its own 画风 ('' = NovelAI's). */
+export interface GptImageSettings { url: string; model: string; quality: 'auto' | 'low' | 'medium' | 'high'; orientation: 'portrait' | 'landscape' | 'square'; ask: boolean; style: string; }
+/** Reached through the tavern's ComfyUI proxy. workflow: API-format JSON with "%prompt%" and the other placeholders ('' = the default one). */
+export interface ComfySettings { url: string; workflow: string; model: string; vae: string; sampler: string; scheduler: string; steps: number; scale: number; width: number; height: number; clipSkip: number; style: string; }
 export interface VibeGroup { id: string; name: string; items: Array<{ vibe: string; strength: number }>; }
 export interface VibeSettings { enabled: boolean; use: { kind: '' | 'group' | 'vibe'; id: string }; groups: VibeGroup[]; }
 /** One saved vibe as the phone sees it: never the image or the encodings. keys: models it is encoded for (v4-5full …). */
 export interface VibeSummary { id: string; name: string; thumb: string; strength: number; ie: number; image: boolean; keys: string[]; }
 /** The vibes a picture would use: encode = how many need encoding first (2 Anlas each), over = left out by the free-tier guard. */
 export interface VibePlan { on: boolean; model: boolean; used: Array<{ id: string; name: string; strength: number; encode: boolean }>; skipped: Array<{ name: string; why: 'missing' | 'model' | 'no-encoding' }>; over: number; encode: number; extra: number; }
-export interface DrawSettingsPatch { enabled?: boolean; auto?: boolean; guard?: boolean; fold?: boolean; queue?: Partial<DrawQueueSettings>; params?: Partial<DrawParams>; activeStyle?: string; activePreset?: string; relay?: Partial<{ url: string; assumeOpus: boolean }>; vibe?: Partial<VibeSettings>; }
+export interface DrawSettingsPatch { enabled?: boolean; auto?: boolean; guard?: boolean; fold?: boolean; queue?: Partial<DrawQueueSettings>; params?: Partial<DrawParams>; activeStyle?: string; activePreset?: string; relay?: Partial<{ url: string; assumeOpus: boolean }>; vibe?: Partial<VibeSettings>; engine?: DrawEngine; gpt?: Partial<GptImageSettings>; comfy?: Partial<ComfySettings>; }
 /** gap: seconds between two NovelAI requests (0-60). retries: how often an "account busy" (429) is retried (0-10). */
 export interface DrawQueueSettings { gap: number; retries: number; cloud: CloudQueueSettings; }
 /** Shared queue service (cloud-queue/worker.js) that everyone using one NovelAI account joins with the same room code. */
@@ -138,10 +148,13 @@ export interface DrawJob { key: string; label: string; state: 'waiting' | 'spaci
 export interface NovelAISubscription { tier: number; active: boolean; unlimited: boolean; usage: { percent: number; negative: boolean } | null; anlas: number; checkedAt: number; }
 export interface DrawQuote { params: DrawParams; clamped: boolean; /** null when the subscription is unknown. */ free: boolean | null; guard: boolean; v5: boolean; usage: NovelAISubscription['usage'];
     /** The vibes this picture would use; vibeAnlas: what encoding them and vibes past four add (2 each). */
-    vibes: VibePlan; vibeAnlas: number; }
+    vibes: VibePlan; vibeAnlas: number;
+    /** GPT / ComfyUI only: which engine; paid: GPT (every picture costs money). */
+    engine?: DrawEngine; paid?: boolean; }
 export interface DrawCharacter { prompt: string; negative?: string; /** 0-24 on a 5x5 grid, -1 lets the model decide. */ position: number; }
 export interface DrawInput { prompt: string; negative?: string; characters?: DrawCharacter[]; params?: Partial<DrawParams>; allowPaid?: boolean; name?: string; /** Queue key; the same key joins the waiting job. */ key?: string; label?: string; }
-export interface DrawResult { photoId: string; seed: number; params: DrawParams; prompt: string; }
+/** seed is -1 for GPT (it takes none); params are what the engine used (GPT has no steps). */
+export interface DrawResult { photoId: string; seed: number; params: DrawParams; prompt: string; engine: DrawEngine; }
 export interface SettingsSnapshot { state: Settings; revision: number; }
 
 /** 聊天预设: how phone contacts reply, how much they see, and how a chat is brought into the story. */
@@ -386,7 +399,8 @@ export interface BackendFacade {
     readonly defaultVoicePreset: Omit<Preset, 'id'>;
     /** The shipped drawing preset (without id), for 恢复默认. */
     readonly defaultDrawPreset: Omit<DrawPreset, 'id'>;
-    readonly drawCatalog: { readonly models: readonly string[]; readonly modelNames: Readonly<Record<string, string>>; readonly samplers: readonly string[]; readonly schedules: readonly string[] };
+    readonly drawCatalog: { readonly models: readonly string[]; readonly modelNames: Readonly<Record<string, string>>; readonly samplers: readonly string[]; readonly schedules: readonly string[];
+        readonly engines: readonly DrawEngine[]; readonly engineNames: Readonly<Record<DrawEngine, string>>; readonly gptModels: readonly string[]; readonly gptQualities: readonly string[]; readonly comfyWorkflow: string };
     getState(): Settings;
     getSnapshot(): SettingsSnapshot;
     save(next: Settings, expectedRevision?: number): Settings;
@@ -423,6 +437,16 @@ export interface BackendFacade {
     setKey(engine: KeyEngine, key: string): void;
     clearKey(engine: KeyEngine): void;
     saveDraw(patch: DrawSettingsPatch): DrawSettings;
+    /** Whether the engine in use can draw (NovelAI / GPT key saved, ComfyUI address set); drawMissing says what is missing ('' when ready). */
+    drawReady(): boolean;
+    drawMissing(): string;
+    /** What to ask before a picture that costs money with the engine in use. note: the line shown on a picture left undrawn. */
+    paidPrompt(): { title: string; text: string; note: string };
+    /** ComfyUI through the tavern: connection check and what it offers. url: an address not saved yet. */
+    comfyCatalog(url?: string): Promise<{ models: Array<{ value: string; text: string }>; samplers: string[]; schedulers: string[] }>;
+    /** Workflows saved in the tavern's own image generation (file names), and one of them as text. */
+    comfyWorkflows(): Promise<string[]>;
+    comfyWorkflow(name: string): Promise<string>;
     saveStyle(style: Omit<DrawStyle, 'id'> & { id?: string }): DrawStyle;
     deleteStyle(id: string): DrawSettings;
     saveDrawPreset(preset: Omit<DrawPreset, 'id'> & { id?: string }): DrawPreset;

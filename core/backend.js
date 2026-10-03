@@ -8,6 +8,7 @@ import { normalizeCalls, buildCallRequest } from './call.js';
 import { normalizeText, activeText, customRequest, listModels, streamText, asMessages, TEXT_PRESET_ID } from './llm.js';
 import { normalizeSync, runSync, SYNC_PARTS } from './sync.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup, sealKeys, openKeys } from './backup.js';
+import { DRAW_ENGINES, DRAW_ENGINE_NAMES, GPT_IMAGE_MODELS, GPT_QUALITIES, normalizeGpt, gptBase, gptSize, gptPrompt, gptGenerate, normalizeComfy, comfyUrl, checkWorkflow, comfySize, comfyPrompt, comfyValues, fillWorkflow, comfyGenerate, comfyCatalog, tavernWorkflows, tavernWorkflow, orientationOf, DEFAULT_COMFY_WORKFLOW } from './image-engines.js';
 import { normalizeSettings, validateSettings, modelRules, freshState } from './state.js';
 import { normalizeRoute, switchRouteEngine, removeRoute } from './routes.js';
 import { DEFAULT_PROMPT, DEFAULT_FORMAT, promptPlan, validatePreset, parseDialogue, isPlaceholderRole, knownFormats } from './protocol.js';
@@ -18,7 +19,7 @@ import { AudioCache } from './cache.js';
 import { DialoguePlayer } from './player.js';
 import { LocalLibrary, PHONE_APPS, PHONE_WALLPAPERS, PHONE_GLYPHS, PHONE_SKINS } from './library.js';
 import { NovelAIClient, relayUrl, FISH_PATHS, NAI_MODELS, NAI_MODEL_NAMES, NAI_SAMPLERS, NAI_SCHEDULES, buildImageRequest, guardParams, isFree, isV5, normalizeDrawParams } from './novelai.js';
-import { PIC_TAG_FORMAT, DEFAULT_DRAW_RULE, DRAW_COUNT_MAX, drawPromptPlan, planRequest, validateDrawPreset, normalizeDraw, defaultDraw, normalizeVibeSettings } from './draw.js';
+import { PIC_TAG_FORMAT, DEFAULT_DRAW_RULE, DRAW_COUNT_MAX, PRESET_REV as DRAW_PRESET_REV, drawPromptPlan, planRequest, validateDrawPreset, normalizeDraw, defaultDraw, normalizeVibeSettings } from './draw.js';
 import { defaultChat, normalizeChatPreset, normalizeContact, validateChatPreset, validateContact, chatContacts, inSpace, activeSpace, buildChatRequest, activeChatPreset, normalizeVoiceText, normalizeProfile , normalizeAvatars } from './chat.js';
 import { ChatStore } from './chats.js';
 import { DrawQueue } from './draw-queue.js';
@@ -41,7 +42,7 @@ async function vibeThumbnail(base64) {
 const clone = value => structuredClone(value);
 const engineCheck = engine => { if (!ENGINES.includes(engine)) throw Error('引擎无效'); };
 // Keys cover the voice engines, NovelAI for drawing, and llm (the phone's own text model).
-const keyCheck = engine => { if (engine !== 'nai' && engine !== 'llm') engineCheck(engine); };
+const keyCheck = engine => { if (engine !== 'nai' && engine !== 'llm' && engine !== 'gpt') engineCheck(engine); };
 const modelCheck = (engine, model) => { engineCheck(engine); if (model && !TTSParameters.catalogs[engine].models.includes(model)) throw Error('请选择列表中的模型'); };
 const message = error => error instanceof TypeError ? '设置格式无效，请检查字段和条目' : error.message;
 
@@ -51,7 +52,8 @@ const audioName = (role, said) => [String(role || '').trim(), String(said || '')
 
 export class TTSBackend {
     constructor({ settings, persist = () => {}, notify = () => {}, change = () => {}, unknown = () => {},
-        providers = new Providers(), cache, library, keyStore, sink, novelai, chats, indexedDB = globalThis.indexedDB, syncStorage = () => globalThis.localStorage } = {}) {
+        providers = new Providers(), cache, library, keyStore, sink, novelai, chats, indexedDB = globalThis.indexedDB, syncStorage = () => globalThis.localStorage,
+        imageFetch = (...args) => globalThis.fetch(...args), tavernHeaders = () => globalThis.SillyTavern?.getContext?.()?.getRequestHeaders?.() || {} } = {}) {
         this.settings = normalizeSettings(settings);
         validateSettings(this.settings);
         this.persist = persist;
@@ -76,6 +78,10 @@ export class TTSBackend {
         // 分区: the tavern's open character card (or group), told by the tavern page (index.js).
         this.space = { key: '', name: '', members: [] };
         this.subscription = null;
+        // GPT 生图 and ComfyUI: the key of the GPT image engine; requests go out with these (tests pass their own).
+        this.gptKey = '';
+        this.imageFetch = imageFetch;
+        this.tavernHeaders = tavernHeaders;
         // 保存到酒馆: the tavern's file access (set by the tavern side), what this device last saw there, and the state shown in the phone.
         this.syncFiles = null;
         this.syncStorage = syncStorage;
@@ -83,7 +89,7 @@ export class TTSBackend {
         this.syncTimer = 0;
         this.syncApplying = false;
         this.drawQueue = new DrawQueue({ gap: () => this.settings.draw.queue.gap * 1000, retries: () => this.settings.draw.queue.retries,
-            remote: () => this.cloudQueue(), onChange: (queue, { remoteError }) => this.emit('draw', { queue, cloud: remoteError }) });
+            remote: () => this.settings.draw.engine === 'nai' ? this.cloudQueue() : null, onChange: (queue, { remoteError }) => this.emit('draw', { queue, cloud: remoteError }) });
         this.listeners = new Set();
         this.revision = 0;
         this.closed = false;
@@ -96,7 +102,7 @@ export class TTSBackend {
     }
     async initialize() {
         this.assertOpen();
-        try { await this.keyStore.open?.(); for (const [engine, key] of this.keyStore.load()) { if (engine === 'nai') this.novelai.setKey(key); else if (engine === 'llm') this.textKeys = parseTextKeys(key); else this.providers.setKey(engine, key); } }
+        try { await this.keyStore.open?.(); for (const [engine, key] of this.keyStore.load()) { if (engine === 'nai') this.novelai.setKey(key); else if (engine === 'gpt') this.gptKey = key; else if (engine === 'llm') this.textKeys = parseTextKeys(key); else this.providers.setKey(engine, key); } }
         catch (error) { this.notify(error.message); }
         try {
             const phone = await this.library.getPhone();
@@ -298,7 +304,7 @@ export class TTSBackend {
         // The text model: a stored list (from a backup) replaces every preset's key; a plain key is the active preset's.
         if (engine === 'llm') { if (String(key).includes('\t')) this.storeTextKeys(parseTextKeys(key)); else this.setTextKey(this.settings.text.active, key); return; }
         const saved = this.keyStore.save(engine, key);
-        if (engine === 'nai') { this.novelai.setKey(saved); this.subscription = null; } else { this.providers.setKey(engine, saved); this.balances.delete(engine); }
+        if (engine === 'nai') { this.novelai.setKey(saved); this.subscription = null; } else if (engine === 'gpt') this.gptKey = saved; else { this.providers.setKey(engine, saved); this.balances.delete(engine); }
         this.emit('keys', { engine, configured: true });
     }
     /** Voice engines keep several keys: new ones are added after those saved (repeats once). Returns how many were new. */
@@ -349,7 +355,7 @@ export class TTSBackend {
         keyCheck(engine);
         if (engine === 'llm') { this.clearTextKey(this.settings.text.active); return; }
         this.keyStore.save(engine, '');
-        if (engine === 'nai') { this.novelai.setKey(''); this.subscription = null; } else { this.providers.setKey(engine, ''); this.balances.delete(engine); }
+        if (engine === 'nai') { this.novelai.setKey(''); this.subscription = null; } else if (engine === 'gpt') this.gptKey = ''; else { this.providers.setKey(engine, ''); this.balances.delete(engine); }
         this.emit('keys', { engine, configured: false });
     }
     /** What is left on a voice account (ElevenLabs credits, Fish API balance); null without a key. Cached for a minute. */
@@ -365,10 +371,10 @@ export class TTSBackend {
         return clone(value);
     }
     /** The last 4 characters of the saved key ('' without one), so the user can tell which key is in use. */
-    keyHint(engine) { keyCheck(engine); if (engine !== 'nai' && engine !== 'llm') return keyTail(this.providers.currentKey(engine)); if (engine === 'llm') return this.textKeyHint(this.settings.text.active); try { return keyTail(this.keyStore.load().get(engine) || ''); } catch { return ''; } }
+    keyHint(engine) { keyCheck(engine); if (engine === 'gpt') return keyTail(this.gptKey); if (engine !== 'nai' && engine !== 'llm') return keyTail(this.providers.currentKey(engine)); if (engine === 'llm') return this.textKeyHint(this.settings.text.active); try { return keyTail(this.keyStore.load().get(engine) || ''); } catch { return ''; } }
     /** For a voice engine with keys: how many, which one is in use (1-based) and how many were refused while this page is open. */
     keyPool(engine) { engineCheck(engine); return this.providers.keyPool(engine); }
-    keyStatus(engine) { keyCheck(engine); return engine === 'nai' ? this.novelai.configured : engine === 'llm' ? this.textKeys.has(this.settings.text.active) : this.providers.keys.has(engine); }
+    keyStatus(engine) { keyCheck(engine); return engine === 'nai' ? this.novelai.configured : engine === 'gpt' ? !!this.gptKey : engine === 'llm' ? this.textKeys.has(this.settings.text.active) : this.providers.keys.has(engine); }
 
     // ---------- 保存到酒馆 ----------
     /** The tavern's user files: {read(name, {blob}), write(name, data), remove(name)}. Without it, syncing is off. */
@@ -522,7 +528,21 @@ export class TTSBackend {
             this.subscription = null;
         }
         if ('params' in patch) draw.params = normalizeDrawParams({ ...draw.params, ...clone(patch.params) });
-        if ('activeStyle' in patch) { if (!draw.styles.some(s => s.id === patch.activeStyle)) throw Error('画风预设不存在'); draw.activeStyle = patch.activeStyle; }
+        if ('engine' in patch) { if (!DRAW_ENGINES.includes(patch.engine)) throw Error('绘图引擎无效'); draw.engine = patch.engine; }
+        if ('gpt' in patch) {
+            const g = patch.gpt && typeof patch.gpt === 'object' ? clone(patch.gpt) : {};
+            if ('url' in g) g.url = gptBase(g.url);
+            if ('model' in g && !/^[\w.:/-]{1,80}$/.test(String(g.model).trim())) throw Error('模型名称无效');
+            draw.gpt = normalizeGpt({ ...draw.gpt, ...g });
+        }
+        if ('comfy' in patch) {
+            const c = patch.comfy && typeof patch.comfy === 'object' ? clone(patch.comfy) : {};
+            if ('url' in c) c.url = comfyUrl(c.url);
+            if ('workflow' in c) c.workflow = checkWorkflow(c.workflow);
+            draw.comfy = normalizeComfy({ ...draw.comfy, ...c });
+        }
+        // The 画风 picked belongs to the engine in use.
+        if ('activeStyle' in patch) { if (!draw.styles.some(s => s.id === patch.activeStyle)) throw Error('画风预设不存在'); if (draw.engine === 'nai') draw.activeStyle = patch.activeStyle; else draw[draw.engine].style = patch.activeStyle; }
         if ('activePreset' in patch) { if (!draw.presets.some(p => p.id === patch.activePreset)) throw Error('绘图预设不存在'); draw.activePreset = patch.activePreset; }
         this.save(next);
         return clone(this.settings.draw);
@@ -543,7 +563,8 @@ export class TTSBackend {
     }
     saveDrawPreset(value) {
         if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('绘图预设格式无效');
-        const next = this.getState(), preset = normalizeDraw({ presets: [{ ...clone(value), id: value.id || crypto.randomUUID() }] }).presets[0];
+        // What is saved is what the user wrote: no entries are added to it as to a preset from an older version.
+        const next = this.getState(), preset = normalizeDraw({ presets: [{ ...clone(value), id: value.id || crypto.randomUUID(), rev: DRAW_PRESET_REV }] }).presets[0];
         validateDrawPreset(preset);
         const index = next.draw.presets.findIndex(p => p.id === preset.id);
         if (index < 0) next.draw.presets.push(preset); else next.draw.presets[index] = preset;
@@ -590,6 +611,8 @@ export class TTSBackend {
     }
     /** Whether params cost Anlas. free: true (covered), false (costs Anlas), null (subscription unknown). */
     drawQuote(params) {
+        const engine = this.settings.draw.engine;
+        if (engine !== 'nai') return this.engineQuote(engine, params);
         const requested = normalizeDrawParams(params || this.settings.draw.params);
         const effective = this.settings.draw.guard ? guardParams(requested) : requested;
         // Through a relay that does not pass the subscription on, the user may say the account is Opus: small non-V5 images count as free.
@@ -739,13 +762,65 @@ export class TTSBackend {
         }
         return list;
     }
+    /** GPT and ComfyUI: GPT costs money on every picture (asked first unless 每张先问 is off); ComfyUI is the user's own. */
+    engineQuote(engine, params) {
+        const draw = this.settings.draw, orientation = orientationOf(Number(params?.width), Number(params?.height));
+        const none = { on: false, model: false, used: [], skipped: [], over: 0, encode: 0, extra: 0 };
+        if (engine === 'gpt') {
+            const size = gptSize(draw.gpt.model, orientation || draw.gpt.orientation), [width, height] = size.split('x').map(Number);
+            return { engine, params: { model: draw.gpt.model, width, height, seed: -1 }, clamped: false, free: draw.gpt.ask ? false : true, paid: true, guard: false, v5: false, usage: null, vibes: none, vibeAnlas: 0 };
+        }
+        const c = draw.comfy, size = comfySize(c, orientation || orientationOf(c.width, c.height));
+        return { engine, params: { model: c.model, ...size, steps: c.steps, scale: c.scale, sampler: c.sampler, seed: Number.isInteger(params?.seed) && params.seed >= 0 ? params.seed : -1 }, clamped: false, free: true, guard: false, v5: false, usage: null, vibes: none, vibeAnlas: 0 };
+    }
+    /** Whether pictures can be drawn with the engine in use; drawMissing() says what is missing. */
+    drawReady() { const engine = this.settings.draw.engine; return engine === 'nai' ? this.novelai.configured : engine === 'gpt' ? !!this.gptKey : !!this.settings.draw.comfy.url; }
+    /** What to ask before a picture that costs money, for the engine in use: {title, text, note}. */
+    paidPrompt() { return this.settings.draw.engine === 'gpt' ? { title: 'GPT 生图要花钱', text: '每张图都按 OpenAI（或中转）的价格收费，确认后再画。', note: 'GPT 生图要花钱，点一下确认后再画' } : { title: '这张图会扣 Anlas', text: '超出了 NovelAI 的免费档，确认后再画。', note: '这张图会扣 Anlas，点一下确认后再画' }; }
+    drawMissing() { const engine = this.settings.draw.engine; return this.drawReady() ? '' : engine === 'gpt' ? '还没有填写 GPT 生图的密钥' : engine === 'comfy' ? '还没有填写 ComfyUI 地址' : '还没有填写 NovelAI 密钥'; }
+    /** ComfyUI: connection check and what it offers (models, samplers, schedulers). url: an address not saved yet. */
+    async comfyCatalog(url) { this.assertOpen(); return comfyCatalog({ fetch: this.imageFetch, headers: this.tavernHeaders(), url: comfyUrl(url ?? this.settings.draw.comfy.url) }); }
+    async comfyWorkflows() { this.assertOpen(); return tavernWorkflows({ fetch: this.imageFetch, headers: this.tavernHeaders() }); }
+    async comfyWorkflow(name) { this.assertOpen(); return tavernWorkflow({ fetch: this.imageFetch, headers: this.tavernHeaders(), name: String(name || '') }); }
+    /** Draws with GPT or ComfyUI. Inputs are the NovelAI-shaped picture (scene prompt, one caption per person). */
+    async drawWithEngine(engine, { prompt, negative, characters, quote, signal }) {
+        const draw = this.settings.draw, p = quote.params;
+        if (engine === 'gpt') {
+            const text = gptPrompt({ prompt, characters });
+            const blob = await gptGenerate({ fetch: this.imageFetch, settings: draw.gpt, key: this.gptKey, prompt: text, size: `${p.width}x${p.height}`, signal });
+            return { blob, seed: -1, params: { model: draw.gpt.model, width: p.width, height: p.height }, prompt: text };
+        }
+        const c = draw.comfy, seed = p.seed >= 0 ? p.seed : Math.floor(Math.random() * 4294967295);
+        const text = comfyPrompt({ prompt, negative, characters });
+        const workflow = fillWorkflow(c.workflow, comfyValues(c, { prompt: text.prompt, negative: text.negative, width: p.width, height: p.height, seed }));
+        const blob = await comfyGenerate({ fetch: this.imageFetch, headers: this.tavernHeaders(), url: c.url, workflow, signal });
+        return { blob, seed, params: { model: c.model || '工作流', width: p.width, height: p.height, steps: c.steps, scale: c.scale, sampler: c.sampler }, prompt: text.prompt };
+    }
     /** Generates one image and keeps it in the album. Requests wait in the NovelAI queue (see draw-queue.js).
      *  key identifies the job in the queue (the same key joins the job already waiting); label is shown in the line. */
     generateImage({ prompt, negative = '', characters = [], params, allowPaid = false, name = '', key, label = '' } = {}) {
         this.assertOpen();
         if (!String(prompt || '').trim()) return Promise.reject(Error('请先写提示词'));
+        const engine = this.settings.draw.engine;
+        if (!this.drawReady()) return Promise.reject(Error(this.drawMissing()));
         const quote = this.drawQuote(params);
-        if (quote.free === false && !allowPaid) return Promise.reject(Error('这张图会扣 Anlas，需要确认后再生成'));
+        if (engine !== 'nai') {
+            if (quote.free === false && !allowPaid) return Promise.reject(Object.assign(Error('GPT 生图每张都要花钱，需要确认后再生成'), { code: 'PAID' }));
+            const job = this.drawQueue.add({ key, label: label || String(prompt).slice(0, 40), task: async signal => {
+                this.assertOpen();
+                this.emit('draw', { phase: 'generating' });
+                const made = await this.drawWithEngine(engine, { prompt, negative, characters, quote, signal });
+                this.assertOpen();
+                const ext = made.blob.type === 'image/jpeg' ? 'jpg' : made.blob.type === 'image/webp' ? 'webp' : 'png';
+                const photo = await this.library.addPhoto({ name: (name || DRAW_ENGINE_NAMES[engine]) + '-' + (made.seed >= 0 ? made.seed : Date.now()) + '.' + ext, blob: made.blob });
+                this.emit('library', { collection: 'photos' });
+                this.emit('draw', { phase: 'done' });
+                return { photoId: photo.id, seed: made.seed, params: made.params, prompt: made.prompt, engine, blob: made.blob };
+            } });
+            job.catch(error => { this.emit('draw', { phase: error.cancelled ? 'cancelled' : 'error', message: error.message }); });
+            return job;
+        }
+        if (quote.free === false && !allowPaid) return Promise.reject(Object.assign(Error('这张图会扣 Anlas，需要确认后再生成'), { code: 'PAID' }));
         const request = buildImageRequest({ prompt, negative, characters, params: quote.params });
         const job = this.drawQueue.add({ key, label: label || String(prompt).slice(0, 40), task: async signal => {
             this.assertOpen();
@@ -759,7 +834,7 @@ export class TTSBackend {
             this.emit('draw', { phase: 'done' });
             // Paid images change the Anlas balance and V5 images use up the allowance: read the subscription again next time.
             if (this.subscription && (quote.free === false || isV5(request.params.model))) this.subscription.checkedAt = 0;
-            return { photoId: photo.id, seed: request.seed, params: request.params, prompt: request.body.input, blob };
+            return { photoId: photo.id, seed: request.seed, params: request.params, prompt: request.body.input, engine: 'nai', blob };
         } });
         job.catch(error => { this.emit('draw', { phase: error.cancelled ? 'cancelled' : 'error', message: error.message }); });
         return job;
@@ -1097,6 +1172,7 @@ export class TTSBackend {
             previewPrompt: preset => this.previewPrompt(preset), promptPlan: () => clone(promptPlan(this.settings, modelRules(this.settings))), parse: text => this.parse(text),
             voiceBalance: (engine, refresh) => this.voiceBalance(engine, refresh), keyStatus: engine => this.keyStatus(engine), keyHint: engine => this.keyHint(engine), keyPool: engine => this.keyPool(engine), keyList: engine => this.keyList(engine), addKeys: (engine, value) => this.addKeys(engine, value), removeKey: (engine, index) => this.removeKey(engine, index), useKey: (engine, index) => this.useKey(engine, index), setKey: (engine, key) => this.setKey(engine, key), clearKey: engine => this.clearKey(engine),
             saveDraw: patch => this.saveDraw(patch), saveStyle: style => this.saveStyle(style), deleteStyle: id => this.deleteStyle(id),
+            drawReady: () => this.drawReady(), drawMissing: () => this.drawMissing(), paidPrompt: () => this.paidPrompt(), comfyCatalog: url => this.comfyCatalog(url), comfyWorkflows: () => this.comfyWorkflows(), comfyWorkflow: name => this.comfyWorkflow(name),
             saveDrawPreset: preset => this.saveDrawPreset(preset), deleteDrawPreset: id => this.deleteDrawPreset(id), previewDrawPrompt: preset => this.previewDrawPrompt(preset),
             naiSubscription: refresh => this.naiSubscription(refresh), naiProbe: () => this.naiProbe(), fishProbe: () => { this.assertOpen(); keyCheck('fish'); return this.providers.probeFish(clone(this.settings.connections.fish)); },
             listVibes: () => this.listVibes(), importVibes: (files, options) => this.importVibes(files, clone(options || {})), updateVibe: (id, patch) => this.updateVibe(id, clone(patch || {})), deleteVibe: id => this.deleteVibe(id), deleteVibes: ids => this.deleteVibes([...(ids || [])]), exportVibes: target => this.exportVibes(clone(target || {})), vibePlan: model => clone(this.vibePlan(model || this.settings.draw.params.model)), drawQuote: params => this.drawQuote(params),
@@ -1164,7 +1240,7 @@ export class TTSBackend {
             picTagFormat: PIC_TAG_FORMAT, defaultDrawRule: DEFAULT_DRAW_RULE, drawCountMax: DRAW_COUNT_MAX, defaultChatPreset: Object.freeze((({ id, ...rest }) => rest)(defaultChat().presets[0])),
             // The shipped presets of each kind, without ids: for 恢复默认 in the preset app.
             defaultVoicePreset: Object.freeze((({ id, ...rest }) => rest)(freshState().presets[0])), defaultDrawPreset: Object.freeze((({ id, ...rest }) => rest)(defaultDraw().presets[0])),
-            drawCatalog: Object.freeze({ models: NAI_MODELS, modelNames: NAI_MODEL_NAMES, samplers: NAI_SAMPLERS, schedules: NAI_SCHEDULES }),
+            drawCatalog: Object.freeze({ models: NAI_MODELS, modelNames: NAI_MODEL_NAMES, samplers: NAI_SAMPLERS, schedules: NAI_SCHEDULES, engines: DRAW_ENGINES, engineNames: DRAW_ENGINE_NAMES, gptModels: GPT_IMAGE_MODELS, gptQualities: GPT_QUALITIES, comfyWorkflow: DEFAULT_COMFY_WORKFLOW }),
             phoneCatalog: Object.freeze({ apps: PHONE_APPS, wallpapers: PHONE_WALLPAPERS, glyphs: PHONE_GLYPHS, skins: PHONE_SKINS }),
             ...Object.fromEntries(Object.entries(methods).map(([name, fn]) => [name, (...args) => { this.assertOpen(); return fn(...args); }])),
         });
